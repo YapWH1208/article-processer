@@ -17,6 +17,7 @@ router = APIRouter()
 LLM_PROVIDERS = ["openai", "anthropic", "custom"]
 LLM_CUSTOM_PROTOCOLS = ["openai", "anthropic"]
 EMBEDDING_PROVIDERS = ["openai", "custom"]
+PARSER_PRIORITIES = ["docling_first", "pypdf", "ocr"]
 
 OPENAI_MODELS = ["gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "gpt-4-turbo"]
 ANTHROPIC_MODELS = [
@@ -48,6 +49,7 @@ class SettingsResponse(BaseModel):
     # Behaviour
     use_mock_ai: bool
     max_upload_mb: int
+    parser_priority: str
     # Server (read-only)
     host: str
     port: int
@@ -74,6 +76,7 @@ class SettingsUpdate(BaseModel):
     # Behaviour
     use_mock_ai: bool | None = None
     max_upload_mb: int | None = Field(default=None, ge=1, le=500)
+    parser_priority: str | None = None
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -156,6 +159,7 @@ def _build_response(cfg: SettingsClass) -> SettingsResponse:
         openai_embedding_model=cfg.openai_embedding_model,
         use_mock_ai=cfg.use_mock_ai,
         max_upload_mb=cfg.max_upload_mb,
+        parser_priority=cfg.parser_priority,
         host=cfg.host, port=cfg.port,
         env_path=str(DOTENV_PATH),
     )
@@ -229,6 +233,11 @@ def update_settings(update: SettingsUpdate):
     if update.max_upload_mb is not None:
         env_vars["MAX_UPLOAD_MB"] = str(update.max_upload_mb)
 
+    if update.parser_priority is not None:
+        if update.parser_priority not in PARSER_PRIORITIES:
+            raise HTTPException(400, f"Unknown parser priority: {update.parser_priority}")
+        env_vars["PARSER_PRIORITY"] = update.parser_priority
+
     try:
         _write_env_file(env_vars)
     except OSError as e:
@@ -273,9 +282,96 @@ def export_settings():
         openai_embedding_model=cfg.openai_embedding_model,
         use_mock_ai=cfg.use_mock_ai,
         max_upload_mb=cfg.max_upload_mb,
+        parser_priority=cfg.parser_priority,
         host=cfg.host, port=cfg.port,
         env_path=str(DOTENV_PATH),
     )
+
+
+# ── Parser Detection ──────────────────────────────────────────────────────
+
+class ParserInfo(BaseModel):
+    key: str
+    name: str
+    installed: bool
+    version: str | None = None
+    description: str
+    install_cmd: str | None = None
+
+
+@router.get("/parsers", response_model=list[ParserInfo])
+def list_parsers():
+    """Return available PDF parsers with installation status."""
+    parsers: list[ParserInfo] = []
+
+    # Docling
+    try:
+        from docling.document_converter import DocumentConverter
+        import docling
+        docling_ver = getattr(docling, "__version__", None)
+        parsers.append(ParserInfo(
+            key="docling", name="Docling", installed=True, version=docling_ver,
+            description="High-quality layout-aware PDF parsing with table extraction and figure detection.",
+            install_cmd=None,
+        ))
+    except ImportError:
+        parsers.append(ParserInfo(
+            key="docling", name="Docling", installed=False,
+            description="High-quality layout-aware PDF parsing with table extraction and figure detection.",
+            install_cmd="pip install docling",
+        ))
+
+    # pypdf (built-in)
+    try:
+        import pypdf
+        pypdf_ver = getattr(pypdf, "__version__", None)
+    except Exception:
+        pypdf_ver = None
+    parsers.append(ParserInfo(
+        key="pypdf", name="pypdf (built-in)", installed=True, version=pypdf_ver or "bundled",
+        description="Text extraction from PDFs. Always available, no extra install needed.",
+        install_cmd=None,
+    ))
+
+    # Marker
+    try:
+        import marker
+        marker_ver = getattr(marker, "__version__", None)
+        parsers.append(ParserInfo(
+            key="marker", name="Marker", installed=True, version=marker_ver,
+            description="High-accuracy PDF to Markdown conversion with math/formula support.",
+            install_cmd=None,
+        ))
+    except ImportError:
+        parsers.append(ParserInfo(
+            key="marker", name="Marker", installed=False,
+            description="High-accuracy PDF to Markdown conversion with math/formula support.",
+            install_cmd="pip install marker-pdf",
+        ))
+
+    # OCR (Tesseract)
+    ocr_available = False
+    try:
+        import pytesseract
+        from PIL import Image
+        pytesseract.get_tesseract_version()
+        ocr_available = True
+    except Exception:
+        pass
+    parsers.append(ParserInfo(
+        key="ocr", name="OCR (Tesseract)", installed=ocr_available,
+        description="Optical character recognition for scanned/image-based PDFs. Used as fallback by pypdf.",
+        install_cmd="pip install pytesseract Pillow pdf2image\n# Then install tesseract: brew install tesseract (macOS) or apt install tesseract-ocr (Ubuntu)",
+    ))
+
+    # GROBID (placeholder)
+    parsers.append(ParserInfo(
+        key="grobid", name="GROBID", installed=False,
+        description="Extracts structured metadata from academic PDFs. Requires a running GROBID server.",
+        install_cmd="docker run -p 8070:8070 lfoppiano/grobid:latest",
+    ))
+
+    return parsers
 
 
 # ── Test Connection ────────────────────────────────────────────────────────
@@ -423,6 +519,7 @@ async def import_settings(file: UploadFile = File(...)):
             openai_embedding_model=data.get("openai_embedding_model"),
             use_mock_ai=data.get("use_mock_ai"),
             max_upload_mb=data.get("max_upload_mb"),
+            parser_priority=data.get("parser_priority"),
         )
     except Exception as e:
         raise HTTPException(400, f"Invalid settings data: {e}")

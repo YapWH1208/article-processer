@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     # ── Behaviour ─────────────────────────────────────────────────────────
     use_mock_ai: bool = True
 
+    # ── Parsing ──────────────────────────────────────────────────────────
+    # Priority: "docling_first" | "pypdf" | "ocr"
+    parser_priority: str = "docling_first"
+
     # ── Server ────────────────────────────────────────────────────────────
     host: str = "0.0.0.0"
     port: int = 8000
