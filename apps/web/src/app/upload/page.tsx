@@ -2,164 +2,54 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { Upload, FileText, CheckCircle2, AlertCircle, Inbox } from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
+import { Progress } from "@/components/ui/progress";
 import { uploadFile } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 export default function UploadPage() {
   const router = useRouter();
-  const [dragOver, setDragOver] = useState(false);
+  const [dragover, setDragover] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [results, setResults] = useState<
-    { article_id: number; job_id: number; filename: string }[]
-  >([]);
+  const [progress, setProgress] = useState(0);
+  const [results, setResults] = useState<{ filename: string; article_id: number }[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const handleUpload = useCallback(
-    async (file: File) => {
-      setUploading(true);
-      setError(null);
-      try {
-        const result = await uploadFile(file);
-        setResults((prev) => [...prev, result]);
-        // Navigate to article after a brief delay
-        setTimeout(() => {
-          router.push(`/articles/${result.article_id}`);
-        }, 1500);
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : "Upload failed");
-      } finally {
-        setUploading(false);
-      }
-    },
-    [router]
-  );
-
-  const onDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragOver(false);
-      const files = Array.from(e.dataTransfer.files);
-      for (const file of files) {
-        handleUpload(file);
-      }
-    },
-    [handleUpload]
-  );
-
-  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files) {
-      for (const file of Array.from(files)) {
-        handleUpload(file);
-      }
-    }
-  };
-
-  const allowedTypes = ".pdf,.zip,.html,.htm,.md,.markdown,.txt";
-
-  return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">Upload Document</h1>
-
-      <div
-        className={`border-2 border-dashed rounded-xl p-12 text-center transition-colors ${
-          dragOver
-            ? "border-primary-500 bg-primary-50"
-            : "border-gray-300 bg-white hover:border-primary-300"
-        }`}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={onDrop}
-      >
-        <div className="text-4xl mb-4">📎</div>
-        <h3 className="text-lg font-semibold mb-2">
-          Drop files here or click to browse
-        </h3>
-        <p className="text-gray-500 text-sm mb-4">
-          Supports PDF, ZIP, HTML, Markdown, and plain text files
-        </p>
-        <label className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 cursor-pointer">
-          Choose Files
-          <input
-            type="file"
-            className="hidden"
-            accept={allowedTypes}
-            onChange={onFileChange}
-            multiple
-          />
-        </label>
-        <p className="text-xs text-gray-400 mt-2">
-          Maximum file size: 50 MB
-        </p>
-      </div>
-
-      {uploading && (
-        <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-3">
-          <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent" />
-          <span className="text-blue-700">Uploading and processing...</span>
-        </div>
-      )}
-
-      {error && (
-        <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-red-700">{error}</p>
-        </div>
-      )}
-
-      {results.length > 0 && (
-        <div className="mt-6">
-          <h2 className="font-semibold mb-3">Uploaded</h2>
-          <div className="space-y-2">
-            {results.map((r, i) => (
-              <div
-                key={i}
-                className="p-3 bg-green-50 border border-green-200 rounded-lg flex justify-between items-center"
-              >
-                <span className="text-green-800 text-sm">{r.filename}</span>
-                <a
-                  href={`/articles/${r.article_id}`}
-                  className="text-primary-600 text-sm hover:underline"
-                >
-                  View →
-                </a>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="mt-8 p-4 bg-gray-100 rounded-lg">
-        <h3 className="font-medium mb-2">Accepted File Types</h3>
-        <ul className="text-sm text-gray-600 space-y-1">
-          <li>• <strong>PDF</strong> — Research papers, articles, reports</li>
-          <li>• <strong>ZIP</strong> — Archive containing PDFs, HTML, MD, or TXT files</li>
-          <li>• <strong>HTML</strong> — Web pages or exported documents</li>
-          <li>• <strong>Markdown</strong> — .md or .markdown files</li>
-          <li>• <strong>Text</strong> — Plain .txt files</li>
-        </ul>
-      </div>
-
-      {/* BibTeX Import */}
-      <BibtexImportSection />
-    </div>
-  );
-}
-
-function BibtexImportSection() {
-  const router = useRouter();
+  // BibTeX import state
   const [bibtexText, setBibtexText] = useState("");
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{
-    imported: number;
-    skipped: number;
-    total: number;
+    imported: number; skipped: number; total: number;
     articles: { article_id: number; title: string }[];
   } | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+
+  const handleUpload = useCallback(async (files: FileList | File[]) => {
+    setUploading(true);
+    setError(null);
+    setProgress(0);
+    const arr = Array.from(files);
+    const res: { filename: string; article_id: number }[] = [];
+
+    for (let i = 0; i < arr.length; i++) {
+      try {
+        const result = await uploadFile(arr[i]);
+        res.push({ filename: arr[i].name, article_id: result.article_id });
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Upload failed");
+      }
+      setProgress(Math.round(((i + 1) / arr.length) * 100));
+    }
+
+    setResults((prev) => [...prev, ...res]);
+    setUploading(false);
+  }, []);
 
   const handleBibtexImport = async () => {
     if (!bibtexText.trim()) return;
@@ -176,8 +66,7 @@ function BibtexImportSection() {
         const err = await res.json();
         throw new Error(err.detail || "Import failed");
       }
-      const data = await res.json();
-      setImportResult(data);
+      setImportResult(await res.json());
       setBibtexText("");
     } catch (e: unknown) {
       setImportError(e instanceof Error ? e.message : "Import failed");
@@ -187,63 +76,180 @@ function BibtexImportSection() {
   };
 
   return (
-    <div className="mt-8 bg-white rounded-lg border border-gray-200 p-6">
-      <h2 className="text-lg font-semibold mb-2">📚 Import from BibTeX</h2>
-      <p className="text-sm text-gray-500 mb-4">
-        Paste BibTeX entries to import article metadata. Each entry creates an article
-        that can be processed and searched.
-      </p>
-      <textarea
-        value={bibtexText}
-        onChange={(e) => setBibtexText(e.target.value)}
-        placeholder={`@article{example2024,
-  title = {An Example Paper},
-  author = {Alice Researcher and Bob Scientist},
-  year = {2024},
-  journal = {Journal of Examples},
-  doi = {10.1234/example.1},
-  abstract = {This is an example abstract.}
-}`}
-        className="w-full h-40 px-4 py-3 border border-gray-300 rounded-lg font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-      />
-      <div className="mt-3 flex gap-3 items-center">
-        <button
-          onClick={handleBibtexImport}
-          disabled={importing || !bibtexText.trim()}
-          className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 text-sm"
-        >
-          {importing ? "Importing..." : "Import BibTeX"}
-        </button>
-        <span className="text-xs text-gray-400">
-          Or upload a .bib file using the dropzone above
-        </span>
+    <div className="space-y-6 max-w-3xl mx-auto">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Upload</h1>
+        <p className="text-muted-foreground mt-1">
+          Drag and drop documents or paste BibTeX entries.
+        </p>
       </div>
 
-      {importError && (
-        <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
-          {importError}
+      {/* Drop Zone */}
+      <Card
+        className={`border-2 border-dashed transition-colors ${
+          dragover ? "border-primary bg-primary/5" : "border-muted-foreground/25"
+        }`}
+        onDragOver={(e) => { e.preventDefault(); setDragover(true); }}
+        onDragLeave={() => setDragover(false)}
+        onDrop={(e) => { e.preventDefault(); setDragover(false); handleUpload(e.dataTransfer.files); }}
+      >
+        <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+            {uploading ? (
+              <Upload className="h-8 w-8 text-primary animate-bounce" />
+            ) : (
+              <Inbox className="h-8 w-8 text-primary" />
+            )}
+          </div>
+          <CardTitle className="text-lg mb-1">
+            {uploading ? "Uploading..." : "Drop files here"}
+          </CardTitle>
+          <CardDescription>
+            PDF, ZIP, HTML, Markdown, TXT — up to 50 MB
+          </CardDescription>
+          <label className="mt-4 cursor-pointer">
+            <Button variant="outline" size="sm" disabled={uploading} asChild>
+              <span>Browse Files</span>
+            </Button>
+            <input
+              type="file"
+              className="hidden"
+              multiple
+              accept=".pdf,.zip,.html,.htm,.md,.txt,.markdown,.bib,.bibtex"
+              onChange={(e) => e.target.files && handleUpload(e.target.files)}
+            />
+          </label>
+        </CardContent>
+      </Card>
+
+      {/* Upload progress */}
+      {uploading && (
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex items-center gap-3 mb-2">
+              <Upload className="h-4 w-4 text-primary animate-pulse" />
+              <span className="text-sm font-medium">Uploading... {progress}%</span>
+            </div>
+            <Progress value={progress} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/20 text-sm text-destructive">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {error}
         </div>
       )}
 
-      {importResult && (
-        <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded text-sm">
-          <p className="text-green-700 font-medium">
-            Imported {importResult.imported} articles
-            {importResult.skipped > 0 && ` (${importResult.skipped} duplicates skipped)`}
-          </p>
-          <div className="mt-2 space-y-1">
-            {importResult.articles.map((a) => (
-              <a
-                key={a.article_id}
-                href={`/articles/${a.article_id}`}
-                className="block text-primary-600 hover:underline"
-              >
-                → {a.title}
-              </a>
+      {/* Results */}
+      {results.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-green-600" />
+              Uploaded {results.length} file{results.length > 1 ? "s" : ""}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {results.map((r, i) => (
+              <div key={i} className="flex items-center justify-between py-2 px-3 rounded-md bg-accent/50">
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="text-sm truncate">{r.filename}</span>
+                </div>
+                <Button variant="link" size="sm" onClick={() => router.push(`/articles/${r.article_id}`)}>
+                  View →
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      <Separator />
+
+      {/* BibTeX Import */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">📚 Import from BibTeX</CardTitle>
+          <CardDescription>
+            Paste BibTeX entries to import article metadata. Each entry creates a searchable article record.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            value={bibtexText}
+            onChange={(e) => setBibtexText(e.target.value)}
+            placeholder={`@article{example2024,\n  title = {An Example Paper},\n  author = {Alice Researcher and Bob Scientist},\n  year = {2024},\n  journal = {Journal of Examples},\n  doi = {10.1234/example.1},\n}`}
+            className="min-h-[140px] font-mono text-sm"
+          />
+          <div className="flex gap-3 items-center">
+            <Button
+              onClick={handleBibtexImport}
+              disabled={importing || !bibtexText.trim()}
+              size="sm"
+            >
+              {importing ? "Importing..." : "Import BibTeX"}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Or upload a .bib file using the dropzone above
+            </span>
+          </div>
+
+          {importError && (
+            <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20 text-sm text-destructive">
+              {importError}
+            </div>
+          )}
+          {importResult && (
+            <div className="p-3 rounded-md bg-primary/5 border border-primary/20 text-sm">
+              <p className="font-medium text-primary">
+                Imported {importResult.imported} articles
+                {importResult.skipped > 0 && ` (${importResult.skipped} duplicates skipped)`}
+              </p>
+              <div className="mt-2 space-y-1">
+                {importResult.articles.map((a) => (
+                  <Button
+                    key={a.article_id}
+                    variant="link"
+                    size="sm"
+                    className="h-auto p-0 text-primary"
+                    onClick={() => router.push(`/articles/${a.article_id}`)}
+                  >
+                    → {a.title}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Accepted Types */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Accepted File Types</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid sm:grid-cols-2 gap-2 text-sm text-muted-foreground">
+            {[
+              ["PDF", "Research papers, articles, reports"],
+              ["ZIP", "Archive of PDFs, HTML, MD, TXT"],
+              ["HTML", "Web pages or exported documents"],
+              ["Markdown", ".md or .markdown files"],
+              ["Text", "Plain .txt files"],
+              ["BibTeX", ".bib or .bibtex citation files"],
+            ].map(([ext, desc]) => (
+              <div key={ext} className="flex gap-2">
+                <Badge variant="outline" className="shrink-0 font-mono">{ext}</Badge>
+                <span>{desc}</span>
+              </div>
             ))}
           </div>
-        </div>
-      )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

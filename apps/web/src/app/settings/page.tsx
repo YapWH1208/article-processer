@@ -1,10 +1,23 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Save, RotateCcw } from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-
-// ── Types ────────────────────────────────────────────────────────────────
 
 interface Settings {
   ai_provider: string;
@@ -23,60 +36,34 @@ interface Settings {
   env_path: string;
 }
 
-interface ProviderDef {
-  value: string;
-  label: string;
-  description: string;
-}
-
-const PROVIDERS: ProviderDef[] = [
-  {
-    value: "openai",
-    label: "OpenAI",
-    description: "Official OpenAI API — GPT-4.1, GPT-4o, GPT-4 Turbo",
-  },
-  {
-    value: "anthropic",
-    label: "Anthropic",
-    description: "Official Anthropic API — Claude Sonnet, Haiku, Opus",
-  },
-  {
-    value: "custom_openai",
-    label: "Custom (OpenAI protocol)",
-    description:
-      "Any OpenAI-compatible endpoint — Ollama, vLLM, LocalAI, Groq, OpenRouter, LiteLLM proxy",
-  },
-  {
-    value: "custom_anthropic",
-    label: "Custom (Anthropic protocol)",
-    description:
-      "Any Anthropic-compatible endpoint — LiteLLM proxy, OpenRouter",
-  },
+const PROVIDERS = [
+  { value: "openai", label: "OpenAI", desc: "GPT-4.1, GPT-4o, GPT-4 Turbo" },
+  { value: "anthropic", label: "Anthropic", desc: "Claude Sonnet, Haiku, Opus" },
+  { value: "custom_openai", label: "Custom (OpenAI protocol)", desc: "Ollama, vLLM, LocalAI, Groq, LiteLLM" },
+  { value: "custom_anthropic", label: "Custom (Anthropic protocol)", desc: "LiteLLM proxy, OpenRouter" },
 ];
 
 const OPENAI_MODELS = [
-  { value: "gpt-4.1-mini", label: "GPT-4.1 Mini — fast, cheap, good" },
-  { value: "gpt-4.1-nano", label: "GPT-4.1 Nano — fastest, cheapest" },
-  { value: "gpt-4o", label: "GPT-4o — best overall" },
-  { value: "gpt-4o-mini", label: "GPT-4o Mini — balanced" },
-  { value: "gpt-4-turbo", label: "GPT-4 Turbo — legacy, reliable" },
+  { value: "gpt-4.1-mini", label: "GPT-4.1 Mini" },
+  { value: "gpt-4.1-nano", label: "GPT-4.1 Nano" },
+  { value: "gpt-4o", label: "GPT-4o" },
+  { value: "gpt-4o-mini", label: "GPT-4o Mini" },
+  { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
 ];
 
 const ANTHROPIC_MODELS = [
-  { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4 — best balance" },
-  { value: "claude-3-5-sonnet-latest", label: "Claude 3.5 Sonnet — fast" },
-  { value: "claude-3-5-haiku-latest", label: "Claude 3.5 Haiku — fastest" },
-  { value: "claude-3-opus-latest", label: "Claude 3 Opus — most capable" },
-  { value: "claude-opus-4-20250514", label: "Claude Opus 4 — top tier" },
+  { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
+  { value: "claude-3-5-sonnet-latest", label: "Claude 3.5 Sonnet" },
+  { value: "claude-3-5-haiku-latest", label: "Claude 3.5 Haiku" },
+  { value: "claude-3-opus-latest", label: "Claude 3 Opus" },
+  { value: "claude-opus-4-20250514", label: "Claude Opus 4" },
 ];
 
 const EMBEDDING_MODELS = [
-  { value: "text-embedding-3-small", label: "text-embedding-3-small — 1536d, cheap" },
-  { value: "text-embedding-3-large", label: "text-embedding-3-large — 3072d, better" },
-  { value: "text-embedding-ada-002", label: "text-embedding-ada-002 — legacy" },
+  { value: "text-embedding-3-small", label: "3-small (1536d)" },
+  { value: "text-embedding-3-large", label: "3-large (3072d)" },
+  { value: "text-embedding-ada-002", label: "ada-002 (legacy)" },
 ];
-
-// ── Component ────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -85,7 +72,6 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Editable state
   const [provider, setProvider] = useState("openai");
   const [openaiKey, setOpenaiKey] = useState("");
   const [openaiKeyTouched, setOpenaiKeyTouched] = useState(false);
@@ -101,7 +87,6 @@ export default function SettingsPage() {
   const [mockAi, setMockAi] = useState(true);
   const [maxUploadMb, setMaxUploadMb] = useState(50);
 
-  // Derived
   const isCustom = provider === "custom_openai" || provider === "custom_anthropic";
 
   useEffect(() => { loadSettings(); }, []);
@@ -110,22 +95,22 @@ export default function SettingsPage() {
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/settings`);
-      if (!res.ok) throw new Error("Failed to load settings");
-      const data: Settings = await res.json();
-      setSettings(data);
-      setProvider(data.ai_provider);
-      setOpenaiKey(data.openai_api_key);
-      setOpenaiModel(data.openai_model);
-      setOpenaiEmbeddingModel(data.openai_embedding_model);
-      setAnthropicKey(data.anthropic_api_key);
-      setAnthropicModel(data.anthropic_model);
-      setCustomBase(data.custom_api_base);
-      setCustomKey(data.custom_api_key);
-      setCustomModel(data.custom_model);
-      setMockAi(data.use_mock_ai);
-      setMaxUploadMb(data.max_upload_mb);
+      if (!res.ok) throw new Error("Failed to load");
+      const d: Settings = await res.json();
+      setSettings(d);
+      setProvider(d.ai_provider);
+      setOpenaiKey(d.openai_api_key);
+      setOpenaiModel(d.openai_model);
+      setOpenaiEmbeddingModel(d.openai_embedding_model);
+      setAnthropicKey(d.anthropic_api_key);
+      setAnthropicModel(d.anthropic_model);
+      setCustomBase(d.custom_api_base);
+      setCustomKey(d.custom_api_key);
+      setCustomModel(d.custom_model);
+      setMockAi(d.use_mock_ai);
+      setMaxUploadMb(d.max_upload_mb);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load settings");
+      setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
       setLoading(false);
     }
@@ -155,72 +140,47 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to save settings");
-      }
-      const data: Settings = await res.json();
-      setSettings(data);
-      setOpenaiKey(data.openai_api_key);
-      setOpenaiKeyTouched(false);
-      setAnthropicKey(data.anthropic_api_key);
-      setAnthropicKeyTouched(false);
-      setCustomKey(data.custom_api_key);
-      setCustomKeyTouched(false);
-      setSuccess("Settings saved — changes take effect on the next request.");
+      if (!res.ok) throw new Error((await res.json()).detail || "Save failed");
+      const d: Settings = await res.json();
+      setSettings(d);
+      setOpenaiKey(d.openai_api_key); setOpenaiKeyTouched(false);
+      setAnthropicKey(d.anthropic_api_key); setAnthropicKeyTouched(false);
+      setCustomKey(d.custom_api_key); setCustomKeyTouched(false);
+      setSuccess("Saved — changes take effect on the next request.");
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to save settings");
+      setError(e instanceof Error ? e.message : "Save failed");
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="max-w-2xl mx-auto mt-8">
-        <div className="animate-pulse space-y-4">
-          <div className="h-6 bg-gray-200 rounded w-1/3" />
-          <div className="h-60 bg-gray-200 rounded" />
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <div className="max-w-2xl mx-auto space-y-4"><Skeleton className="h-8 w-48"/><Skeleton className="h-80 w-full"/></div>;
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-2">⚙️ Settings</h1>
-      <p className="text-sm text-gray-500 mb-6">
-        Configuration stored in{" "}
-        <code className="bg-gray-100 px-1 rounded text-xs">
-          {settings?.env_path || ".env"}
-        </code>
-        . Changes take effect on the next request.
-      </p>
+    <div className="max-w-2xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
+        <p className="text-muted-foreground mt-1 text-sm">
+          Stored in <code className="bg-muted px-1 rounded text-xs">{settings?.env_path || ".env"}</code>
+        </p>
+      </div>
 
-      {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-          {error}
-        </div>
-      )}
-      {success && (
-        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
-          {success}
-        </div>
-      )}
+      {error && <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20 text-sm text-destructive">{error}</div>}
+      {success && <div className="p-3 rounded-md bg-primary/5 border border-primary/20 text-sm text-primary">{success}</div>}
 
-      <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
-        {/* ── Provider Selector ──────────────────────────────────── */}
-        <div className="p-5">
-          <h2 className="font-semibold mb-3">🤖 AI Provider</h2>
-
-          <div className="space-y-2 mb-4">
+      {/* AI Provider */}
+      <Card>
+        <CardHeader>
+          <CardTitle>AI Provider</CardTitle>
+          <CardDescription>Choose your LLM backend.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-2">
             {PROVIDERS.map((p) => (
               <label
                 key={p.value}
                 className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                  provider === p.value
-                    ? "border-primary-500 bg-primary-50"
-                    : "border-gray-200 hover:border-gray-300"
+                  provider === p.value ? "border-primary bg-primary/5" : "hover:bg-accent"
                 }`}
               >
                 <input
@@ -229,269 +189,173 @@ export default function SettingsPage() {
                   value={p.value}
                   checked={provider === p.value}
                   onChange={(e) => setProvider(e.target.value)}
-                  className="mt-0.5"
+                  className="mt-1"
                 />
                 <div>
-                  <span className="text-sm font-medium text-gray-800">
-                    {p.label}
-                  </span>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {p.description}
-                  </p>
+                  <p className="text-sm font-medium">{p.label}</p>
+                  <p className="text-xs text-muted-foreground">{p.desc}</p>
                 </div>
               </label>
             ))}
           </div>
 
-          {/* ── OpenAI fields ──────────────────────────────────── */}
+          {/* Provider-specific fields */}
           {(provider === "openai" || provider === "custom_openai") && (
-            <div className="ml-1 space-y-3 pl-4 border-l-2 border-primary-200">
+            <div className="pl-4 border-l-2 border-primary/30 space-y-3">
               {provider === "openai" ? (
                 <>
-                  <ApiKeyField
-                    label="OpenAI API Key"
-                    value={openaiKey}
-                    savedMasked={settings?.openai_api_key}
-                    touched={openaiKeyTouched}
-                    onChange={(v) => { setOpenaiKey(v); setOpenaiKeyTouched(true); }}
-                    onFocus={() => { if (!openaiKeyTouched) setOpenaiKey(""); }}
-                    placeholder="sk-..."
-                  />
-                  <SelectField
-                    label="Model"
-                    value={openaiModel}
-                    onChange={setOpenaiModel}
-                    options={OPENAI_MODELS}
-                  />
-                  <SelectField
-                    label="Embedding Model"
-                    value={openaiEmbeddingModel}
-                    onChange={setOpenaiEmbeddingModel}
-                    options={EMBEDDING_MODELS}
-                  />
+                  <div className="space-y-1.5">
+                    <Label>OpenAI API Key</Label>
+                    <Input
+                      type="password"
+                      value={openaiKey}
+                      onChange={(e) => { setOpenaiKey(e.target.value); setOpenaiKeyTouched(true); }}
+                      onFocus={() => { if (!openaiKeyTouched) setOpenaiKey(""); }}
+                      placeholder={!openaiKeyTouched && settings?.openai_api_key ? `Using key: ${settings.openai_api_key}` : "sk-..."}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Model</Label>
+                    <Select value={openaiModel} onValueChange={setOpenaiModel}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {OPENAI_MODELS.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Embedding Model</Label>
+                    <Select value={openaiEmbeddingModel} onValueChange={setOpenaiEmbeddingModel}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {EMBEDDING_MODELS.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </>
               ) : (
                 <>
-                  <TextField
-                    label="API Base URL"
-                    value={customBase}
-                    onChange={setCustomBase}
-                    placeholder="http://localhost:11434/v1"
-                  />
-                  <ApiKeyField
-                    label="API Key"
-                    value={customKey}
-                    savedMasked={settings?.custom_api_key}
-                    touched={customKeyTouched}
-                    onChange={(v) => { setCustomKey(v); setCustomKeyTouched(true); }}
-                    onFocus={() => { if (!customKeyTouched) setCustomKey(""); }}
-                    placeholder="ollama or your-api-key"
-                  />
-                  <TextField
-                    label="Model Name"
-                    value={customModel}
-                    onChange={setCustomModel}
-                    placeholder="llama3.1:8b"
-                  />
-                  <p className="text-xs text-gray-400">
-                    Embeddings use this same endpoint if it supports
-                    <code className="mx-1 bg-gray-100 px-1 rounded">/v1/embeddings</code>.
-                  </p>
+                  <div className="space-y-1.5">
+                    <Label>API Base URL</Label>
+                    <Input value={customBase} onChange={(e) => setCustomBase(e.target.value)} placeholder="http://localhost:11434/v1" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>API Key</Label>
+                    <Input
+                      type="password"
+                      value={customKey}
+                      onChange={(e) => { setCustomKey(e.target.value); setCustomKeyTouched(true); }}
+                      onFocus={() => { if (!customKeyTouched) setCustomKey(""); }}
+                      placeholder="ollama or your-key"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Model Name</Label>
+                    <Input value={customModel} onChange={(e) => setCustomModel(e.target.value)} placeholder="llama3.1:8b" />
+                  </div>
                 </>
               )}
             </div>
           )}
 
-          {/* ── Anthropic fields ────────────────────────────────── */}
           {(provider === "anthropic" || provider === "custom_anthropic") && (
-            <div className="ml-1 space-y-3 pl-4 border-l-2 border-orange-200">
+            <div className="pl-4 border-l-2 border-orange-400/30 space-y-3">
               {provider === "anthropic" ? (
                 <>
-                  <ApiKeyField
-                    label="Anthropic API Key"
-                    value={anthropicKey}
-                    savedMasked={settings?.anthropic_api_key}
-                    touched={anthropicKeyTouched}
-                    onChange={(v) => { setAnthropicKey(v); setAnthropicKeyTouched(true); }}
-                    onFocus={() => { if (!anthropicKeyTouched) setAnthropicKey(""); }}
-                    placeholder="sk-ant-..."
-                  />
-                  <SelectField
-                    label="Model"
-                    value={anthropicModel}
-                    onChange={setAnthropicModel}
-                    options={ANTHROPIC_MODELS}
-                  />
+                  <div className="space-y-1.5">
+                    <Label>Anthropic API Key</Label>
+                    <Input
+                      type="password"
+                      value={anthropicKey}
+                      onChange={(e) => { setAnthropicKey(e.target.value); setAnthropicKeyTouched(true); }}
+                      onFocus={() => { if (!anthropicKeyTouched) setAnthropicKey(""); }}
+                      placeholder={!anthropicKeyTouched && settings?.anthropic_api_key ? `Using key: ${settings.anthropic_api_key}` : "sk-ant-..."}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Model</Label>
+                    <Select value={anthropicModel} onValueChange={setAnthropicModel}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {ANTHROPIC_MODELS.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </>
               ) : (
                 <>
-                  <TextField
-                    label="API Base URL"
-                    value={customBase}
-                    onChange={setCustomBase}
-                    placeholder="https://your-proxy.example.com"
-                  />
-                  <ApiKeyField
-                    label="API Key"
-                    value={customKey}
-                    savedMasked={settings?.custom_api_key}
-                    touched={customKeyTouched}
-                    onChange={(v) => { setCustomKey(v); setCustomKeyTouched(true); }}
-                    onFocus={() => { if (!customKeyTouched) setCustomKey(""); }}
-                    placeholder="your-api-key"
-                  />
-                  <TextField
-                    label="Model Name"
-                    value={customModel}
-                    onChange={setCustomModel}
-                    placeholder="claude-sonnet-4-20250514"
-                  />
+                  <div className="space-y-1.5">
+                    <Label>API Base URL</Label>
+                    <Input value={customBase} onChange={(e) => setCustomBase(e.target.value)} placeholder="https://your-proxy.example.com" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>API Key</Label>
+                    <Input type="password" value={customKey} onChange={(e) => { setCustomKey(e.target.value); setCustomKeyTouched(true); }} placeholder="your-key" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Model Name</Label>
+                    <Input value={customModel} onChange={(e) => setCustomModel(e.target.value)} placeholder="claude-sonnet-4-20250514" />
+                  </div>
                 </>
               )}
             </div>
           )}
-        </div>
+        </CardContent>
+      </Card>
 
-        {/* ── Behaviour ────────────────────────────────────────── */}
-        <div className="p-5">
-          <h2 className="font-semibold mb-3">⚡ Behaviour</h2>
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={mockAi}
-              onChange={(e) => setMockAi(e.target.checked)}
-              className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
-            />
+      {/* Behaviour */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Behaviour</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
             <div>
-              <span className="text-sm font-medium text-gray-700">
-                Mock AI Mode
-              </span>
-              <p className="text-xs text-gray-400">
-                When enabled, uses regex-based extraction instead of calling
-                any LLM. Works offline — no API key needed. Turn off to use the
-                provider selected above.
-              </p>
+              <p className="text-sm font-medium">Mock AI Mode</p>
+              <p className="text-xs text-muted-foreground">When on, uses regex extraction instead of calling any LLM. Works offline.</p>
             </div>
-          </label>
-        </div>
+            <Switch checked={mockAi} onCheckedChange={setMockAi} />
+          </div>
+        </CardContent>
+      </Card>
 
-        {/* ── Limits ───────────────────────────────────────────── */}
-        <div className="p-5">
-          <h2 className="font-semibold mb-3">📏 Limits</h2>
-          <label className="block">
-            <span className="text-sm font-medium text-gray-700">
-              Max Upload Size (MB)
-            </span>
-            <input
-              type="number"
-              value={maxUploadMb}
-              onChange={(e) => setMaxUploadMb(Number(e.target.value))}
-              min={1} max={500}
-              className="mt-1 w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-            />
-            <span className="text-xs text-gray-400 ml-2">1–500 MB</span>
-          </label>
-        </div>
+      {/* Limits */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Limits</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-1.5">
+            <Label>Max Upload Size (MB)</Label>
+            <Input type="number" value={maxUploadMb} onChange={(e) => setMaxUploadMb(Number(e.target.value))} min={1} max={500} className="w-32" />
+          </div>
+        </CardContent>
+      </Card>
 
-        {/* ── Server Info ──────────────────────────────────────── */}
-        <div className="p-5 bg-gray-50 rounded-b-lg">
-          <h2 className="font-semibold mb-3 text-gray-500">🔒 Server (read-only)</h2>
-          <div className="grid grid-cols-2 gap-2 text-sm text-gray-500">
+      {/* Server */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-muted-foreground">Server</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
             <span>Host</span><code className="text-xs">{settings?.host || "—"}</code>
             <span>Port</span><code className="text-xs">{settings?.port || "—"}</code>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
-      <div className="mt-6 flex gap-3 items-center">
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 font-medium text-sm"
-        >
+      {/* Actions */}
+      <div className="flex gap-3">
+        <Button onClick={handleSave} disabled={saving} className="gap-2">
+          <Save className="h-4 w-4" />
           {saving ? "Saving..." : "Save Settings"}
-        </button>
-        <button
-          onClick={loadSettings}
-          className="px-4 py-2.5 text-sm text-gray-500 hover:text-gray-700 rounded-lg border border-gray-200 hover:border-gray-300"
-        >
+        </Button>
+        <Button variant="outline" onClick={loadSettings} className="gap-2">
+          <RotateCcw className="h-4 w-4" />
           Reset
-        </button>
+        </Button>
       </div>
     </div>
-  );
-}
-
-// ── Reusable field components ─────────────────────────────────────────────
-
-function ApiKeyField({
-  label, value, savedMasked, touched, onChange, onFocus, placeholder,
-}: {
-  label: string;
-  value: string;
-  savedMasked?: string;
-  touched: boolean;
-  onChange: (v: string) => void;
-  onFocus: () => void;
-  placeholder: string;
-}) {
-  return (
-    <label className="block">
-      <span className="text-sm font-medium text-gray-700">{label}</span>
-      <input
-        type="password"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onFocus={onFocus}
-        placeholder={!touched && savedMasked ? `Using saved key: ${savedMasked}` : placeholder}
-        className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500"
-      />
-    </label>
-  );
-}
-
-function SelectField({
-  label, value, onChange, options,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-}) {
-  return (
-    <label className="block">
-      <span className="text-sm font-medium text-gray-700">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function TextField({
-  label, value, onChange, placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder: string;
-}) {
-  return (
-    <label className="block">
-      <span className="text-sm font-medium text-gray-700">{label}</span>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500"
-      />
-    </label>
   );
 }

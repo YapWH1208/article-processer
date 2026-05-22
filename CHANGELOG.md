@@ -4,6 +4,29 @@ All notable changes to the Article Processor project.
 
 ---
 
+## [0.2.3] — 2025-07-22
+
+### Changed
+
+- **Complete frontend redesign with shadcn/ui** — replaced all hand-rolled Tailwind components with polished shadcn/ui (Radix UI + Tailwind) across every page.
+- **Dark mode** — full light/dark theme toggle in navbar, persisted to localStorage, with CSS variable-driven theming.
+- **Navbar** — sticky header with backdrop blur, icon-based navigation, responsive mobile hamburger menu, user dropdown with avatar, dark mode toggle.
+- **Dashboard** — stat cards (Total / Completed / Processing / Failed) with icons, quick-action buttons, recent articles list with status badges, skeleton loading states.
+- **Articles list** — search input with icon, status filter dropdown, card list with hover transitions, empty state with CTA.
+- **Upload page** — drag-and-drop zone with animated icon, progress bar, result cards, BibTeX import section, accepted-types card.
+- **Article detail** — shadcn Tabs (Reader / Summary / Chat / Graph / Metadata), chat with message bubbles and citation sources, extraction summary with authors badges, graph entity/relationship display, export buttons.
+- **Login / Register** — centered card layout with icon, form inputs with labels, error display, footer links.
+- **Settings** — radio-card provider selector, shadcn Select/Input/Switch, consistent card sections.
+
+### Added
+
+- 16 shadcn/ui components: Button, Card, Input, Textarea, Tabs, Badge, Dialog, Select, Switch, Label, Separator, Skeleton, Progress, ScrollArea, Avatar, DropdownMenu
+- `components.json` — shadcn/ui configuration
+- `lib/utils.ts` — `cn()` utility for Tailwind class merging
+- `tailwindcss-animate` + Radix UI primitives
+
+---
+
 ## [0.2.2] — 2025-07-22
 
 ### Added
