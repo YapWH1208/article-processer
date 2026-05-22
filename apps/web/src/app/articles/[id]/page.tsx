@@ -40,7 +40,7 @@ interface SkillDef {
 
 interface ChatMessage { role: string; content: string; citations_json?: string; }
 interface Citation { chunk_id: number; section_title: string; snippet: string; page_start?: number; }
-interface JobInfo { id: number; status: string; current_step: string | null; logs: { step: string; timestamp: string; message: string }[] | null; error: string | null; created_at: string; completed_at: string | null; }
+interface JobInfo { id: number; status: string; current_step: string | null; logs: Record<string, unknown>[] | null; error: string | null; created_at: string; completed_at: string | null; }
 
 export default function ArticleDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -450,11 +450,11 @@ export default function ArticleDetailPage() {
                                         {j.error && <p className="text-destructive mt-1">{j.error}</p>}
                                         {j.logs && j.logs.length > 0 && (
                                           <div className="mt-2 space-y-0.5">
-                                            {j.logs.slice(-5).map((l, i) => (
+                                            {j.logs.slice(-5).map((l: any, i: number) => (
                                               <div key={i} className="flex gap-2 text-[10px] text-muted-foreground">
-                                                <span className="shrink-0">{new Date(l.timestamp).toLocaleTimeString()}</span>
-                                                <span className="capitalize">{l.step.replace(/_/g, " ")}</span>
-                                                <span>— {l.message}</span>
+                                                <span className="shrink-0">{new Date(l.timestamp as string).toLocaleTimeString()}</span>
+                                                <span className="capitalize">{(l.step as string || "").replace(/_/g, " ")}</span>
+                                                <span>— {l.message as string}</span>
                                               </div>
                                             ))}
                                           </div>
