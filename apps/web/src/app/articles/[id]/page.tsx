@@ -2,11 +2,15 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   FileText, MessageCircle, BarChart3, Info, ScrollText, Loader2, Send,
   RotateCw, Download, AlertCircle, Trash2, Archive, ArchiveRestore, Plus,
-  PanelRightClose, PanelRightOpen, X,
+  PanelRightClose, PanelRightOpen, X, Wand2, ArrowLeft, ChevronRight,
+  Calendar,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,7 +22,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { sendChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle } from "@/lib/api";
+import { sendChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs } from "@/lib/api";
 import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
 
@@ -27,10 +31,17 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
 interface Article {
   id: number; title: string; status: string; original_filename: string;
   source_type: string; created_at: string; updated_at: string; is_archived: number;
+  processing_error?: string | null;
+}
+
+interface SkillDef {
+  name: string; purpose: string; description: string;
+  input_schema: Record<string, unknown>; output_schema: Record<string, unknown>;
 }
 
 interface ChatMessage { role: string; content: string; citations_json?: string; }
 interface Citation { chunk_id: number; section_title: string; snippet: string; page_start?: number; }
+interface JobInfo { id: number; status: string; current_step: string | null; logs: Record<string, unknown>[] | null; error: string | null; created_at: string; completed_at: string | null; }
 
 export default function ArticleDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -58,19 +69,40 @@ export default function ArticleDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [archiving, setArchiving] = useState(false);
 
+  // Skills
+  const [skills, setSkills] = useState<SkillDef[]>([]);
+  const [runningSkill, setRunningSkill] = useState<string | null>(null);
+  const [skillResult, setSkillResult] = useState<{ skill: string; result: unknown } | null>(null);
+
+  // Jobs
+  const [jobs, setJobs] = useState<JobInfo[]>([]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [art, mdResp, extResp, gr] = await Promise.all([
+      const [art, mdResp, extResp, gr, histResp] = await Promise.all([
         getArticle(articleId),
         getArticleMarkdown(articleId).catch(() => ({ markdown: "" })),
         getArticleExtraction(articleId).catch(() => null),
         getArticleGraph(articleId).catch(() => null),
+        getChatHistory(articleId).catch(() => null),
       ]);
       setArticle(art as Article);
       setMarkdown(mdResp.markdown || "");
       setExtraction(extResp?.extraction || null);
       setGraph(gr);
+      // Hydrate chat history from server
+      if (histResp?.messages?.length) {
+        setMessages(histResp.messages.map((m: { role: string; content: string; citations: unknown[] | null }) => ({
+          role: m.role,
+          content: m.content,
+          citations_json: m.citations ? JSON.stringify(m.citations) : undefined,
+        })));
+      }
+      // Load available skills
+      listSkills().then((s) => setSkills(s.skills || [])).catch(() => {});
+      // Load job history
+      getArticleJobs(articleId).then((j) => setJobs(Array.isArray(j) ? j : [])).catch(() => {});
     } catch { /* handled */ }
     finally { setLoading(false); }
   }, [articleId]);
@@ -175,8 +207,30 @@ export default function ArticleDetailPage() {
 
   return (
     <div className="space-y-3">
-      {/* Header */}
+      {/* Breadcrumb */}
       <FadeIn>
+        <div className="flex items-center gap-1 text-sm text-muted-foreground mb-1">
+          <Link href="/articles" className="hover:text-foreground transition-colors flex items-center gap-1">
+            <ArrowLeft className="h-3.5 w-3.5"/> Articles
+          </Link>
+          <ChevronRight className="h-3.5 w-3.5"/>
+          <span className="text-foreground truncate max-w-[300px]">{article.title}</span>
+        </div>
+      </FadeIn>
+
+      {/* Header */}
+      <FadeIn delay={0.05}>
+        {/* Processing error */}
+        {article.status === "failed" && article.processing_error && (
+          <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
+            className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/20 text-sm text-destructive mb-3">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5"/>
+            <div>
+              <p className="font-medium">Processing failed</p>
+              <p className="text-xs opacity-80 mt-0.5">{article.processing_error}</p>
+            </div>
+          </motion.div>
+        )}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <h1 className="text-2xl font-bold tracking-tight truncate">{article.title}</h1>
@@ -232,6 +286,7 @@ export default function ArticleDetailPage() {
                 <TabsTrigger value="reader" className="gap-1.5"><ScrollText className="h-4 w-4"/>Reader</TabsTrigger>
                 <TabsTrigger value="summary" className="gap-1.5"><FileText className="h-4 w-4"/>Summary</TabsTrigger>
                 <TabsTrigger value="graph" className="gap-1.5"><BarChart3 className="h-4 w-4"/>Graph</TabsTrigger>
+                <TabsTrigger value="skills" className="gap-1.5"><Wand2 className="h-4 w-4"/>Skills</TabsTrigger>
                 <TabsTrigger value="metadata" className="gap-1.5"><Info className="h-4 w-4"/>Metadata</TabsTrigger>
               </TabsList>
               <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setChatOpen(true)}>
@@ -248,9 +303,7 @@ export default function ArticleDetailPage() {
                       <CardContent className="flex-1 min-h-0 p-4">
                         {markdown ? (
                           <ScrollArea className="h-full">
-                            <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap font-mono text-sm">
-                              <MarkdownContent text={markdown} onSelect={addToChat} />
-                            </div>
+                            <MarkdownReader text={markdown} onSelect={addToChat} />
                           </ScrollArea>
                         ) : (
                           <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
@@ -291,21 +344,73 @@ export default function ArticleDetailPage() {
                 <motion.div key="graph" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 min-h-0">
                   <TabsContent value="graph" forceMount className="h-full m-0">
                     <Card className="h-full flex flex-col">
-                      <CardHeader className="shrink-0"><CardTitle className="text-lg">Knowledge Graph</CardTitle></CardHeader>
+                      <CardHeader className="shrink-0"><CardTitle className="text-lg">Knowledge Graph</CardTitle><CardDescription>{graph ? `${(graph.entities as any[]).length} entities · ${(graph.relationships as any[]).length} relationships` : ""}</CardDescription></CardHeader>
                       <CardContent className="flex-1 min-h-0 p-4">
                         {graph ? (
                           <ScrollArea className="h-full">
-                            <div className="space-y-4">
-                              <div><h4 className="font-semibold mb-2">Entities ({graph.entities.length})</h4>
-                                <div className="flex flex-wrap gap-2">{graph.entities.map((e:any,i:number)=><Badge key={i} variant="outline" className="text-xs">{e.type}: {e.name}</Badge>)}</div>
-                              </div>
-                              <Separator/>
-                              <div><h4 className="font-semibold mb-2">Relationships ({graph.relationships.length})</h4>
-                                <div className="space-y-1 text-sm text-muted-foreground">{graph.relationships.map((r:any,i:number)=><div key={i} className="flex gap-1"><span className="font-medium">{r.source_name||r.source}</span><span className="text-primary">—[{r.type}]→</span><span className="font-medium">{r.target_name||r.target}</span></div>)}</div>
-                              </div>
+                            <div className="space-y-5">
+                              {/* Entities grouped by type */}
+                              <GraphEntities entities={graph.entities as any[]} />
+                              <Separator />
+                              {/* Relationships as cards */}
+                              <GraphRelationships relationships={graph.relationships as any[]} />
                             </div>
                           </ScrollArea>
                         ) : <div className="flex flex-col items-center py-12 text-muted-foreground"><BarChart3 className="h-10 w-10 opacity-30"/><p>No graph data.</p></div>}
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+                </motion.div>
+              )}
+
+              {/* Skills */}
+              {tab === "skills" && (
+                <motion.div key="skills" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 min-h-0">
+                  <TabsContent value="skills" forceMount className="h-full m-0">
+                    <Card className="h-full flex flex-col">
+                      <CardHeader className="shrink-0">
+                        <CardTitle className="text-lg">AI Skills</CardTitle>
+                        <CardDescription>Run focused analysis on this article.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="flex-1 min-h-0 p-4">
+                        <ScrollArea className="h-full">
+                          <div className="space-y-3">
+                            {skills.length === 0 && (
+                              <p className="text-sm text-muted-foreground py-8 text-center">Loading skills...</p>
+                            )}
+                            {skills.map((s) => (
+                              <Card key={s.name} className="p-4">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex-1 min-w-0">
+                                    <h4 className="font-semibold text-sm capitalize">{s.purpose}</h4>
+                                    <p className="text-xs text-muted-foreground mt-1">{s.description}</p>
+                                  </div>
+                                  <Button size="sm" variant="outline" className="gap-1 shrink-0"
+                                    disabled={runningSkill === s.name}
+                                    onClick={async () => {
+                                      setRunningSkill(s.name); setSkillResult(null);
+                                      try {
+                                        const res = await runSkill(s.name, articleId);
+                                        setSkillResult(res as { skill: string; result: unknown });
+                                        toast.success(`"${s.purpose}" completed`);
+                                      } catch (e: unknown) {
+                                        toast.error(e instanceof Error ? e.message : "Skill failed");
+                                      } finally { setRunningSkill(null); }
+                                    }}>
+                                    {runningSkill === s.name ? <><Loader2 className="h-3.5 w-3.5 animate-spin"/> Running</> : <><Wand2 className="h-3.5 w-3.5"/> Run</>}
+                                  </Button>
+                                </div>
+                                {/* Show result inline */}
+                                {skillResult && skillResult.skill === s.name && (
+                                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
+                                    className="mt-3 p-3 rounded-md bg-primary/5 border border-primary/20 text-xs max-h-80 overflow-y-auto">
+                                    <SkillResultView result={skillResult.result} />
+                                  </motion.div>
+                                )}
+                              </Card>
+                            ))}
+                          </div>
+                        </ScrollArea>
                       </CardContent>
                     </Card>
                   </TabsContent>
@@ -319,9 +424,59 @@ export default function ArticleDetailPage() {
                     <Card className="h-full flex flex-col">
                       <CardHeader className="shrink-0"><CardTitle className="text-lg">Metadata</CardTitle></CardHeader>
                       <CardContent className="flex-1 min-h-0 p-4">
-                        <div className="space-y-2 text-sm">
-                          {[["ID",article.id],["Filename",article.original_filename],["Source",article.source_type.toUpperCase()],["Status",article.status],["Archived",article.is_archived?"Yes":"No"],["Created",new Date(article.created_at).toLocaleString()],["Updated",new Date(article.updated_at).toLocaleString()]].map(([l,v])=><div key={l as string} className="flex justify-between py-1.5 border-b border-border/50"><span className="text-muted-foreground">{l}</span><span className="font-medium text-right max-w-[60%] truncate">{v}</span></div>)}
-                        </div>
+                        <ScrollArea className="h-full">
+                          <div className="space-y-4">
+                            <div className="space-y-2 text-sm">
+                              {[
+                                ["ID", String(article.id), <Info key="id" className="h-3.5 w-3.5 opacity-60" />],
+                                ["Filename", article.original_filename, <FileText key="fn" className="h-3.5 w-3.5 opacity-60" />],
+                                ["Source", article.source_type.toUpperCase(), <ScrollText key="src" className="h-3.5 w-3.5 opacity-60" />],
+                                ["Status", article.status, <BarChart3 key="st" className="h-3.5 w-3.5 opacity-60" />],
+                                ["Archived", article.is_archived ? "Yes" : "No", <Archive key="ar" className="h-3.5 w-3.5 opacity-60" />],
+                                ["Created", new Date(article.created_at).toLocaleString(), <Calendar key="cr" className="h-3.5 w-3.5 opacity-60" />],
+                                ["Updated", new Date(article.updated_at).toLocaleString(), <Calendar key="up" className="h-3.5 w-3.5 opacity-60" />],
+                              ].map(([label, value, icon]) => (
+                                <div key={label as string} className="flex items-center justify-between py-1.5 border-b border-border/50">
+                                  <span className="text-muted-foreground flex items-center gap-2">{icon}{label as string}</span>
+                                  <span className="font-medium text-right max-w-[60%] truncate">{value as string}</span>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Processing Jobs */}
+                            {jobs.length > 0 && (
+                              <>
+                                <Separator />
+                                <div>
+                                  <h4 className="font-semibold text-sm mb-2">Processing Jobs ({jobs.length})</h4>
+                                  <div className="space-y-2">
+                                    {jobs.map((j) => (
+                                      <div key={j.id} className="p-3 rounded-md bg-muted/50 text-xs">
+                                        <div className="flex items-center justify-between mb-1">
+                                          <Badge variant={j.status === "completed" ? "default" : j.status === "failed" ? "destructive" : "secondary"} className="text-[10px]">{j.status}</Badge>
+                                          <span className="text-muted-foreground">{new Date(j.created_at).toLocaleString()}</span>
+                                        </div>
+                                        {j.current_step && <p className="text-muted-foreground">Step: {j.current_step}</p>}
+                                        {j.error && <p className="text-destructive mt-1">{j.error}</p>}
+                                        {j.logs && j.logs.length > 0 && (
+                                          <div className="mt-2 space-y-0.5">
+                                            {j.logs.slice(-5).map((l: any, i: number) => (
+                                              <div key={i} className="flex gap-2 text-[10px] text-muted-foreground">
+                                                <span className="shrink-0">{new Date(l.timestamp as string).toLocaleTimeString()}</span>
+                                                <span className="capitalize">{(l.step as string || "").replace(/_/g, " ")}</span>
+                                                <span>— {l.message as string}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </ScrollArea>
                       </CardContent>
                     </Card>
                   </TabsContent>
@@ -424,8 +579,8 @@ export default function ArticleDetailPage() {
 
 // ── Sub-components ────────────────────────────────────────────────────────
 
-/** Renders markdown with clickable sections for "Add to Chat" */
-function MarkdownContent({ text, onSelect }: { text: string; onSelect: (t: string, src: string) => void }) {
+/** Renders Markdown via react-markdown with text-selection "Add to Chat" support. */
+function MarkdownReader({ text, onSelect }: { text: string; onSelect: (t: string, src: string) => void }) {
   const [selected, setSelected] = useState("");
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -447,7 +602,12 @@ function MarkdownContent({ text, onSelect }: { text: string; onSelect: (t: strin
 
   return (
     <div onMouseUp={handleMouseUp} className="relative">
-      {text}
+      <div className="prose prose-sm dark:prose-invert max-w-none font-serif
+        prose-headings:scroll-mt-20 prose-headings:font-sans prose-a:text-primary prose-code:bg-muted prose-code:px-1 prose-code:rounded prose-code:font-mono prose-pre:bg-muted prose-img:rounded-lg">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {text}
+        </ReactMarkdown>
+      </div>
       <AnimatePresence>
         {selected && pos && (
           <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }}
@@ -499,6 +659,108 @@ function SectionWithAsk({ title, text, onAsk, onAdd }: { title: string; text: st
         <button onClick={() => onAsk(`Tell me about the ${title.toLowerCase()} of this paper`)} className="text-primary hover:underline text-xs font-normal"><MessageCircle className="h-3 w-3 inline mr-0.5"/>Ask</button>
       </h4>
       <p className="text-muted-foreground">{text}</p>
+    </div>
+  );
+}
+
+// ── Graph sub-components ──────────────────────────────────────────────────
+
+const ENTITY_COLORS: Record<string, string> = {
+  Author: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+  Method: "bg-purple-500/10 text-purple-600 border-purple-500/20",
+  Dataset: "bg-green-500/10 text-green-600 border-green-500/20",
+  Metric: "bg-amber-500/10 text-amber-600 border-amber-500/20",
+  Model: "bg-rose-500/10 text-rose-600 border-rose-500/20",
+  Tool: "bg-cyan-500/10 text-cyan-600 border-cyan-500/20",
+  Concept: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20",
+  Paper: "bg-teal-500/10 text-teal-600 border-teal-500/20",
+};
+
+function entityColor(type: string): string {
+  return ENTITY_COLORS[type] || "bg-muted text-muted-foreground border-border";
+}
+
+function GraphEntities({ entities }: { entities: any[] }) {
+  const grouped = entities.reduce<Record<string, any[]>>((acc, e) => {
+    (acc[e.type || "Other"] ??= []).push(e);
+    return acc;
+  }, {});
+
+  return (
+    <div>
+      <h4 className="font-semibold text-sm mb-3">Entities ({entities.length})</h4>
+      <div className="space-y-3">
+        {Object.entries(grouped).map(([type, items]) => (
+          <div key={type}>
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className={`text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded border ${entityColor(type)}`}>{type}</span>
+              <span className="text-xs text-muted-foreground">{items.length}</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {items.map((e: any, i: number) => (
+                <Badge key={i} variant="outline" className={`text-xs ${entityColor(type)}`}>
+                  {e.name}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const REL_COLORS: Record<string, string> = {
+  USES_METHOD: "border-l-purple-500",
+  CITES: "border-l-blue-500",
+  PRODUCES: "border-l-green-500",
+  EVALUATED_BY: "border-l-amber-500",
+  RELATED_TO: "border-l-rose-500",
+  AUTHORS: "border-l-cyan-500",
+  USES_DATASET: "border-l-teal-500",
+};
+
+function SkillResultView({ result }: { result: unknown }) {
+  if (!result || typeof result !== "object") {
+    return <p className="text-muted-foreground">{String(result)}</p>;
+  }
+  const obj = result as Record<string, unknown>;
+  return (
+    <div className="space-y-2">
+      {Object.entries(obj).map(([key, value]) => (
+        <div key={key} className="flex items-start gap-2">
+          <span className="font-semibold capitalize shrink-0 text-muted-foreground min-w-[140px]">{key.replace(/_/g, " ")}</span>
+          <span className="text-foreground">
+            {Array.isArray(value)
+              ? value.map((v, i) => <Badge key={i} variant="secondary" className="mr-1 mb-1 text-[10px]">{typeof v === "object" ? JSON.stringify(v) : String(v)}</Badge>)
+              : typeof value === "object" && value !== null
+                ? <code className="text-[10px] bg-muted px-1 rounded">{JSON.stringify(value)}</code>
+                : String(value ?? "—")}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function GraphRelationships({ relationships }: { relationships: any[] }) {
+  return (
+    <div>
+      <h4 className="font-semibold text-sm mb-3">Relationships ({relationships.length})</h4>
+      <div className="space-y-2">
+        {relationships.map((r: any, i: number) => (
+          <div key={i}
+            className={`flex items-center gap-2 p-2.5 rounded-md border border-l-[3px] bg-muted/30 text-sm ${REL_COLORS[r.type] || "border-l-muted-foreground"}`}>
+            <span className="font-medium truncate max-w-[120px]">{r.source_name || r.source}</span>
+            <span className="shrink-0 flex items-center gap-1 text-muted-foreground">
+              <span className="w-4 border-t border-muted-foreground/50" />
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{r.type?.replace(/_/g, " ")}</Badge>
+              <ChevronRight className="h-3 w-3" />
+            </span>
+            <span className="font-medium truncate max-w-[120px]">{r.target_name || r.target}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

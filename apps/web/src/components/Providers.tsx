@@ -24,11 +24,21 @@ function ThemeToggle() {
   const [dark, setDark] = useState(false);
 
   useEffect(() => {
-    const stored = localStorage.getItem("theme");
-    if (stored === "dark" || (!stored && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
-      document.documentElement.classList.add("dark");
-      setDark(true);
-    }
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      const stored = localStorage.getItem("theme");
+      if (stored === "dark" || (!stored && mq.matches)) {
+        document.documentElement.classList.add("dark");
+        setDark(true);
+      } else {
+        document.documentElement.classList.remove("dark");
+        setDark(false);
+      }
+    };
+    apply();
+    const onChange = () => { if (!localStorage.getItem("theme")) apply(); };
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
   }, []);
 
   const toggle = () => {
@@ -63,18 +73,22 @@ const links = [
 
 function NavLinks({ mobile, onClick }: { mobile?: boolean; onClick?: () => void }) {
   const pathname = usePathname();
+  const isActive = (href: string) => {
+    if (href === "/") return pathname === "/";
+    return pathname.startsWith(href);
+  };
   return (
     <>
       {links.map(({ href, label, icon: Icon }) => (
         <Link key={href} href={href} onClick={onClick}>
           <Button
-            variant={pathname === href ? "secondary" : "ghost"}
+            variant={isActive(href) ? "secondary" : "ghost"}
             size={mobile ? "default" : "sm"}
             className={cn("gap-2 relative", mobile && "w-full justify-start")}
           >
             <Icon className="h-4 w-4" />
             {label}
-            {pathname === href && (
+            {isActive(href) && (
               <motion.div
                 layoutId="nav-active"
                 className="absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 w-6 bg-primary rounded-full"

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
-import { Save, RotateCcw, Brain, Cpu, Settings2, Server, Download, Upload } from "lucide-react";
+import { Save, RotateCcw, Brain, Cpu, Settings2, Server, Download, Upload, Wifi, Loader2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -106,6 +106,8 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ all_ok: boolean; results: Record<string, { ok: boolean; message: string }> } | null>(null);
   const [tab, setTab] = useState("llm");
 
   // LLM state
@@ -421,7 +423,7 @@ export default function SettingsPage() {
       </Tabs>
 
       {/* Actions */}
-      <div className="flex gap-3 flex-wrap">
+      <div className="flex gap-3 flex-wrap items-center">
         <Button onClick={handleSave} disabled={saving} className="gap-2"><Save className="h-4 w-4"/>{saving?"Saving...":"Save Settings"}</Button>
         <Button variant="outline" onClick={loadSettings} className="gap-2"><RotateCcw className="h-4 w-4"/>Reset</Button>
         <Button variant="outline" onClick={handleExport} className="gap-2"><Download className="h-4 w-4"/>Export</Button>
@@ -429,7 +431,63 @@ export default function SettingsPage() {
           <Button variant="outline" className="gap-2 cursor-pointer" asChild><span><Upload className="h-4 w-4"/>Import</span></Button>
           <input type="file" accept=".json" className="hidden" onChange={handleImport}/>
         </label>
+        <div className="w-full border-t my-1" />
+        <Button
+          variant="secondary"
+          onClick={async () => {
+            setTesting(true); setTestResult(null);
+            try {
+              const body: Record<string, unknown> = {
+                llm_provider: llmProvider, llm_custom_protocol: llmCustomProtocol,
+                llm_custom_base_url: llmCustomBaseUrl, llm_custom_model: llmCustomModel,
+                openai_model: openaiModel, anthropic_model: anthropicModel,
+                embedding_provider: embeddingProvider,
+                embedding_custom_base_url: embeddingCustomBaseUrl, embedding_custom_model: embeddingCustomModel,
+                openai_embedding_model: openaiEmbeddingModel,
+                use_mock_ai: mockAi,
+              };
+              if (llmCustomKeyTouched) body.llm_custom_api_key = llmCustomKey;
+              if (openaiKeyTouched) body.openai_api_key = openaiKey;
+              if (anthropicKeyTouched) body.anthropic_api_key = anthropicKey;
+              if (embeddingCustomKeyTouched) body.embedding_custom_api_key = embeddingCustomKey;
+              const res = await fetch(`${API_BASE}/settings/test`, {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+              });
+              const data = await res.json();
+              setTestResult(data);
+              if (data.all_ok) toast.success("All connections OK");
+              else toast.error("Some connections failed — see details below");
+            } catch (e: unknown) {
+              toast.error(e instanceof Error ? e.message : "Test failed");
+            } finally { setTesting(false); }
+          }}
+          disabled={testing}
+          className="gap-2">
+          {testing ? <Loader2 className="h-4 w-4 animate-spin"/> : <Wifi className="h-4 w-4"/>}
+          {testing ? "Testing..." : "Test Connection"}
+        </Button>
       </div>
+
+      {/* Test result */}
+      <AnimatePresence>
+        {testResult && (
+          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className={`p-4 rounded-lg border text-sm ${testResult.all_ok ? "bg-green-500/5 border-green-500/20" : "bg-destructive/5 border-destructive/20"}`}>
+            <p className={`font-semibold mb-2 ${testResult.all_ok ? "text-green-600" : "text-destructive"}`}>
+              {testResult.all_ok ? "✓ All connections successful" : "⚠ Some connections failed"}
+            </p>
+            {Object.entries(testResult.results).map(([name, r]) => (
+              <div key={name} className="flex items-start gap-2 py-1">
+                <span className={r.ok ? "text-green-500" : "text-destructive"}>{r.ok ? "✓" : "✗"}</span>
+                <div>
+                  <span className="font-medium capitalize">{name}</span>
+                  <span className="text-muted-foreground ml-2">{r.message}</span>
+                </div>
+              </div>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

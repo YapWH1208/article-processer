@@ -2,13 +2,16 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Search, Filter, FileText, ArrowRight, Archive } from "lucide-react";
+import { motion } from "framer-motion";
+import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight, ArrowUpDown, CheckSquare, Square, Trash2, ArchiveRestore, X, FileType, Globe, FileCode } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { toast } from "sonner";
 import { StaggerContainer, StaggerItem, HoverCard, FadeIn } from "@/components/ui/animated";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -19,32 +22,100 @@ interface Article {
   is_archived: number;
 }
 
+const PAGE_SIZE = 20;
+
+function getUrlParam(key: string): string {
+  if (typeof window === "undefined") return "";
+  return new URLSearchParams(window.location.search).get(key) || "";
+}
+
 export default function ArticlesPage() {
   const [articles, setArticles] = useState<Article[]>([]);
-  const [filtered, setFiltered] = useState<Article[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [searchContent, setSearchContent] = useState(getUrlParam("q"));
   const [statusFilter, setStatusFilter] = useState("all");
   const [includeArchived, setIncludeArchived] = useState(false);
+  const [page, setPage] = useState(1);
+  const [sortBy, setSortBy] = useState("created_at");
+  const [sortOrder, setSortOrder] = useState("desc");
+
+  // Batch selection
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [batchAction, setBatchAction] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
+  const toggleSelect = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selected.size === articles.length) { setSelected(new Set()); }
+    else { setSelected(new Set(articles.map((a) => a.id))); }
+  };
+
+  const handleBatchArchive = async () => {
+    setBatchAction("archive");
+    let ok = 0;
+    for (const id of selected) {
+      try {
+        const a = articles.find((x) => x.id === id);
+        const url = a?.is_archived ? "unarchive" : "archive";
+        await fetch(`${API_BASE}/articles/${id}/${url}`, { method: "POST" });
+        ok++;
+      } catch { /* skip */ }
+    }
+    toast.success(`${ok} article(s) updated`);
+    setSelected(new Set());
+    setBatchAction(null);
+    // Reload
+    setPage(1);
+  };
+
+  const handleBatchDelete = async () => {
+    setDeleteOpen(false);
+    setBatchAction("delete");
+    let ok = 0;
+    for (const id of selected) {
+      try {
+        await fetch(`${API_BASE}/articles/${id}`, { method: "DELETE" });
+        ok++;
+      } catch { /* skip */ }
+    }
+    toast.success(`${ok} article(s) deleted`);
+    setSelected(new Set());
+    setBatchAction(null);
+    // Reload
+    setPage(1);
+  };
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   useEffect(() => {
+    setLoading(true);
     const params = new URLSearchParams();
     if (includeArchived) params.set("include_archived", "true");
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (search) params.set("search", search);
+    if (searchContent) params.set("search_content", searchContent);
+    params.set("sort_by", sortBy);
+    params.set("sort_order", sortOrder);
+    params.set("skip", String((page - 1) * PAGE_SIZE));
+    params.set("limit", String(PAGE_SIZE));
     fetch(`${API_BASE}/articles?${params.toString()}`)
       .then((r) => r.json())
-      .then((d) => { setArticles(d.articles || []); setFiltered(d.articles || []); })
-      .catch(() => {}).finally(() => setLoading(false));
-  }, [includeArchived]);
+      .then((d) => { setArticles(d.articles || []); setTotal(d.total || 0); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [page, statusFilter, includeArchived, search, searchContent, sortBy, sortOrder]);
 
-  useEffect(() => {
-    let result = articles;
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter((a) => a.title.toLowerCase().includes(q) || a.original_filename.toLowerCase().includes(q));
-    }
-    if (statusFilter !== "all") result = result.filter((a) => a.status === statusFilter);
-    setFiltered(result);
-  }, [search, statusFilter, articles]);
+  // Reset to page 1 when filters change
+  useEffect(() => { setPage(1); }, [search, statusFilter, includeArchived, searchContent, sortBy, sortOrder]);
 
   const statusVariant = (s: string) => {
     if (s === "completed") return "default" as const;
@@ -56,15 +127,28 @@ export default function ArticlesPage() {
     <div className="space-y-6">
       <FadeIn>
         <h1 className="text-3xl font-bold tracking-tight">Articles</h1>
-        <p className="text-muted-foreground mt-1">{filtered.length} of {articles.length} articles</p>
+        <p className="text-muted-foreground mt-1">{total} article{total !== 1 ? "s" : ""}{totalPages > 1 ? ` · page ${page} of ${totalPages}` : ""}</p>
       </FadeIn>
 
       <FadeIn delay={0.1}>
         <div className="flex gap-3 flex-wrap items-center">
           <div className="relative flex-1 min-w-[200px] max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search articles..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+            <Input placeholder="Search titles & filenames..." value={search} onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && setSearchContent(search)}
+              className="pl-9" />
           </div>
+          <Button
+            variant={searchContent ? "secondary" : "outline"}
+            size="sm" className="gap-1.5"
+            onClick={() => {
+              if (searchContent) { setSearchContent(""); setSearch(""); }
+              else setSearchContent(search || "");
+            }}
+            title="Search inside article content">
+            <Search className="h-3.5 w-3.5"/>
+            {searchContent ? "Content search on" : "Search content"}
+          </Button>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-[160px]">
               <Filter className="h-4 w-4 mr-2" />
@@ -89,40 +173,116 @@ export default function ArticlesPage() {
             <Archive className="h-3.5 w-3.5" />
             {includeArchived ? "Hide Archived" : "Show Archived"}
           </Button>
+          <Select value={`${sortBy}:${sortOrder}`} onValueChange={(v) => { const [by, ord] = v.split(":"); setSortBy(by); setSortOrder(ord); }}>
+            <SelectTrigger className="w-[170px]">
+              <ArrowUpDown className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Sort" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="created_at:desc">Newest first</SelectItem>
+              <SelectItem value="created_at:asc">Oldest first</SelectItem>
+              <SelectItem value="title:asc">Title A–Z</SelectItem>
+              <SelectItem value="title:desc">Title Z–A</SelectItem>
+              <SelectItem value="status:asc">Status</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </FadeIn>
+
+      {/* Batch action bar */}
+      {selected.size > 0 && (
+        <FadeIn>
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20 flex-wrap">
+            <span className="text-sm font-medium">{selected.size} selected</span>
+            <Button variant="outline" size="sm" className="gap-1" onClick={handleBatchArchive} disabled={batchAction === "archive"}>
+              <ArchiveRestore className="h-3.5 w-3.5"/> Archive/Restore
+            </Button>
+            <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1 text-destructive hover:bg-destructive/10" disabled={batchAction === "delete"}>
+                  <Trash2 className="h-3.5 w-3.5"/> Delete
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Delete {selected.size} article(s)?</DialogTitle>
+                  <DialogDescription>This permanently deletes all selected articles and their data. This cannot be undone.</DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+                  <Button variant="destructive" onClick={handleBatchDelete}>Delete Permanently</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())} className="ml-auto gap-1">
+              <X className="h-3.5 w-3.5"/> Clear
+            </Button>
+          </div>
+        </FadeIn>
+      )}
+
+      {/* Select all checkbox */}
+      {articles.length > 0 && (
+        <div className="flex items-center gap-2 px-1">
+          <button onClick={toggleSelectAll} className="text-muted-foreground hover:text-foreground transition-colors" title="Select all on page">
+            {selected.size === articles.length ? <CheckSquare className="h-4 w-4 text-primary"/> : <Square className="h-4 w-4"/>}
+          </button>
+          <span className="text-xs text-muted-foreground">
+            {selected.size > 0 ? `${selected.size} selected` : "Select all"}
+          </span>
+        </div>
+      )}
 
       {loading ? (
         <div className="space-y-3">
           {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-20 w-full" />)}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : articles.length === 0 ? (
         <FadeIn delay={0.2}>
-          <Card className="border-dashed">
-            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-              <FileText className="h-10 w-10 text-muted-foreground/40 mb-3" />
-              <p className="text-muted-foreground">
-                {articles.length === 0 ? "No articles yet." : "No matching articles."}
+          <Card className="border-dashed overflow-hidden">
+            <CardContent className="flex flex-col items-center justify-center py-16 text-center relative">
+              <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent opacity-50" />
+              <motion.div
+                animate={{ y: [0, -8, 0], opacity: [0.6, 1, 0.6] }}
+                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                className="relative"
+              >
+                <div className="p-4 rounded-full bg-primary/10 mb-3">
+                  <FileText className="h-10 w-10 text-primary/50" />
+                </div>
+              </motion.div>
+              <p className="text-muted-foreground text-lg font-medium">
+                {total === 0 ? "No articles yet" : "No matching articles"}
+              </p>
+              <p className="text-muted-foreground/60 text-sm mt-1">
+                {total === 0 ? "Upload a paper or import BibTeX to get started." : "Try adjusting your search or filters."}
               </p>
             </CardContent>
           </Card>
         </FadeIn>
       ) : (
         <StaggerContainer className="space-y-2">
-          {filtered.map((a) => (
+          {articles.map((a) => (
             <StaggerItem key={a.id}>
-              <Link href={`/articles/${a.id}`}>
-                <HoverCard>
-                  <Card className={`hover:bg-accent/50 transition-colors cursor-pointer group ${a.is_archived === 1 ? "opacity-60" : ""}`}>
-                    <CardContent className="flex items-center justify-between py-4">
+              <HoverCard>
+                <Card className={`hover:bg-accent/50 transition-colors group ${a.is_archived === 1 ? "opacity-60" : ""} ${selected.has(a.id) ? "ring-2 ring-primary/30 bg-primary/5" : ""}`}>
+                  <CardContent className="flex items-center py-4 gap-3">
+                    {/* Checkbox */}
+                    <button onClick={(e) => { e.preventDefault(); toggleSelect(a.id); }}
+                      className="shrink-0 text-muted-foreground hover:text-foreground transition-colors" title="Select">
+                      {selected.has(a.id) ? <CheckSquare className="h-4 w-4 text-primary"/> : <Square className="h-4 w-4"/>}
+                    </button>
+                    {/* Content */}
+                    <Link href={`/articles/${a.id}`} className="flex-1 min-w-0 flex items-center justify-between cursor-pointer" onClick={(e) => { if (selected.size > 0) e.preventDefault(); }}>
                       <div className="flex-1 min-w-0 mr-4">
                         <p className="font-medium truncate group-hover:text-primary transition-colors">
                           {a.title}
                         </p>
-                        <div className="flex gap-2 text-xs text-muted-foreground mt-1">
-                          <span>{a.original_filename}</span>
+                        <div className="flex gap-2 text-xs text-muted-foreground mt-1 items-center">
+                          <SourceIcon type={a.source_type} />
+                          <span className="uppercase font-medium text-[10px]">{a.source_type}</span>
                           <span>·</span>
-                          <span className="uppercase">{a.source_type}</span>
+                          <span>{a.original_filename}</span>
                           <span>·</span>
                           <span>{new Date(a.created_at).toLocaleDateString()}</span>
                         </div>
@@ -138,14 +298,45 @@ export default function ArticlesPage() {
                           ) : a.status}
                         </Badge>
                       </div>
-                    </CardContent>
-                  </Card>
-                </HoverCard>
-              </Link>
+                    </Link>
+                  </CardContent>
+                </Card>
+              </HoverCard>
             </StaggerItem>
           ))}
         </StaggerContainer>
       )}
+
+      {/* Pagination controls */}
+      {totalPages > 1 && (
+        <FadeIn delay={0.3}>
+          <div className="flex items-center justify-center gap-2 pt-2">
+            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)} className="gap-1">
+              <ChevronLeft className="h-4 w-4"/> Prev
+            </Button>
+            <div className="flex gap-1">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                <Button key={p} variant={p === page ? "default" : "outline"} size="sm"
+                  className="w-9 h-9 p-0" onClick={() => setPage(p)}>
+                  {p}
+                </Button>
+              ))}
+            </div>
+            <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)} className="gap-1">
+              Next <ChevronRight className="h-4 w-4"/>
+            </Button>
+          </div>
+        </FadeIn>
+      )}
     </div>
   );
+}
+
+function SourceIcon({ type }: { type: string }) {
+  const t = type.toLowerCase();
+  const cls = "h-3.5 w-3.5";
+  if (t === "pdf") return <FileType className={cls} />;
+  if (t === "html" || t === "htm") return <Globe className={cls} />;
+  if (t === "md" || t === "markdown") return <FileCode className={cls} />;
+  return <FileText className={cls} />;
 }

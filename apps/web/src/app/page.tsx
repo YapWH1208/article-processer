@@ -2,9 +2,11 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { FileText, Upload, CheckCircle2, AlertCircle, Clock, ArrowRight, Sparkles } from "lucide-react";
+import { FileText, Upload, CheckCircle2, AlertCircle, Clock, ArrowRight, Sparkles, Search } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,9 +21,11 @@ interface Article {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
+  const [globalQuery, setGlobalQuery] = useState("");
 
   useEffect(() => {
     fetch(`${API_BASE}/health`)
@@ -89,6 +93,23 @@ export default function DashboardPage() {
                 </Button>
               </Link>
             </div>
+            <div className="mt-4 max-w-md">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="text"
+                  value={globalQuery}
+                  onChange={(e) => setGlobalQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && globalQuery.trim()) {
+                      router.push(`/articles?q=${encodeURIComponent(globalQuery.trim())}`);
+                    }
+                  }}
+                  placeholder="Search across all article content..."
+                  className="pl-9 h-10"
+                />
+              </div>
+            </div>
           </motion.div>
 
           {/* Background decoration */}
@@ -121,10 +142,10 @@ export default function DashboardPage() {
       {/* ── Stat Cards ────────────────────────────────────────── */}
       <StaggerContainer className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { label: "Total Articles", value: stats.total, icon: FileText, color: "text-blue-600", bg: "bg-blue-500/10" },
-          { label: "Completed", value: stats.completed, icon: CheckCircle2, color: "text-green-600", bg: "bg-green-500/10" },
-          { label: "Processing", value: stats.processing, icon: Clock, color: "text-amber-600", bg: "bg-amber-500/10" },
-          { label: "Failed", value: stats.failed, icon: AlertCircle, color: "text-red-600", bg: "bg-red-500/10" },
+          { label: "Total Articles", value: stats.total, icon: FileText, color: "text-info", bg: "bg-info/10" },
+          { label: "Completed", value: stats.completed, icon: CheckCircle2, color: "text-success", bg: "bg-success/10" },
+          { label: "Processing", value: stats.processing, icon: Clock, color: "text-warning", bg: "bg-warning/10" },
+          { label: "Failed", value: stats.failed, icon: AlertCircle, color: "text-destructive", bg: "bg-destructive/10" },
         ].map(({ label, value, icon: Icon, color, bg }, i) => (
           <StaggerItem key={label}>
             <HoverCard>
@@ -166,16 +187,21 @@ export default function DashboardPage() {
         </div>
       ) : recent.length === 0 ? (
         <FadeIn delay={0.3}>
-          <Card className="border-dashed">
-            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+          <Card className="border-dashed overflow-hidden">
+            <CardContent className="flex flex-col items-center justify-center py-16 text-center relative">
+              <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent opacity-50" />
               <motion.div
-                animate={{ y: [0, -8, 0] }}
-                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                animate={{ y: [0, -10, 0] }}
+                transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                className="relative"
               >
-                <FileText className="h-12 w-12 text-muted-foreground/30 mb-3" />
+                <div className="p-4 rounded-full bg-primary/10 mb-4">
+                  <FileText className="h-10 w-10 text-primary/60" />
+                </div>
               </motion.div>
-              <p className="text-muted-foreground">No articles yet. Start by uploading one.</p>
-              <Link href="/upload" className="mt-3">
+              <p className="text-muted-foreground text-lg font-medium">No articles yet</p>
+              <p className="text-muted-foreground/60 text-sm mt-1">Upload your first paper to get started.</p>
+              <Link href="/upload" className="mt-4">
                 <Button variant="outline" size="sm" className="gap-1">
                   Upload your first article <ArrowRight className="h-3.5 w-3.5" />
                 </Button>

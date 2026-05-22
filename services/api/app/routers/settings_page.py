@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from app.core.config import reload_settings, DOTENV_PATH
+from app.core.config import reload_settings, DOTENV_PATH, settings
 from app.core.config import Settings as SettingsClass
 
 logger = logging.getLogger(__name__)
@@ -276,6 +276,120 @@ def export_settings():
         host=cfg.host, port=cfg.port,
         env_path=str(DOTENV_PATH),
     )
+
+
+# ── Test Connection ────────────────────────────────────────────────────────
+
+class TestConnectionBody(BaseModel):
+    llm_provider: str = "openai"
+    llm_custom_protocol: str = "openai"
+    llm_custom_base_url: str = ""
+    llm_custom_api_key: str = ""
+    llm_custom_model: str = ""
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4.1-mini"
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-4-20250514"
+    embedding_provider: str = "openai"
+    embedding_custom_base_url: str = ""
+    embedding_custom_api_key: str = ""
+    embedding_custom_model: str = ""
+    openai_embedding_model: str = "text-embedding-3-small"
+    use_mock_ai: bool = True
+
+
+@router.post("/test")
+async def test_connection(body: TestConnectionBody):
+    """Test LLM and embedding provider connectivity with a minimal API call.
+
+    Accepts current form state — does NOT save to .env. Returns per-provider
+    status so the user can fix issues before saving.
+    """
+    results: dict[str, dict] = {}
+
+    # ── LLM test ──────────────────────────────────────────────────────
+    try:
+        if body.use_mock_ai:
+            results["llm"] = {"ok": True, "message": "Mock AI mode — no connection needed"}
+        elif body.llm_provider == "openai":
+            key = body.openai_api_key or settings.openai_api_key
+            if not key:
+                results["llm"] = {"ok": False, "message": "OpenAI API key is required"}
+            else:
+                from openai import AsyncOpenAI
+                client = AsyncOpenAI(api_key=key)
+                # Minimal call: list models (1 result) to verify key
+                await client.models.list()
+                results["llm"] = {"ok": True, "message": f"Connected to OpenAI (model: {body.openai_model})"}
+        elif body.llm_provider == "anthropic":
+            key = body.anthropic_api_key or settings.anthropic_api_key
+            if not key:
+                results["llm"] = {"ok": False, "message": "Anthropic API key is required"}
+            else:
+                import httpx
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        "https://api.anthropic.com/v1/models",
+                        headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
+                        timeout=15,
+                    )
+                    if resp.status_code == 200:
+                        results["llm"] = {"ok": True, "message": f"Connected to Anthropic (model: {body.anthropic_model})"}
+                    else:
+                        results["llm"] = {"ok": False, "message": f"Anthropic returned {resp.status_code}: {resp.text[:200]}"}
+        elif body.llm_provider == "custom":
+            if not body.llm_custom_base_url:
+                results["llm"] = {"ok": False, "message": "Custom base URL is required"}
+            else:
+                import httpx
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        f"{body.llm_custom_base_url.rstrip('/')}/models",
+                        headers={"Authorization": f"Bearer {body.llm_custom_api_key or 'not-needed'}"},
+                        timeout=15,
+                    )
+                    if resp.status_code < 500:
+                        results["llm"] = {"ok": True, "message": f"Connected to {body.llm_custom_base_url} (model: {body.llm_custom_model})"}
+                    else:
+                        results["llm"] = {"ok": False, "message": f"Server error {resp.status_code}: {resp.text[:200]}"}
+    except Exception as e:
+        results["llm"] = {"ok": False, "message": str(e)}
+
+    # ── Embedding test ───────────────────────────────────────────────
+    try:
+        if body.use_mock_ai:
+            results["embedding"] = {"ok": True, "message": "Mock AI mode — no connection needed"}
+        elif body.embedding_provider == "openai":
+            key = body.openai_api_key or settings.openai_api_key
+            if not key:
+                results["embedding"] = {"ok": False, "message": "OpenAI API key is required"}
+            else:
+                from openai import AsyncOpenAI
+                client = AsyncOpenAI(api_key=key)
+                # Tiny embedding call
+                await client.embeddings.create(model=body.openai_embedding_model, input="test")
+                results["embedding"] = {"ok": True, "message": f"Embedding model OK ({body.openai_embedding_model})"}
+        elif body.embedding_provider == "custom":
+            if not body.embedding_custom_base_url:
+                results["embedding"] = {"ok": False, "message": "Custom base URL is required"}
+            else:
+                import httpx
+                async with httpx.AsyncClient() as client:
+                    resp = await client.post(
+                        f"{body.embedding_custom_base_url.rstrip('/')}/embeddings",
+                        json={"model": body.embedding_custom_model, "input": "test"},
+                        headers={"Authorization": f"Bearer {body.embedding_custom_api_key or 'not-needed'}"},
+                        timeout=15,
+                    )
+                    if resp.status_code < 500:
+                        results["embedding"] = {"ok": True, "message": f"Embedding endpoint OK ({body.embedding_custom_model})"}
+                    else:
+                        results["embedding"] = {"ok": False, "message": f"Server error {resp.status_code}: {resp.text[:200]}"}
+    except Exception as e:
+        results["embedding"] = {"ok": False, "message": str(e)}
+
+    all_ok = all(v.get("ok") for v in results.values()) if results else False
+    return {"all_ok": all_ok, "results": results}
 
 
 @router.post("/import")
