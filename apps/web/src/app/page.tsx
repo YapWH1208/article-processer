@@ -187,16 +187,21 @@ export default function DashboardPage() {
         </div>
       ) : recent.length === 0 ? (
         <FadeIn delay={0.3}>
-          <Card className="border-dashed">
-            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+          <Card className="border-dashed overflow-hidden">
+            <CardContent className="flex flex-col items-center justify-center py-16 text-center relative">
+              <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent opacity-50" />
               <motion.div
-                animate={{ y: [0, -8, 0] }}
-                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                animate={{ y: [0, -10, 0] }}
+                transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                className="relative"
               >
-                <FileText className="h-12 w-12 text-muted-foreground/30 mb-3" />
+                <div className="p-4 rounded-full bg-primary/10 mb-4">
+                  <FileText className="h-10 w-10 text-primary/60" />
+                </div>
               </motion.div>
-              <p className="text-muted-foreground">No articles yet. Start by uploading one.</p>
-              <Link href="/upload" className="mt-3">
+              <p className="text-muted-foreground text-lg font-medium">No articles yet</p>
+              <p className="text-muted-foreground/60 text-sm mt-1">Upload your first paper to get started.</p>
+              <Link href="/upload" className="mt-4">
                 <Button variant="outline" size="sm" className="gap-1">
                   Upload your first article <ArrowRight className="h-3.5 w-3.5" />
                 </Button>

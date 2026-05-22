@@ -10,6 +10,7 @@ import {
   FileText, MessageCircle, BarChart3, Info, ScrollText, Loader2, Send,
   RotateCw, Download, AlertCircle, Trash2, Archive, ArchiveRestore, Plus,
   PanelRightClose, PanelRightOpen, X, Wand2, ArrowLeft, ChevronRight,
+  Hash, Calendar, File, Tag,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -402,10 +403,8 @@ export default function ArticleDetailPage() {
                                 {/* Show result inline */}
                                 {skillResult && skillResult.skill === s.name && (
                                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
-                                    className="mt-3 p-3 rounded-md bg-primary/5 border border-primary/20 text-xs">
-                                    <pre className="whitespace-pre-wrap font-mono text-muted-foreground overflow-x-auto max-h-64 overflow-y-auto">
-                                      {JSON.stringify(skillResult.result, null, 2)}
-                                    </pre>
+                                    className="mt-3 p-3 rounded-md bg-primary/5 border border-primary/20 text-xs max-h-80 overflow-y-auto">
+                                    <SkillResultView result={skillResult.result} />
                                   </motion.div>
                                 )}
                               </Card>
@@ -428,7 +427,9 @@ export default function ArticleDetailPage() {
                         <ScrollArea className="h-full">
                           <div className="space-y-4">
                             <div className="space-y-2 text-sm">
-                              {[["ID",article.id],["Filename",article.original_filename],["Source",article.source_type.toUpperCase()],["Status",article.status],["Archived",article.is_archived?"Yes":"No"],["Created",new Date(article.created_at).toLocaleString()],["Updated",new Date(article.updated_at).toLocaleString()]].map(([l,v])=><div key={l as string} className="flex justify-between py-1.5 border-b border-border/50"><span className="text-muted-foreground">{l}</span><span className="font-medium text-right max-w-[60%] truncate">{v}</span></div>)}
+                              {[
+                                ["ID",article.id,Hash],["Filename",article.original_filename,File],["Source",article.source_type.toUpperCase(),FileText],["Status",article.status,Info],["Archived",article.is_archived?"Yes":"No",Archive],["Created",new Date(article.created_at).toLocaleString(),Calendar],["Updated",new Date(article.updated_at).toLocaleString(),Calendar]
+                              ].map(([l,v,Icon])=><div key={l as string} className="flex items-center justify-between py-1.5 border-b border-border/50"><span className="text-muted-foreground flex items-center gap-2">{(Icon as any) && <Icon className="h-3.5 w-3.5 opacity-60"/>}{l as string}</span><span className="font-medium text-right max-w-[60%] truncate">{v as string}</span></div>)}
                             </div>
 
                             {/* Processing Jobs */}
@@ -707,6 +708,29 @@ const REL_COLORS: Record<string, string> = {
   AUTHORS: "border-l-cyan-500",
   USES_DATASET: "border-l-teal-500",
 };
+
+function SkillResultView({ result }: { result: unknown }) {
+  if (!result || typeof result !== "object") {
+    return <p className="text-muted-foreground">{String(result)}</p>;
+  }
+  const obj = result as Record<string, unknown>;
+  return (
+    <div className="space-y-2">
+      {Object.entries(obj).map(([key, value]) => (
+        <div key={key} className="flex items-start gap-2">
+          <span className="font-semibold capitalize shrink-0 text-muted-foreground min-w-[140px]">{key.replace(/_/g, " ")}</span>
+          <span className="text-foreground">
+            {Array.isArray(value)
+              ? value.map((v, i) => <Badge key={i} variant="secondary" className="mr-1 mb-1 text-[10px]">{typeof v === "object" ? JSON.stringify(v) : String(v)}</Badge>)
+              : typeof value === "object" && value !== null
+                ? <code className="text-[10px] bg-muted px-1 rounded">{JSON.stringify(value)}</code>
+                : String(value ?? "—")}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function GraphRelationships({ relationships }: { relationships: any[] }) {
   return (

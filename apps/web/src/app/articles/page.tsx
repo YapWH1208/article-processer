@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight, ArrowUpDown, CheckSquare, Square, Trash2, ArchiveRestore, X } from "lucide-react";
+import { motion } from "framer-motion";
+import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight, ArrowUpDown, CheckSquare, Square, Trash2, ArchiveRestore, X, FileType, Globe, FileCode } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -238,11 +239,23 @@ export default function ArticlesPage() {
         </div>
       ) : articles.length === 0 ? (
         <FadeIn delay={0.2}>
-          <Card className="border-dashed">
-            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-              <FileText className="h-10 w-10 text-muted-foreground/40 mb-3" />
-              <p className="text-muted-foreground">
-                {total === 0 ? "No articles yet." : "No matching articles."}
+          <Card className="border-dashed overflow-hidden">
+            <CardContent className="flex flex-col items-center justify-center py-16 text-center relative">
+              <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent opacity-50" />
+              <motion.div
+                animate={{ y: [0, -8, 0], opacity: [0.6, 1, 0.6] }}
+                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                className="relative"
+              >
+                <div className="p-4 rounded-full bg-primary/10 mb-3">
+                  <FileText className="h-10 w-10 text-primary/50" />
+                </div>
+              </motion.div>
+              <p className="text-muted-foreground text-lg font-medium">
+                {total === 0 ? "No articles yet" : "No matching articles"}
+              </p>
+              <p className="text-muted-foreground/60 text-sm mt-1">
+                {total === 0 ? "Upload a paper or import BibTeX to get started." : "Try adjusting your search or filters."}
               </p>
             </CardContent>
           </Card>
@@ -265,10 +278,11 @@ export default function ArticlesPage() {
                         <p className="font-medium truncate group-hover:text-primary transition-colors">
                           {a.title}
                         </p>
-                        <div className="flex gap-2 text-xs text-muted-foreground mt-1">
-                          <span>{a.original_filename}</span>
+                        <div className="flex gap-2 text-xs text-muted-foreground mt-1 items-center">
+                          <SourceIcon type={a.source_type} />
+                          <span className="uppercase font-medium text-[10px]">{a.source_type}</span>
                           <span>·</span>
-                          <span className="uppercase">{a.source_type}</span>
+                          <span>{a.original_filename}</span>
                           <span>·</span>
                           <span>{new Date(a.created_at).toLocaleDateString()}</span>
                         </div>
@@ -316,4 +330,13 @@ export default function ArticlesPage() {
       )}
     </div>
   );
+}
+
+function SourceIcon({ type }: { type: string }) {
+  const t = type.toLowerCase();
+  const cls = "h-3.5 w-3.5";
+  if (t === "pdf") return <FileType className={cls} />;
+  if (t === "html" || t === "htm") return <Globe className={cls} />;
+  if (t === "md" || t === "markdown") return <FileCode className={cls} />;
+  return <FileText className={cls} />;
 }
