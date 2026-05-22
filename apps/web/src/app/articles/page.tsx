@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Search, Filter, FileText, ArrowRight, Archive } from "lucide-react";
+import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -19,32 +19,38 @@ interface Article {
   is_archived: number;
 }
 
+const PAGE_SIZE = 20;
+
 export default function ArticlesPage() {
   const [articles, setArticles] = useState<Article[]>([]);
-  const [filtered, setFiltered] = useState<Article[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [searchContent, setSearchContent] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [includeArchived, setIncludeArchived] = useState(false);
+  const [page, setPage] = useState(1);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   useEffect(() => {
+    setLoading(true);
     const params = new URLSearchParams();
     if (includeArchived) params.set("include_archived", "true");
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (search) params.set("search", search);
+    if (searchContent) params.set("search_content", searchContent);
+    params.set("skip", String((page - 1) * PAGE_SIZE));
+    params.set("limit", String(PAGE_SIZE));
     fetch(`${API_BASE}/articles?${params.toString()}`)
       .then((r) => r.json())
-      .then((d) => { setArticles(d.articles || []); setFiltered(d.articles || []); })
-      .catch(() => {}).finally(() => setLoading(false));
-  }, [includeArchived]);
+      .then((d) => { setArticles(d.articles || []); setTotal(d.total || 0); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [page, statusFilter, includeArchived, search, searchContent]);
 
-  useEffect(() => {
-    let result = articles;
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter((a) => a.title.toLowerCase().includes(q) || a.original_filename.toLowerCase().includes(q));
-    }
-    if (statusFilter !== "all") result = result.filter((a) => a.status === statusFilter);
-    setFiltered(result);
-  }, [search, statusFilter, articles]);
+  // Reset to page 1 when filters change
+  useEffect(() => { setPage(1); }, [search, statusFilter, includeArchived, searchContent]);
 
   const statusVariant = (s: string) => {
     if (s === "completed") return "default" as const;
@@ -56,15 +62,28 @@ export default function ArticlesPage() {
     <div className="space-y-6">
       <FadeIn>
         <h1 className="text-3xl font-bold tracking-tight">Articles</h1>
-        <p className="text-muted-foreground mt-1">{filtered.length} of {articles.length} articles</p>
+        <p className="text-muted-foreground mt-1">{total} article{total !== 1 ? "s" : ""}{totalPages > 1 ? ` · page ${page} of ${totalPages}` : ""}</p>
       </FadeIn>
 
       <FadeIn delay={0.1}>
         <div className="flex gap-3 flex-wrap items-center">
           <div className="relative flex-1 min-w-[200px] max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search articles..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+            <Input placeholder="Search titles & filenames..." value={search} onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && setSearchContent(search)}
+              className="pl-9" />
           </div>
+          <Button
+            variant={searchContent ? "secondary" : "outline"}
+            size="sm" className="gap-1.5"
+            onClick={() => {
+              if (searchContent) { setSearchContent(""); setSearch(""); }
+              else setSearchContent(search || "");
+            }}
+            title="Search inside article content">
+            <Search className="h-3.5 w-3.5"/>
+            {searchContent ? "Content search on" : "Search content"}
+          </Button>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-[160px]">
               <Filter className="h-4 w-4 mr-2" />
@@ -96,20 +115,20 @@ export default function ArticlesPage() {
         <div className="space-y-3">
           {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-20 w-full" />)}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : articles.length === 0 ? (
         <FadeIn delay={0.2}>
           <Card className="border-dashed">
             <CardContent className="flex flex-col items-center justify-center py-12 text-center">
               <FileText className="h-10 w-10 text-muted-foreground/40 mb-3" />
               <p className="text-muted-foreground">
-                {articles.length === 0 ? "No articles yet." : "No matching articles."}
+                {total === 0 ? "No articles yet." : "No matching articles."}
               </p>
             </CardContent>
           </Card>
         </FadeIn>
       ) : (
         <StaggerContainer className="space-y-2">
-          {filtered.map((a) => (
+          {articles.map((a) => (
             <StaggerItem key={a.id}>
               <Link href={`/articles/${a.id}`}>
                 <HoverCard>
@@ -145,6 +164,28 @@ export default function ArticlesPage() {
             </StaggerItem>
           ))}
         </StaggerContainer>
+      )}
+
+      {/* Pagination controls */}
+      {totalPages > 1 && (
+        <FadeIn delay={0.3}>
+          <div className="flex items-center justify-center gap-2 pt-2">
+            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)} className="gap-1">
+              <ChevronLeft className="h-4 w-4"/> Prev
+            </Button>
+            <div className="flex gap-1">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                <Button key={p} variant={p === page ? "default" : "outline"} size="sm"
+                  className="w-9 h-9 p-0" onClick={() => setPage(p)}>
+                  {p}
+                </Button>
+              ))}
+            </div>
+            <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)} className="gap-1">
+              Next <ChevronRight className="h-4 w-4"/>
+            </Button>
+          </div>
+        </FadeIn>
       )}
     </div>
   );
