@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from app.core.config import reload_settings, DOTENV_PATH
+from app.core.config import reload_settings, DOTENV_PATH, settings
 from app.core.config import Settings as SettingsClass
 
 logger = logging.getLogger(__name__)
