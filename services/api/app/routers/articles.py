@@ -210,8 +210,8 @@ def get_article_jobs(article_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{article_id}/reprocess", response_model=ReprocessResponse)
-def reprocess_article(article_id: int, db: Session = Depends(get_db)):
-    """Re-run the processing pipeline for an article."""
+def reprocess_article(article_id: int, full_pipeline: bool = True, db: Session = Depends(get_db)):
+    """Re-run the processing pipeline for an article. Set full_pipeline=false for parse-only."""
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
@@ -235,7 +235,7 @@ def reprocess_article(article_id: int, db: Session = Depends(get_db)):
     db.refresh(job)
 
     from app.services.pipeline.processor import run_pipeline_background
-    run_pipeline_background(article.id)
+    run_pipeline_background(article.id, run_ai=full_pipeline)
 
     return ReprocessResponse(
         article_id=article.id,

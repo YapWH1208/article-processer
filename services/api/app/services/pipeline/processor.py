@@ -33,31 +33,52 @@ logger = logging.getLogger(__name__)
 storage = LocalStorage()
 
 
-# Parser registry — prefer Docling for PDF if available, fall back to pypdf
+# Parser registry — instantiate once, select at call time based on priority setting
 _docling = DoclingAdapter()
-PARSERS = {
-    "pdf": _docling if _docling.is_available else PdfParser(),
-    "html": HtmlParser(),
-    "md": MarkdownParser(),
-    "txt": MarkdownParser(),
-}
+_pypdf = PdfParser()
+_html = HtmlParser()
+_md = MarkdownParser()
 
 if _docling.is_available:
-    logger.info("Using Docling for PDF parsing (high-quality)")
+    logger.info("Docling detected — available for PDF parsing")
 else:
-    logger.info("Docling not installed — using pypdf for PDF parsing. "
+    logger.info("Docling not installed — pypdf will be used for PDFs. "
                  "Install docling for better results: pip install docling")
 
 
-async def run_pipeline(article_id: int) -> None:
-    """Run the full processing pipeline for an article.
+def _select_pdf_parser(priority: str):
+    """Select PDF parser based on configured priority."""
+    if priority == "pypdf":
+        return _pypdf
+    if priority == "ocr":
+        return _pypdf  # PdfParser already has OCR fallback
+    # docling_first or unknown
+    if _docling.is_available:
+        return _docling
+    return _pypdf
+
+
+def _get_parsers():
+    """Return parser dict using current settings priority."""
+    return {
+        "pdf": _select_pdf_parser(settings.parser_priority),
+        "html": _html,
+        "md": _md,
+        "txt": _md,
+    }
+
+
+async def run_pipeline(article_id: int, run_ai: bool = True) -> None:
+    """Run the processing pipeline for an article.
+
+    If run_ai=False, stops after Markdown normalization (parse-only mode).
 
     Steps:
     1. Parse document to Markdown
     2. Normalize Markdown
     3. Chunk
-    4. AI extraction
-    5. Embeddings
+    4. AI extraction (skipped if run_ai=False)
+    5. Embeddings (skipped if run_ai=False)
     6. Graph building
     """
     db = SessionLocal()
@@ -107,7 +128,7 @@ async def run_pipeline(article_id: int) -> None:
         article.status = ArticleStatus.PARSING.value
         db.commit()
 
-        parser = PARSERS.get(article.source_type)
+        parser = _get_parsers().get(article.source_type)
         if not parser:
             raise ValueError(f"No parser for source type: {article.source_type}")
 
@@ -151,6 +172,14 @@ async def run_pipeline(article_id: int) -> None:
         db.commit()
 
         # ── Step 3: AI Extraction ──────────────────────────────────────
+        if not run_ai:
+            add_log("extracting", "AI pipeline disabled — skipping extraction, embeddings, and graph")
+            article.status = ArticleStatus.COMPLETED.value
+            db.commit()
+            job.status = JobStatus.COMPLETED.value
+            db.commit()
+            return
+
         add_log("extracting", "Running AI extraction...")
         llm = get_llm_provider()
 
@@ -278,7 +307,7 @@ async def run_pipeline(article_id: int) -> None:
         db.close()
 
 
-def run_pipeline_background(article_id: int) -> None:
+def run_pipeline_background(article_id: int, run_ai: bool = True) -> None:
     """Kick off pipeline in a background thread via FastAPI BackgroundTasks equivalent.
 
     Since we can't use FastAPI's BackgroundTasks outside of a request context,
@@ -291,10 +320,10 @@ def run_pipeline_background(article_id: int) -> None:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(run_pipeline(article_id))
+            loop.run_until_complete(run_pipeline(article_id, run_ai=run_ai))
         finally:
             loop.close()
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
-    logger.info(f"Background pipeline started for article {article_id}")
+    logger.info(f"Background pipeline started for article {article_id} (run_ai={run_ai})")

@@ -27,6 +27,7 @@ storage = LocalStorage()
 @router.post("", response_model=UploadResponse)
 async def upload_file(
     file: UploadFile = File(...),
+    run_ai: bool = Form(True),
     db: Session = Depends(get_db),
 ):
     """Upload a PDF, ZIP, HTML, MD, or TXT file for processing."""
@@ -116,7 +117,7 @@ async def upload_file(
     db.refresh(job)
 
     # Kick off background processing
-    run_pipeline_background(article.id)
+    run_pipeline_background(article.id, run_ai=run_ai)
 
     return UploadResponse(
         article_id=article.id,

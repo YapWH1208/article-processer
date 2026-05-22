@@ -145,9 +145,12 @@ export default function ArticleDetailPage() {
     setChatOpen(true);
   };
 
-  const handleReprocess = async () => {
+  const handleReprocess = async (fullPipeline = true) => {
     setReprocessing(true);
-    try { await reprocessArticle(articleId); toast.success("Reprocessing started"); }
+    try {
+      await reprocessArticle(articleId, fullPipeline);
+      toast.success(fullPipeline ? "Full reprocessing started" : "Parse-only reprocessing started");
+    }
     catch { toast.error("Reprocess failed"); }
     finally { setReprocessing(false); }
   };
@@ -245,8 +248,11 @@ export default function ArticleDetailPage() {
             </div>
           </div>
           <div className="flex gap-2 shrink-0 flex-wrap">
-            <Button variant="outline" size="sm" onClick={handleReprocess} disabled={reprocessing} className="gap-1">
-              <RotateCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`}/> Reprocess
+            <Button variant="outline" size="sm" onClick={() => handleReprocess(true)} disabled={reprocessing} className="gap-1">
+              <RotateCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`}/> Full Pipeline
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => handleReprocess(false)} disabled={reprocessing} className="gap-1 text-muted-foreground">
+              <FileText className="h-3.5 w-3.5"/> Parse Only
             </Button>
             <Button variant="outline" size="sm" onClick={handleArchive} disabled={archiving} className="gap-1">
               {article.is_archived ? <><ArchiveRestore className="h-3.5 w-3.5"/> Restore</> : <><Archive className="h-3.5 w-3.5"/> Archive</>}

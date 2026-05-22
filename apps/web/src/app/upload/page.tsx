@@ -3,10 +3,12 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileText, CheckCircle2, AlertCircle, Inbox, Sparkles } from "lucide-react";
+import { Upload, FileText, CheckCircle2, AlertCircle, Inbox, Sparkles, Brain } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
@@ -18,6 +20,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
 export default function UploadPage() {
   const router = useRouter();
   const [dragover, setDragover] = useState(false);
+  const [runAI, setRunAI] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<{ filename: string; article_id: number }[]>([]);
@@ -40,7 +43,7 @@ export default function UploadPage() {
 
     for (let i = 0; i < arr.length; i++) {
       try {
-        const r = await uploadFile(arr[i]);
+        const r = await uploadFile(arr[i], runAI);
         res.push({ filename: arr[i].name, article_id: r.article_id });
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Upload failed");
@@ -109,6 +112,13 @@ export default function UploadPage() {
                 accept=".pdf,.zip,.html,.htm,.md,.txt,.markdown,.bib,.bibtex"
                 onChange={(e) => e.target.files && handleUpload(e.target.files)} />
             </label>
+            <div className="flex items-center gap-2 mt-3">
+              <Switch id="run-ai" checked={runAI} onCheckedChange={setRunAI} disabled={uploading} />
+              <Label htmlFor="run-ai" className="text-xs text-muted-foreground cursor-pointer flex items-center gap-1.5">
+                <Brain className="h-3.5 w-3.5" />
+                Run AI pipeline (extraction, embeddings, graph)
+              </Label>
+            </div>
           </CardContent>
 
           {/* Sparkle overlay on success */}

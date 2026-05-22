@@ -33,9 +33,10 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 // ── Uploads ───────────────────────────────────────────────────────
 
-export async function uploadFile(file: File) {
+export async function uploadFile(file: File, runAi = true) {
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("run_ai", String(runAi));
   return apiFetch<import("./types").UploadResponse>("/uploads", {
     method: "POST",
     body: formData,
@@ -94,9 +95,10 @@ export async function getArticleJobs(id: number) {
   return apiFetch<import("./types").JobResponse[]>(`/articles/${id}/jobs`);
 }
 
-export async function reprocessArticle(id: number) {
+export async function reprocessArticle(id: number, fullPipeline = true) {
+  const qs = fullPipeline ? "" : "?full_pipeline=false";
   return apiFetch<{ article_id: number; job_id: number; status: string }>(
-    `/articles/${id}/reprocess`,
+    `/articles/${id}/reprocess${qs}`,
     { method: "POST" }
   );
 }
