@@ -4,6 +4,32 @@ All notable changes to the Article Processor project.
 
 ---
 
+## [0.2.4] — 2025-07-22
+
+### Added
+
+- **Animations & micro-interactions** — the UI now feels alive with framer-motion and CSS keyframes.
+- **Animated count-up** — stat card numbers animate from 0 on scroll into view (ease-out cubic).
+- **Staggered list entrances** — article cards appear one-by-one with fade-up animation.
+- **Hover lift** — cards elevate with spring physics on hover.
+- **Page transitions** — route changes animate with smooth crossfade.
+- **Tab transitions** — article detail tabs slide in/out.
+- **Chat animations** — messages appear with scale+fade, typing indicator with 3 bouncing dots.
+- **Upload sparkle** — confetti-like particles on successful upload.
+- **Pulse dot** — live status indicators (backend health, processing state).
+- **Animated drop zone** — breathing border animation + floating icon.
+- **Sonner toasts** — notifications replace inline success/error boxes (settings, upload).
+- **Hero section** — dashboard has an animated gradient hero with floating background blob.
+- **Navbar flourishes** — logo rotates on hover, active nav has animated underline (layoutId), theme toggle spins.
+- **Mobile menu** — slides open/closed with AnimatePresence.
+
+### Changed
+
+- Dashboard, Articles, Upload, Article Detail, Settings — all pages now use framer-motion primitives.
+- Removed static success/error divs in favor of sonner toast notifications.
+
+---
+
 ## [0.2.3] — 2025-07-22
 
 ### Changed

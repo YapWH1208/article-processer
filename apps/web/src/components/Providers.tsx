@@ -4,18 +4,17 @@ import { useState, useEffect } from "react";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { AnimatePresence, motion } from "framer-motion";
+import { Toaster } from "sonner";
 import {
-  FileText, Upload, Settings, LogIn, LogOut, User, Menu, X,
+  FileText, Upload, Settings, LogIn, LogOut, Menu, X,
   Sun, Moon, Home, ChevronDown, BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
@@ -41,12 +40,19 @@ function ThemeToggle() {
 
   return (
     <Button variant="ghost" size="icon" onClick={toggle} title={dark ? "Light mode" : "Dark mode"}>
-      {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      <motion.div
+        key={dark ? "sun" : "moon"}
+        initial={{ rotate: -90, opacity: 0, scale: 0.5 }}
+        animate={{ rotate: 0, opacity: 1, scale: 1 }}
+        transition={{ duration: 0.3 }}
+      >
+        {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      </motion.div>
     </Button>
   );
 }
 
-// ── Nav link helper ───────────────────────────────────────────────────────
+// ── Nav links ─────────────────────────────────────────────────────────────
 
 const links = [
   { href: "/", label: "Dashboard", icon: Home },
@@ -64,10 +70,17 @@ function NavLinks({ mobile, onClick }: { mobile?: boolean; onClick?: () => void 
           <Button
             variant={pathname === href ? "secondary" : "ghost"}
             size={mobile ? "default" : "sm"}
-            className={cn("gap-2", mobile && "w-full justify-start")}
+            className={cn("gap-2 relative", mobile && "w-full justify-start")}
           >
             <Icon className="h-4 w-4" />
             {label}
+            {pathname === href && (
+              <motion.div
+                layoutId="nav-active"
+                className="absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 w-6 bg-primary rounded-full"
+                transition={{ type: "spring", stiffness: 500, damping: 30 }}
+              />
+            )}
           </Button>
         </Link>
       ))}
@@ -105,13 +118,10 @@ function UserMenu() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
-        <div className="px-2 py-1.5 text-xs text-muted-foreground truncate">
-          {user.email}
-        </div>
+        <div className="px-2 py-1.5 text-xs text-muted-foreground truncate">{user.email}</div>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={logout} className="gap-2 text-destructive cursor-pointer">
-          <LogOut className="h-4 w-4" />
-          Sign Out
+          <LogOut className="h-4 w-4" /> Sign Out
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -127,14 +137,20 @@ function MobileMenu() {
       <Button variant="ghost" size="icon" onClick={() => setOpen(!open)}>
         {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
       </Button>
-      {open && (
-        <div className="absolute top-16 left-0 right-0 bg-background border-b shadow-lg p-4 flex flex-col gap-1 z-50">
-          <NavLinks mobile onClick={() => setOpen(false)} />
-          <div className="mt-2 pt-2 border-t">
-            <UserMenu />
-          </div>
-        </div>
-      )}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="absolute top-16 left-0 right-0 bg-background border-b shadow-lg p-4 flex flex-col gap-1 z-50 overflow-hidden"
+          >
+            <NavLinks mobile onClick={() => setOpen(false)} />
+            <div className="mt-2 pt-2 border-t"><UserMenu /></div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -145,10 +161,14 @@ function NavBar() {
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
-        {/* Left: brand + nav */}
         <div className="flex items-center gap-1">
-          <Link href="/" className="flex items-center gap-2 mr-4">
-            <FileText className="h-6 w-6 text-primary" />
+          <Link href="/" className="flex items-center gap-2 mr-4 group">
+            <motion.div
+              whileHover={{ rotate: 15, scale: 1.15 }}
+              transition={{ type: "spring", stiffness: 400 }}
+            >
+              <FileText className="h-6 w-6 text-primary" />
+            </motion.div>
             <span className="text-lg font-bold tracking-tight hidden sm:inline">
               Article Processor
             </span>
@@ -157,13 +177,9 @@ function NavBar() {
             <NavLinks />
           </nav>
         </div>
-
-        {/* Right: actions */}
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <div className="hidden md:block">
-            <UserMenu />
-          </div>
+          <div className="hidden md:block"><UserMenu /></div>
           <MobileMenu />
         </div>
       </div>
@@ -171,13 +187,44 @@ function NavBar() {
   );
 }
 
-// ── Provider wrapper ───────────────────────────────────────────────────────
+// ── Page transition wrapper ────────────────────────────────────────────────
+
+function PageTransition({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={pathname}
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -8 }}
+        transition={{ duration: 0.2, ease: "easeInOut" }}
+      >
+        {children}
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+// ── Provider root ──────────────────────────────────────────────────────────
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
       <NavBar />
-      <main className="container mx-auto px-4 py-6">{children}</main>
+      <main className="container mx-auto px-4 py-6">
+        <PageTransition>{children}</PageTransition>
+      </main>
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          style: {
+            background: "hsl(var(--card))",
+            color: "hsl(var(--card-foreground))",
+            border: "1px solid hsl(var(--border))",
+          },
+        }}
+      />
     </AuthProvider>
   );
 }
