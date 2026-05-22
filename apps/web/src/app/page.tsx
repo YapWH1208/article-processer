@@ -141,10 +141,10 @@ export default function DashboardPage() {
       {/* ── Stat Cards ────────────────────────────────────────── */}
       <StaggerContainer className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { label: "Total Articles", value: stats.total, icon: FileText, color: "text-blue-600", bg: "bg-blue-500/10" },
-          { label: "Completed", value: stats.completed, icon: CheckCircle2, color: "text-green-600", bg: "bg-green-500/10" },
-          { label: "Processing", value: stats.processing, icon: Clock, color: "text-amber-600", bg: "bg-amber-500/10" },
-          { label: "Failed", value: stats.failed, icon: AlertCircle, color: "text-red-600", bg: "bg-red-500/10" },
+          { label: "Total Articles", value: stats.total, icon: FileText, color: "text-info", bg: "bg-info/10" },
+          { label: "Completed", value: stats.completed, icon: CheckCircle2, color: "text-success", bg: "bg-success/10" },
+          { label: "Processing", value: stats.processing, icon: Clock, color: "text-warning", bg: "bg-warning/10" },
+          { label: "Failed", value: stats.failed, icon: AlertCircle, color: "text-destructive", bg: "bg-destructive/10" },
         ].map(({ label, value, icon: Icon, color, bg }, i) => (
           <StaggerItem key={label}>
             <HoverCard>
