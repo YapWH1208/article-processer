@@ -2,13 +2,15 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight, ArrowUpDown } from "lucide-react";
+import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight, ArrowUpDown, CheckSquare, Square, Trash2, ArchiveRestore, X } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { toast } from "sonner";
 import { StaggerContainer, StaggerItem, HoverCard, FadeIn } from "@/components/ui/animated";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -37,6 +39,59 @@ export default function ArticlesPage() {
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState("created_at");
   const [sortOrder, setSortOrder] = useState("desc");
+
+  // Batch selection
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [batchAction, setBatchAction] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
+  const toggleSelect = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selected.size === articles.length) { setSelected(new Set()); }
+    else { setSelected(new Set(articles.map((a) => a.id))); }
+  };
+
+  const handleBatchArchive = async () => {
+    setBatchAction("archive");
+    let ok = 0;
+    for (const id of selected) {
+      try {
+        const a = articles.find((x) => x.id === id);
+        const url = a?.is_archived ? "unarchive" : "archive";
+        await fetch(`${API_BASE}/articles/${id}/${url}`, { method: "POST" });
+        ok++;
+      } catch { /* skip */ }
+    }
+    toast.success(`${ok} article(s) updated`);
+    setSelected(new Set());
+    setBatchAction(null);
+    // Reload
+    setPage(1);
+  };
+
+  const handleBatchDelete = async () => {
+    setDeleteOpen(false);
+    setBatchAction("delete");
+    let ok = 0;
+    for (const id of selected) {
+      try {
+        await fetch(`${API_BASE}/articles/${id}`, { method: "DELETE" });
+        ok++;
+      } catch { /* skip */ }
+    }
+    toast.success(`${ok} article(s) deleted`);
+    setSelected(new Set());
+    setBatchAction(null);
+    // Reload
+    setPage(1);
+  };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -133,6 +188,50 @@ export default function ArticlesPage() {
         </div>
       </FadeIn>
 
+      {/* Batch action bar */}
+      {selected.size > 0 && (
+        <FadeIn>
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20 flex-wrap">
+            <span className="text-sm font-medium">{selected.size} selected</span>
+            <Button variant="outline" size="sm" className="gap-1" onClick={handleBatchArchive} disabled={batchAction === "archive"}>
+              <ArchiveRestore className="h-3.5 w-3.5"/> Archive/Restore
+            </Button>
+            <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1 text-destructive hover:bg-destructive/10" disabled={batchAction === "delete"}>
+                  <Trash2 className="h-3.5 w-3.5"/> Delete
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Delete {selected.size} article(s)?</DialogTitle>
+                  <DialogDescription>This permanently deletes all selected articles and their data. This cannot be undone.</DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+                  <Button variant="destructive" onClick={handleBatchDelete}>Delete Permanently</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())} className="ml-auto gap-1">
+              <X className="h-3.5 w-3.5"/> Clear
+            </Button>
+          </div>
+        </FadeIn>
+      )}
+
+      {/* Select all checkbox */}
+      {articles.length > 0 && (
+        <div className="flex items-center gap-2 px-1">
+          <button onClick={toggleSelectAll} className="text-muted-foreground hover:text-foreground transition-colors" title="Select all on page">
+            {selected.size === articles.length ? <CheckSquare className="h-4 w-4 text-primary"/> : <Square className="h-4 w-4"/>}
+          </button>
+          <span className="text-xs text-muted-foreground">
+            {selected.size > 0 ? `${selected.size} selected` : "Select all"}
+          </span>
+        </div>
+      )}
+
       {loading ? (
         <div className="space-y-3">
           {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-20 w-full" />)}
@@ -152,10 +251,16 @@ export default function ArticlesPage() {
         <StaggerContainer className="space-y-2">
           {articles.map((a) => (
             <StaggerItem key={a.id}>
-              <Link href={`/articles/${a.id}`}>
-                <HoverCard>
-                  <Card className={`hover:bg-accent/50 transition-colors cursor-pointer group ${a.is_archived === 1 ? "opacity-60" : ""}`}>
-                    <CardContent className="flex items-center justify-between py-4">
+              <HoverCard>
+                <Card className={`hover:bg-accent/50 transition-colors group ${a.is_archived === 1 ? "opacity-60" : ""} ${selected.has(a.id) ? "ring-2 ring-primary/30 bg-primary/5" : ""}`}>
+                  <CardContent className="flex items-center py-4 gap-3">
+                    {/* Checkbox */}
+                    <button onClick={(e) => { e.preventDefault(); toggleSelect(a.id); }}
+                      className="shrink-0 text-muted-foreground hover:text-foreground transition-colors" title="Select">
+                      {selected.has(a.id) ? <CheckSquare className="h-4 w-4 text-primary"/> : <Square className="h-4 w-4"/>}
+                    </button>
+                    {/* Content */}
+                    <Link href={`/articles/${a.id}`} className="flex-1 min-w-0 flex items-center justify-between cursor-pointer" onClick={(e) => { if (selected.size > 0) e.preventDefault(); }}>
                       <div className="flex-1 min-w-0 mr-4">
                         <p className="font-medium truncate group-hover:text-primary transition-colors">
                           {a.title}
@@ -179,10 +284,10 @@ export default function ArticlesPage() {
                           ) : a.status}
                         </Badge>
                       </div>
-                    </CardContent>
-                  </Card>
-                </HoverCard>
-              </Link>
+                    </Link>
+                  </CardContent>
+                </Card>
+              </HoverCard>
             </StaggerItem>
           ))}
         </StaggerContainer>
