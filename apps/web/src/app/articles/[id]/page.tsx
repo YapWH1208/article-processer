@@ -343,18 +343,16 @@ export default function ArticleDetailPage() {
                 <motion.div key="graph" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 min-h-0">
                   <TabsContent value="graph" forceMount className="h-full m-0">
                     <Card className="h-full flex flex-col">
-                      <CardHeader className="shrink-0"><CardTitle className="text-lg">Knowledge Graph</CardTitle></CardHeader>
+                      <CardHeader className="shrink-0"><CardTitle className="text-lg">Knowledge Graph</CardTitle><CardDescription>{graph ? `${(graph.entities as any[]).length} entities · ${(graph.relationships as any[]).length} relationships` : ""}</CardDescription></CardHeader>
                       <CardContent className="flex-1 min-h-0 p-4">
                         {graph ? (
                           <ScrollArea className="h-full">
-                            <div className="space-y-4">
-                              <div><h4 className="font-semibold mb-2">Entities ({graph.entities.length})</h4>
-                                <div className="flex flex-wrap gap-2">{graph.entities.map((e:any,i:number)=><Badge key={i} variant="outline" className="text-xs">{e.type}: {e.name}</Badge>)}</div>
-                              </div>
-                              <Separator/>
-                              <div><h4 className="font-semibold mb-2">Relationships ({graph.relationships.length})</h4>
-                                <div className="space-y-1 text-sm text-muted-foreground">{graph.relationships.map((r:any,i:number)=><div key={i} className="flex gap-1"><span className="font-medium">{r.source_name||r.source}</span><span className="text-primary">—[{r.type}]→</span><span className="font-medium">{r.target_name||r.target}</span></div>)}</div>
-                              </div>
+                            <div className="space-y-5">
+                              {/* Entities grouped by type */}
+                              <GraphEntities entities={graph.entities as any[]} />
+                              <Separator />
+                              {/* Relationships as cards */}
+                              <GraphRelationships relationships={graph.relationships as any[]} />
                             </div>
                           </ScrollArea>
                         ) : <div className="flex flex-col items-center py-12 text-muted-foreground"><BarChart3 className="h-10 w-10 opacity-30"/><p>No graph data.</p></div>}
@@ -649,6 +647,85 @@ function SectionWithAsk({ title, text, onAsk, onAdd }: { title: string; text: st
         <button onClick={() => onAsk(`Tell me about the ${title.toLowerCase()} of this paper`)} className="text-primary hover:underline text-xs font-normal"><MessageCircle className="h-3 w-3 inline mr-0.5"/>Ask</button>
       </h4>
       <p className="text-muted-foreground">{text}</p>
+    </div>
+  );
+}
+
+// ── Graph sub-components ──────────────────────────────────────────────────
+
+const ENTITY_COLORS: Record<string, string> = {
+  Author: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+  Method: "bg-purple-500/10 text-purple-600 border-purple-500/20",
+  Dataset: "bg-green-500/10 text-green-600 border-green-500/20",
+  Metric: "bg-amber-500/10 text-amber-600 border-amber-500/20",
+  Model: "bg-rose-500/10 text-rose-600 border-rose-500/20",
+  Tool: "bg-cyan-500/10 text-cyan-600 border-cyan-500/20",
+  Concept: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20",
+  Paper: "bg-teal-500/10 text-teal-600 border-teal-500/20",
+};
+
+function entityColor(type: string): string {
+  return ENTITY_COLORS[type] || "bg-muted text-muted-foreground border-border";
+}
+
+function GraphEntities({ entities }: { entities: any[] }) {
+  const grouped = entities.reduce<Record<string, any[]>>((acc, e) => {
+    (acc[e.type || "Other"] ??= []).push(e);
+    return acc;
+  }, {});
+
+  return (
+    <div>
+      <h4 className="font-semibold text-sm mb-3">Entities ({entities.length})</h4>
+      <div className="space-y-3">
+        {Object.entries(grouped).map(([type, items]) => (
+          <div key={type}>
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className={`text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded border ${entityColor(type)}`}>{type}</span>
+              <span className="text-xs text-muted-foreground">{items.length}</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {items.map((e: any, i: number) => (
+                <Badge key={i} variant="outline" className={`text-xs ${entityColor(type)}`}>
+                  {e.name}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const REL_COLORS: Record<string, string> = {
+  USES_METHOD: "border-l-purple-500",
+  CITES: "border-l-blue-500",
+  PRODUCES: "border-l-green-500",
+  EVALUATED_BY: "border-l-amber-500",
+  RELATED_TO: "border-l-rose-500",
+  AUTHORS: "border-l-cyan-500",
+  USES_DATASET: "border-l-teal-500",
+};
+
+function GraphRelationships({ relationships }: { relationships: any[] }) {
+  return (
+    <div>
+      <h4 className="font-semibold text-sm mb-3">Relationships ({relationships.length})</h4>
+      <div className="space-y-2">
+        {relationships.map((r: any, i: number) => (
+          <div key={i}
+            className={`flex items-center gap-2 p-2.5 rounded-md border border-l-[3px] bg-muted/30 text-sm ${REL_COLORS[r.type] || "border-l-muted-foreground"}`}>
+            <span className="font-medium truncate max-w-[120px]">{r.source_name || r.source}</span>
+            <span className="shrink-0 flex items-center gap-1 text-muted-foreground">
+              <span className="w-4 border-t border-muted-foreground/50" />
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{r.type?.replace(/_/g, " ")}</Badge>
+              <ChevronRight className="h-3 w-3" />
+            </span>
+            <span className="font-medium truncate max-w-[120px]">{r.target_name || r.target}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
