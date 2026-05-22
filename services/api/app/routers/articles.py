@@ -35,12 +35,18 @@ router = APIRouter()
 def list_articles(
     status: str | None = None,
     search: str | None = None,
+    search_content: str | None = None,
     include_archived: bool = False,
     skip: int = 0,
     limit: int = 50,
     db: Session = Depends(get_db),
 ):
-    """List articles with optional filtering. Archived articles hidden by default."""
+    """List articles with optional filtering. Archived articles hidden by default.
+
+    - `search`: matches title and filename (fast metadata search).
+    - `search_content`: matches inside the parsed Markdown body (full-text search,
+      clamped to 200 results max to keep SQLite responsive).
+    """
     q = db.query(Article)
 
     if not include_archived:
@@ -55,8 +61,11 @@ def list_articles(
             | Article.original_filename.ilike(f"%{search}%")
         )
 
+    if search_content:
+        q = q.filter(Article.markdown_text.ilike(f"%{search_content}%"))
+
     total = q.count()
-    articles = q.order_by(Article.created_at.desc()).offset(skip).limit(limit).all()
+    articles = q.order_by(Article.created_at.desc()).offset(skip).limit(min(limit, 200)).all()
 
     return ArticleListResponse(
         articles=[ArticleSummary.model_validate(a) for a in articles],
