@@ -30,8 +30,6 @@ from app.schemas.jobs import JobResponse
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-
-@router.get("", response_model=ArticleListResponse)
 # Safe sort allowlist — prevents SQL injection via dynamic column names
 _SORT_COLUMNS = {
     "created_at": Article.created_at,
@@ -40,6 +38,8 @@ _SORT_COLUMNS = {
     "updated_at": Article.updated_at,
 }
 
+
+@router.get("", response_model=ArticleListResponse)
 def list_articles(
     status: str | None = None,
     search: str | None = None,
