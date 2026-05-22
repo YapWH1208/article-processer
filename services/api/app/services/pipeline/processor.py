@@ -139,7 +139,7 @@ async def run_pipeline(article_id: int) -> None:
         for c in chunks:
             db.add(ArticleChunk(
                 article_id=article_id,
-                chunk_index=c.index,
+                chunk_index=c.chunk_index,
                 section_title=c.section_title,
                 page_start=c.page_start,
                 page_end=c.page_end,
