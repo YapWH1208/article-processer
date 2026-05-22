@@ -42,11 +42,20 @@ class Settings(BaseSettings):
     storage_dir: str = "./storage"
     max_upload_mb: int = 50
 
-    # ── AI ────────────────────────────────────────────────────────────────
+    # ── AI Provider ───────────────────────────────────────────────────────
+    # Provider type: "openai" | "anthropic" | "custom_openai" | "custom_anthropic"
+    ai_provider: str = "openai"
     openai_api_key: str = ""
     openai_model: str = "gpt-4.1-mini"
     openai_embedding_model: str = "text-embedding-3-small"
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-4-20250514"
     use_mock_ai: bool = True
+
+    # ── Custom Provider (when ai_provider = custom_openai / custom_anthropic)
+    custom_api_base: str = ""       # e.g. http://localhost:11434/v1
+    custom_api_key: str = ""        # key for the custom endpoint
+    custom_model: str = ""          # e.g. llama3.1:8b
 
     # ── Server ────────────────────────────────────────────────────────────
     host: str = "0.0.0.0"

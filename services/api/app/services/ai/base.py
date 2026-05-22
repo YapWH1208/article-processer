@@ -60,20 +60,66 @@ class BaseEmbeddingProvider(ABC):
 
 
 def get_llm_provider() -> BaseLLMProvider:
-    """Factory: return the configured LLM provider."""
-    if settings.use_mock_ai or not settings.openai_api_key:
+    """Factory: return the configured LLM provider based on ai_provider setting."""
+    provider = settings.ai_provider
+
+    # Mock mode always wins
+    if settings.use_mock_ai:
         from app.services.ai.mock_provider import MockLLMProvider
         return MockLLMProvider()
-    else:
+
+    if provider == "openai":
+        if not settings.openai_api_key:
+            from app.services.ai.mock_provider import MockLLMProvider
+            return MockLLMProvider()
         from app.services.ai.openai_provider import OpenAIProvider
         return OpenAIProvider()
+
+    elif provider == "anthropic":
+        if not settings.anthropic_api_key:
+            from app.services.ai.mock_provider import MockLLMProvider
+            return MockLLMProvider()
+        from app.services.ai.anthropic_provider import AnthropicProvider
+        return AnthropicProvider()
+
+    elif provider == "custom_openai":
+        if not settings.custom_api_base or not settings.custom_model:
+            from app.services.ai.mock_provider import MockLLMProvider
+            return MockLLMProvider()
+        from app.services.ai.openai_provider import CustomOpenAIProvider
+        return CustomOpenAIProvider()
+
+    elif provider == "custom_anthropic":
+        if not settings.custom_api_base or not settings.custom_model:
+            from app.services.ai.mock_provider import MockLLMProvider
+            return MockLLMProvider()
+        from app.services.ai.anthropic_provider import CustomAnthropicProvider
+        return CustomAnthropicProvider()
+
+    # Fallback
+    from app.services.ai.mock_provider import MockLLMProvider
+    return MockLLMProvider()
 
 
 def get_embedding_provider() -> BaseEmbeddingProvider:
     """Factory: return the configured embedding provider."""
-    if settings.use_mock_ai or not settings.openai_api_key:
+    provider = settings.ai_provider
+
+    if settings.use_mock_ai:
         from app.services.ai.mock_provider import MockEmbeddingProvider
         return MockEmbeddingProvider()
-    else:
-        from app.services.ai.openai_provider import OpenAIEmbeddingProvider
-        return OpenAIEmbeddingProvider()
+
+    # For custom providers, still try OpenAI embeddings if key is set,
+    # otherwise fall back to mock
+    if provider in ("openai", "custom_openai"):
+        if settings.openai_api_key:
+            from app.services.ai.openai_provider import OpenAIEmbeddingProvider
+            return OpenAIEmbeddingProvider()
+    elif provider in ("anthropic", "custom_anthropic"):
+        # Anthropic doesn't have embeddings — use OpenAI if key set, else mock
+        if settings.openai_api_key:
+            from app.services.ai.openai_provider import OpenAIEmbeddingProvider
+            return OpenAIEmbeddingProvider()
+
+    from app.services.ai.mock_provider import MockEmbeddingProvider
+    return MockEmbeddingProvider()

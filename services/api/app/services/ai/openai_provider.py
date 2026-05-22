@@ -244,6 +244,21 @@ class OpenAIProvider(BaseLLMProvider):
         return citations
 
 
+class CustomOpenAIProvider(OpenAIProvider):
+    """OpenAI-compatible provider pointed at a custom endpoint.
+
+    Works with Ollama, vLLM, LocalAI, OpenRouter, Groq, LiteLLM proxy, etc.
+    Set ``custom_api_base``, ``custom_api_key``, and ``custom_model`` in settings.
+    """
+
+    def __init__(self):
+        self.client = AsyncOpenAI(
+            api_key=settings.custom_api_key or "not-needed",
+            base_url=settings.custom_api_base.rstrip("/"),
+        )
+        self.model = settings.custom_model
+
+
 class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
     """OpenAI embedding provider."""
 

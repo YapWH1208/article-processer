@@ -4,6 +4,25 @@ All notable changes to the Article Processor project.
 
 ---
 
+## [0.2.2] — 2025-07-22
+
+### Added
+
+- **Custom AI provider support** — select from 4 provider types: OpenAI, Anthropic, Custom (OpenAI-compatible), Custom (Anthropic-compatible).
+- **Custom endpoint configuration** — set API base URL, key, and model name for any OpenAI-compatible endpoint (Ollama, vLLM, LocalAI, Groq, OpenRouter, LiteLLM proxy) or Anthropic-compatible endpoint.
+- **Anthropic provider** (`anthropic_provider.py`) — Claude Sonnet/Haiku/Opus via official SDK, plus `CustomAnthropicProvider` for proxies.
+- **Custom OpenAI provider** (`CustomOpenAIProvider`) — reuses the OpenAI SDK pointed at a custom `base_url`.
+- **Provider factory dispatch** — `get_llm_provider()` and `get_embedding_provider()` route based on `AI_PROVIDER` env var.
+- **Settings UI redesigned** — radio-card provider selector with conditional fields that appear based on the chosen provider. Added reusable `ApiKeyField`, `SelectField`, `TextField` components.
+- **New `.env` fields** — `AI_PROVIDER`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `CUSTOM_API_BASE`, `CUSTOM_API_KEY`, `CUSTOM_MODEL`.
+
+### Changed
+
+- Settings router (`settings_page.py`) now handles all 11 writable fields with proper masking and validation.
+- `.env.example` restructured with provider sections.
+
+---
+
 ## [0.2.1] — 2025-07-22
 
 ### Added

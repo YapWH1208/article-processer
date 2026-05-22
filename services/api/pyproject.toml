@@ -48,6 +48,10 @@ auth = [
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
 ]
+# Anthropic Claude (optional)
+anthropic = [
+    "anthropic>=0.40.0",
+]
 # All optional features
 all = [
     "docling>=2.0.0",
@@ -57,6 +61,7 @@ all = [
     "bibtexparser>=1.4.0",
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
+    "anthropic>=0.40.0",
 ]
 
 [tool.setuptools.packages.find]

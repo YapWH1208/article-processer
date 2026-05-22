@@ -12,13 +12,23 @@ from app.core.config import Settings as SettingsClass
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Canonical model choices
-AVAILABLE_MODELS = [
+# ── Constants ────────────────────────────────────────────────────────────
+
+PROVIDER_TYPES = ["openai", "anthropic", "custom_openai", "custom_anthropic"]
+
+OPENAI_MODELS = [
     "gpt-4.1-mini",
     "gpt-4.1-nano",
     "gpt-4o",
     "gpt-4o-mini",
     "gpt-4-turbo",
+]
+ANTHROPIC_MODELS = [
+    "claude-sonnet-4-20250514",
+    "claude-3-5-sonnet-latest",
+    "claude-3-5-haiku-latest",
+    "claude-3-opus-latest",
+    "claude-opus-4-20250514",
 ]
 EMBEDDING_MODELS = [
     "text-embedding-3-small",
@@ -30,24 +40,39 @@ EMBEDDING_MODELS = [
 # ── Schemas ──────────────────────────────────────────────────────────────
 
 class SettingsResponse(BaseModel):
-    openai_api_key: str          # masked — only last 4 chars shown
+    # Provider
+    ai_provider: str
+    # OpenAI
+    openai_api_key: str          # masked
     openai_model: str
     openai_embedding_model: str
+    # Anthropic
+    anthropic_api_key: str       # masked
+    anthropic_model: str
+    # Custom
+    custom_api_base: str
+    custom_api_key: str          # masked
+    custom_model: str
+    # Behaviour
     use_mock_ai: bool
+    # Limits
     max_upload_mb: int
+    # Server (read-only)
     host: str
     port: int
-    env_path: str                # where .env is stored
-
-    class Config:
-        # Model-level, not serialisation — use model_config in pydantic v2
-        pass
+    env_path: str
 
 
 class SettingsUpdate(BaseModel):
-    openai_api_key: str | None = Field(default=None, min_length=0, max_length=256)
+    ai_provider: str | None = None
+    openai_api_key: str | None = Field(default=None, max_length=256)
     openai_model: str | None = None
     openai_embedding_model: str | None = None
+    anthropic_api_key: str | None = Field(default=None, max_length=256)
+    anthropic_model: str | None = None
+    custom_api_base: str | None = Field(default=None, max_length=512)
+    custom_api_key: str | None = Field(default=None, max_length=256)
+    custom_model: str | None = Field(default=None, max_length=256)
     use_mock_ai: bool | None = None
     max_upload_mb: int | None = Field(default=None, ge=1, le=500)
 
@@ -55,7 +80,6 @@ class SettingsUpdate(BaseModel):
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 def _mask_key(key: str) -> str:
-    """Return a masked version of the API key showing only last 4 chars."""
     if not key:
         return ""
     if len(key) <= 4:
@@ -64,7 +88,6 @@ def _mask_key(key: str) -> str:
 
 
 def _read_env_file() -> dict[str, str]:
-    """Parse the .env file into a dict of KEY=VALUE pairs."""
     env_vars: dict[str, str] = {}
     if not DOTENV_PATH.exists():
         return env_vars
@@ -79,7 +102,6 @@ def _read_env_file() -> dict[str, str]:
 
 
 def _write_env_file(env_vars: dict[str, str]) -> None:
-    """Write updated env vars back to .env, preserving comments."""
     if not DOTENV_PATH.exists():
         lines: list[str] = []
     else:
@@ -103,7 +125,6 @@ def _write_env_file(env_vars: dict[str, str]) -> None:
         else:
             new_lines.append(line)
 
-    # Append any keys not found in the original file
     for key, value in env_vars.items():
         if key not in updated_keys:
             new_lines.append(f"{key}={value}")
@@ -111,23 +132,23 @@ def _write_env_file(env_vars: dict[str, str]) -> None:
     DOTENV_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
 
-# ── Endpoints ────────────────────────────────────────────────────────────
-
 def _fresh_settings() -> SettingsClass:
-    """Return a fresh Settings instance re-read from the .env file."""
     cfg = SettingsClass()
     cfg.database_url = cfg.database_url_resolved
     return cfg
 
 
-@router.get("", response_model=SettingsResponse)
-def get_settings():
-    """Return current application settings (secrets masked)."""
-    cfg = _fresh_settings()
+def _build_response(cfg: SettingsClass) -> SettingsResponse:
     return SettingsResponse(
+        ai_provider=cfg.ai_provider,
         openai_api_key=_mask_key(cfg.openai_api_key),
         openai_model=cfg.openai_model,
         openai_embedding_model=cfg.openai_embedding_model,
+        anthropic_api_key=_mask_key(cfg.anthropic_api_key),
+        anthropic_model=cfg.anthropic_model,
+        custom_api_base=cfg.custom_api_base,
+        custom_api_key=_mask_key(cfg.custom_api_key),
+        custom_model=cfg.custom_model,
         use_mock_ai=cfg.use_mock_ai,
         max_upload_mb=cfg.max_upload_mb,
         host=cfg.host,
@@ -136,26 +157,41 @@ def get_settings():
     )
 
 
+# ── Endpoints ────────────────────────────────────────────────────────────
+
+@router.get("", response_model=SettingsResponse)
+def get_settings():
+    """Return current application settings (secrets masked)."""
+    return _build_response(_fresh_settings())
+
+
 @router.put("", response_model=SettingsResponse)
 def update_settings(update: SettingsUpdate):
-    """Update application settings and persist to .env.
-
-    Only provided fields are updated. Changes take effect immediately
-    (the settings singleton is reloaded after the write).
-    """
+    """Update application settings and persist to .env."""
     env_vars = _read_env_file()
 
+    # ── Provider ──────────────────────────────────────────────────────
+    if update.ai_provider is not None:
+        if update.ai_provider not in PROVIDER_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown provider '{update.ai_provider}'. "
+                       f"Available: {', '.join(PROVIDER_TYPES)}",
+            )
+        env_vars["AI_PROVIDER"] = update.ai_provider
+
+    # ── OpenAI ─────────────────────────────────────────────────────────
     if update.openai_api_key is not None:
-        # If the user sends the masked key unchanged, don't overwrite
         if not all(c == "*" for c in update.openai_api_key):
             env_vars["OPENAI_API_KEY"] = update.openai_api_key
 
     if update.openai_model is not None:
-        if update.openai_model not in AVAILABLE_MODELS:
+        # Allow any model for custom providers, validate only for built-in
+        cfg = _fresh_settings()
+        if cfg.ai_provider == "openai" and update.openai_model not in OPENAI_MODELS:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unknown model '{update.openai_model}'. "
-                       f"Available: {', '.join(AVAILABLE_MODELS)}",
+                detail=f"Unknown OpenAI model '{update.openai_model}'.",
             )
         env_vars["OPENAI_MODEL"] = update.openai_model
 
@@ -163,11 +199,31 @@ def update_settings(update: SettingsUpdate):
         if update.openai_embedding_model not in EMBEDDING_MODELS:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unknown embedding model '{update.openai_embedding_model}'. "
-                       f"Available: {', '.join(EMBEDDING_MODELS)}",
+                detail=f"Unknown embedding model '{update.openai_embedding_model}'.",
             )
         env_vars["OPENAI_EMBEDDING_MODEL"] = update.openai_embedding_model
 
+    # ── Anthropic ──────────────────────────────────────────────────────
+    if update.anthropic_api_key is not None:
+        if not all(c == "*" for c in update.anthropic_api_key):
+            env_vars["ANTHROPIC_API_KEY"] = update.anthropic_api_key
+
+    if update.anthropic_model is not None:
+        # Allow any model name (custom endpoints may use different names)
+        env_vars["ANTHROPIC_MODEL"] = update.anthropic_model
+
+    # ── Custom provider ────────────────────────────────────────────────
+    if update.custom_api_base is not None:
+        env_vars["CUSTOM_API_BASE"] = update.custom_api_base
+
+    if update.custom_api_key is not None:
+        if not all(c == "*" for c in update.custom_api_key):
+            env_vars["CUSTOM_API_KEY"] = update.custom_api_key
+
+    if update.custom_model is not None:
+        env_vars["CUSTOM_MODEL"] = update.custom_model
+
+    # ── Behaviour / Limits ─────────────────────────────────────────────
     if update.use_mock_ai is not None:
         env_vars["USE_MOCK_AI"] = str(update.use_mock_ai).lower()
 
@@ -179,11 +235,9 @@ def update_settings(update: SettingsUpdate):
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"Failed to write .env: {e}")
 
-    # Reload settings so changes take effect in-process
     try:
         reload_settings()
     except Exception as e:
         logger.error(f"Settings reload failed after write: {e}")
 
-    # Return fresh settings
     return get_settings()
