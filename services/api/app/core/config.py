@@ -89,6 +89,24 @@ class Settings(BaseSettings):
         return _PROJECT_ROOT
 
 
+# Expose the .env path for the settings router
+DOTENV_PATH = _PROJECT_ROOT / "services" / "api" / ".env"
+
+
+def reload_settings() -> None:
+    """Hot-reload settings from the .env file — used by PUT /settings.
+
+    Mutates the global ``settings`` singleton in-place so existing
+    references pick up the new values without a restart.
+    """
+    global settings
+    new_settings = Settings()
+    # Copy the resolved paths
+    new_settings.database_url = new_settings.database_url_resolved
+    new_settings.storage_dir = _resolve_path(new_settings.storage_dir)
+    settings = new_settings
+
+
 settings = Settings()
 
 # Patch the database URL used by SQLAlchemy / Alembic

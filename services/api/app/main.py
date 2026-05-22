@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.db.session import engine, Base
-from app.routers import uploads, articles, chat, exports, imports, skills as skills_router, auth
+from app.routers import uploads, articles, chat, exports, imports, skills as skills_router, auth, settings_page
 
 
 @asynccontextmanager
@@ -57,4 +57,5 @@ app.include_router(chat.router, prefix="/articles", tags=["chat"])
 app.include_router(exports.router, prefix="/articles", tags=["exports"])
 app.include_router(imports.router, prefix="/imports", tags=["imports"])
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
+app.include_router(settings_page.router, prefix="/settings", tags=["settings"])
 app.include_router(skills_router.router, prefix="/skills", tags=["skills"])

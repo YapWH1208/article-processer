@@ -37,3 +37,4 @@ storage/exports/*
 !storage/uploads/.gitkeep
 !storage/markdown/.gitkeep
 !storage/exports/.gitkeep
+/data

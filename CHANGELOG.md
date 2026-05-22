@@ -4,6 +4,21 @@ All notable changes to the Article Processor project.
 
 ---
 
+## [0.2.1] — 2025-07-22
+
+### Added
+
+- **Settings page** (`GET /settings`, `PUT /settings`) — view and update application configuration from the UI without editing `.env` manually. Supports OpenAI API key, model selection, embedding model, mock AI toggle, and max upload size. Changes persist to `.env` and take effect immediately.
+- **Settings UI** (`apps/web/src/app/settings/page.tsx`) — form with masked API key field, model/embedding dropdowns, mock AI checkbox, upload limit input, save/reset buttons, and live success/error feedback.
+- **Settings nav link** — added to the navbar in `Providers.tsx`.
+
+### Fixed
+
+- **Path resolution** — `config.py` now resolves all relative paths (`./data`, `./storage`, `.env`) against the project root computed from the config file's own location. The app can now be started from any working directory.
+- **Alembic path** — `alembic.ini` `script_location` changed to `app/db/migrations` (relative to `services/api/`), matching the workflow where alembic is run from inside the backend directory.
+
+---
+
 ## [0.2.0] — 2025-07-17
 
 ### Added

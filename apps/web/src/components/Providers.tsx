@@ -17,6 +17,7 @@ function NavBar() {
             <a href="/" className="text-gray-600 hover:text-primary-600">Dashboard</a>
             <a href="/upload" className="text-gray-600 hover:text-primary-600">Upload</a>
             <a href="/articles" className="text-gray-600 hover:text-primary-600">Articles</a>
+            <a href="/settings" className="text-gray-600 hover:text-primary-600">Settings</a>
             <span className="text-gray-300">|</span>
             {user ? (
               <>
