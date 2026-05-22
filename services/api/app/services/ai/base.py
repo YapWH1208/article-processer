@@ -10,38 +10,18 @@ class BaseLLMProvider(ABC):
 
     @abstractmethod
     async def extract_structured(
-        self,
-        markdown: str,
-        article_title: str,
+        self, markdown: str, article_title: str,
     ) -> tuple[dict | None, list[str] | None, float]:
-        """Extract structured information from article Markdown.
-
-        Returns:
-            (extraction_dict, validation_errors, confidence)
-        """
         ...
 
     @abstractmethod
     async def answer_question(
-        self,
-        question: str,
-        article_title: str,
-        chunks: list[Any],
+        self, question: str, article_title: str, chunks: list[Any],
     ) -> tuple[str, list[dict]]:
-        """Answer a question using retrieved chunks.
-
-        Returns:
-            (answer_text, citations_list)
-        """
         ...
 
     @abstractmethod
     async def run_skill(self, skill: Any, article_markdown: str) -> dict:
-        """Run a skill/extraction workflow on article Markdown.
-
-        Returns:
-            result dict
-        """
         ...
 
 
@@ -50,23 +30,22 @@ class BaseEmbeddingProvider(ABC):
 
     @abstractmethod
     async def embed(self, text: str) -> list[float]:
-        """Generate an embedding vector for the given text."""
         ...
 
     @abstractmethod
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings for multiple texts."""
         ...
 
 
-def get_llm_provider() -> BaseLLMProvider:
-    """Factory: return the configured LLM provider based on ai_provider setting."""
-    provider = settings.ai_provider
+# ── LLM Factory ───────────────────────────────────────────────────────────
 
-    # Mock mode always wins
+def get_llm_provider() -> BaseLLMProvider:
+    """Factory: return the configured LLM provider."""
     if settings.use_mock_ai:
         from app.services.ai.mock_provider import MockLLMProvider
         return MockLLMProvider()
+
+    provider = settings.llm_provider
 
     if provider == "openai":
         if not settings.openai_api_key:
@@ -82,44 +61,45 @@ def get_llm_provider() -> BaseLLMProvider:
         from app.services.ai.anthropic_provider import AnthropicProvider
         return AnthropicProvider()
 
-    elif provider == "custom_openai":
-        if not settings.custom_api_base or not settings.custom_model:
+    elif provider == "custom":
+        if not settings.llm_custom_base_url or not settings.llm_custom_model:
             from app.services.ai.mock_provider import MockLLMProvider
             return MockLLMProvider()
-        from app.services.ai.openai_provider import CustomOpenAIProvider
-        return CustomOpenAIProvider()
 
-    elif provider == "custom_anthropic":
-        if not settings.custom_api_base or not settings.custom_model:
-            from app.services.ai.mock_provider import MockLLMProvider
-            return MockLLMProvider()
-        from app.services.ai.anthropic_provider import CustomAnthropicProvider
-        return CustomAnthropicProvider()
+        if settings.llm_custom_protocol == "anthropic":
+            from app.services.ai.anthropic_provider import CustomAnthropicProvider
+            return CustomAnthropicProvider()
+        else:
+            # Default: OpenAI-compatible protocol
+            from app.services.ai.openai_provider import CustomOpenAIProvider
+            return CustomOpenAIProvider()
 
     # Fallback
     from app.services.ai.mock_provider import MockLLMProvider
     return MockLLMProvider()
 
 
+# ── Embedding Factory ─────────────────────────────────────────────────────
+
 def get_embedding_provider() -> BaseEmbeddingProvider:
     """Factory: return the configured embedding provider."""
-    provider = settings.ai_provider
-
     if settings.use_mock_ai:
         from app.services.ai.mock_provider import MockEmbeddingProvider
         return MockEmbeddingProvider()
 
-    # For custom providers, still try OpenAI embeddings if key is set,
-    # otherwise fall back to mock
-    if provider in ("openai", "custom_openai"):
-        if settings.openai_api_key:
-            from app.services.ai.openai_provider import OpenAIEmbeddingProvider
-            return OpenAIEmbeddingProvider()
-    elif provider in ("anthropic", "custom_anthropic"):
-        # Anthropic doesn't have embeddings — use OpenAI if key set, else mock
+    provider = settings.embedding_provider
+
+    if provider == "openai":
         if settings.openai_api_key:
             from app.services.ai.openai_provider import OpenAIEmbeddingProvider
             return OpenAIEmbeddingProvider()
 
+    elif provider == "custom":
+        if settings.embedding_custom_base_url and settings.embedding_custom_model:
+            # Use OpenAIEmbeddingProvider pointed at custom endpoint
+            from app.services.ai.openai_provider import CustomEmbeddingProvider
+            return CustomEmbeddingProvider()
+
+    # Fallback to mock
     from app.services.ai.mock_provider import MockEmbeddingProvider
     return MockEmbeddingProvider()

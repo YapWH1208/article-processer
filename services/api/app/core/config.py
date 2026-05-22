@@ -42,20 +42,33 @@ class Settings(BaseSettings):
     storage_dir: str = "./storage"
     max_upload_mb: int = 50
 
-    # ── AI Provider ───────────────────────────────────────────────────────
-    # Provider type: "openai" | "anthropic" | "custom_openai" | "custom_anthropic"
-    ai_provider: str = "openai"
+    # ── LLM Provider ──────────────────────────────────────────────────────
+    # "openai" | "anthropic" | "custom"
+    llm_provider: str = "openai"
+    # When llm_provider = "custom", which protocol to speak
+    llm_custom_protocol: str = "openai"  # "openai" | "anthropic"
+    llm_custom_base_url: str = ""        # e.g. http://localhost:11434/v1
+    llm_custom_api_key: str = ""
+    llm_custom_model: str = ""           # e.g. llama3.1:8b
+
+    # OpenAI keys (used when llm_provider = "openai" or embedding_provider = "openai")
     openai_api_key: str = ""
     openai_model: str = "gpt-4.1-mini"
     openai_embedding_model: str = "text-embedding-3-small"
+
+    # Anthropic keys (used when llm_provider = "anthropic")
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-20250514"
-    use_mock_ai: bool = True
 
-    # ── Custom Provider (when ai_provider = custom_openai / custom_anthropic)
-    custom_api_base: str = ""       # e.g. http://localhost:11434/v1
-    custom_api_key: str = ""        # key for the custom endpoint
-    custom_model: str = ""          # e.g. llama3.1:8b
+    # ── Embedding Provider ───────────────────────────────────────────────
+    # "openai" | "custom"
+    embedding_provider: str = "openai"
+    embedding_custom_base_url: str = ""
+    embedding_custom_api_key: str = ""
+    embedding_custom_model: str = ""
+
+    # ── Behaviour ─────────────────────────────────────────────────────────
+    use_mock_ai: bool = True
 
     # ── Server ────────────────────────────────────────────────────────────
     host: str = "0.0.0.0"

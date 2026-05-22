@@ -142,18 +142,16 @@ class AnthropicProvider(BaseLLMProvider):
 
 
 class CustomAnthropicProvider(AnthropicProvider):
-    """Anthropic-compatible provider pointed at a custom endpoint (e.g. LiteLLM proxy, OpenRouter).
+    """Anthropic-compatible provider at a custom endpoint.
 
-    Uses the Anthropic SDK with a custom ``base_url``.
+    Uses ``llm_custom_base_url``, ``llm_custom_api_key``, ``llm_custom_model``.
     """
 
     def __init__(self):
         if not HAS_ANTHROPIC:
-            raise RuntimeError(
-                "Anthropic SDK not installed. Run: pip install anthropic"
-            )
+            raise RuntimeError("Anthropic SDK not installed. Run: pip install anthropic")
         self.client = anthropic.AsyncAnthropic(
-            api_key=settings.custom_api_key or "not-needed",
-            base_url=settings.custom_api_base.rstrip("/"),
+            api_key=settings.llm_custom_api_key or "not-needed",
+            base_url=settings.llm_custom_base_url.rstrip("/"),
         )
-        self.model = settings.custom_model
+        self.model = settings.llm_custom_model

@@ -247,16 +247,51 @@ class OpenAIProvider(BaseLLMProvider):
 class CustomOpenAIProvider(OpenAIProvider):
     """OpenAI-compatible provider pointed at a custom endpoint.
 
-    Works with Ollama, vLLM, LocalAI, OpenRouter, Groq, LiteLLM proxy, etc.
-    Set ``custom_api_base``, ``custom_api_key``, and ``custom_model`` in settings.
+    Uses ``llm_custom_base_url``, ``llm_custom_api_key``, ``llm_custom_model``.
     """
 
     def __init__(self):
         self.client = AsyncOpenAI(
-            api_key=settings.custom_api_key or "not-needed",
-            base_url=settings.custom_api_base.rstrip("/"),
+            api_key=settings.llm_custom_api_key or "not-needed",
+            base_url=settings.llm_custom_base_url.rstrip("/"),
         )
-        self.model = settings.custom_model
+        self.model = settings.llm_custom_model
+
+
+class CustomEmbeddingProvider(BaseEmbeddingProvider):
+    """Embedding provider pointed at a custom OpenAI-compatible endpoint.
+
+    Uses ``embedding_custom_base_url``, ``embedding_custom_api_key``,
+    ``embedding_custom_model``.
+    """
+
+    def __init__(self):
+        self.client = AsyncOpenAI(
+            api_key=settings.embedding_custom_api_key or "not-needed",
+            base_url=settings.embedding_custom_base_url.rstrip("/"),
+        )
+        self.model = settings.embedding_custom_model or "text-embedding-3-small"
+
+    async def embed(self, text: str) -> list[float]:
+        try:
+            response = await self.client.embeddings.create(
+                model=self.model, input=text[:8000],
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            logger.error(f"Custom embedding failed: {e}")
+            raise
+
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        try:
+            truncated = [t[:8000] for t in texts]
+            response = await self.client.embeddings.create(
+                model=self.model, input=truncated,
+            )
+            return [d.embedding for d in response.data]
+        except Exception as e:
+            logger.error(f"Custom batch embedding failed: {e}")
+            raise
 
 
 class OpenAIEmbeddingProvider(BaseEmbeddingProvider):

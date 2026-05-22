@@ -4,6 +4,28 @@ All notable changes to the Article Processor project.
 
 ---
 
+## [0.2.5] — 2025-07-22
+
+### Changed (breaking)
+
+- **Split AI provider into separate LLM and Embedding providers** — you can now use different backends for chat/extraction and embeddings (e.g. Anthropic for LLM + OpenAI for embeddings, or Ollama for LLM + OpenAI cloud for embeddings).
+- **Merged custom provider options** — the two `custom_openai` / `custom_anthropic` options are now a single "Custom" provider with a protocol selector (OpenAI-compatible / Anthropic-compatible).
+- **Renamed env vars**: `AI_PROVIDER` → `LLM_PROVIDER`; `CUSTOM_API_BASE` → `LLM_CUSTOM_BASE_URL`; etc. Old vars are auto-migrated on save.
+- **Settings page** now has tabbed subpages: **LLM** / **Embeddings** / **General** for clear separation of concerns.
+
+### Added
+
+- **GitHub Actions CI** (`.github/workflows/ci.yml`) — backend pytest + frontend build on push/PR.
+- **CI badge** in README.
+- **Provider documentation** in README with examples for Ollama, LiteLLM, OpenAI, Anthropic.
+
+### Fixed
+
+- Custom providers now read from the correct split config fields.
+- `CustomEmbeddingProvider` added for custom embedding endpoints.
+
+---
+
 ## [0.2.4] — 2025-07-22
 
 ### Added
