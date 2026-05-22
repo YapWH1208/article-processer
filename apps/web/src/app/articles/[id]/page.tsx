@@ -590,8 +590,8 @@ function MarkdownReader({ text, onSelect }: { text: string; onSelect: (t: string
 
   return (
     <div onMouseUp={handleMouseUp} className="relative">
-      <div className="prose prose-sm dark:prose-invert max-w-none
-        prose-headings:scroll-mt-20 prose-a:text-primary prose-code:bg-muted prose-code:px-1 prose-code:rounded prose-pre:bg-muted prose-img:rounded-lg">
+      <div className="prose prose-sm dark:prose-invert max-w-none font-serif
+        prose-headings:scroll-mt-20 prose-headings:font-sans prose-a:text-primary prose-code:bg-muted prose-code:px-1 prose-code:rounded prose-code:font-mono prose-pre:bg-muted prose-img:rounded-lg">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>
           {text}
         </ReactMarkdown>
