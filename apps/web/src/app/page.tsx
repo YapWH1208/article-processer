@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { FileText, Upload, CheckCircle2, AlertCircle, Clock, ArrowRight, Sparkles, Search } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -95,7 +96,7 @@ export default function DashboardPage() {
             <div className="mt-4 max-w-md">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <input
+                <Input
                   type="text"
                   value={globalQuery}
                   onChange={(e) => setGlobalQuery(e.target.value)}
@@ -105,7 +106,7 @@ export default function DashboardPage() {
                     }
                   }}
                   placeholder="Search across all article content..."
-                  className="w-full h-10 pl-9 pr-4 rounded-lg border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                  className="pl-9 h-10"
                 />
               </div>
             </div>
