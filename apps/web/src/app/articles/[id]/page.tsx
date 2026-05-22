@@ -10,7 +10,7 @@ import {
   FileText, MessageCircle, BarChart3, Info, ScrollText, Loader2, Send,
   RotateCw, Download, AlertCircle, Trash2, Archive, ArchiveRestore, Plus,
   PanelRightClose, PanelRightOpen, X, Wand2, ArrowLeft, ChevronRight,
-  Hash, Calendar, File, Tag,
+  Calendar,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -428,8 +428,19 @@ export default function ArticleDetailPage() {
                           <div className="space-y-4">
                             <div className="space-y-2 text-sm">
                               {[
-                                ["ID",article.id,Hash],["Filename",article.original_filename,File],["Source",article.source_type.toUpperCase(),FileText],["Status",article.status,Info],["Archived",article.is_archived?"Yes":"No",Archive],["Created",new Date(article.created_at).toLocaleString(),Calendar],["Updated",new Date(article.updated_at).toLocaleString(),Calendar]
-                              ].map(([l,v,Icon])=><div key={l as string} className="flex items-center justify-between py-1.5 border-b border-border/50"><span className="text-muted-foreground flex items-center gap-2">{(Icon as any) && <Icon className="h-3.5 w-3.5 opacity-60"/>}{l as string}</span><span className="font-medium text-right max-w-[60%] truncate">{v as string}</span></div>)}
+                                ["ID", String(article.id), <Info key="id" className="h-3.5 w-3.5 opacity-60" />],
+                                ["Filename", article.original_filename, <FileText key="fn" className="h-3.5 w-3.5 opacity-60" />],
+                                ["Source", article.source_type.toUpperCase(), <ScrollText key="src" className="h-3.5 w-3.5 opacity-60" />],
+                                ["Status", article.status, <BarChart3 key="st" className="h-3.5 w-3.5 opacity-60" />],
+                                ["Archived", article.is_archived ? "Yes" : "No", <Archive key="ar" className="h-3.5 w-3.5 opacity-60" />],
+                                ["Created", new Date(article.created_at).toLocaleString(), <Calendar key="cr" className="h-3.5 w-3.5 opacity-60" />],
+                                ["Updated", new Date(article.updated_at).toLocaleString(), <Calendar key="up" className="h-3.5 w-3.5 opacity-60" />],
+                              ].map(([label, value, icon]) => (
+                                <div key={label as string} className="flex items-center justify-between py-1.5 border-b border-border/50">
+                                  <span className="text-muted-foreground flex items-center gap-2">{icon}{label as string}</span>
+                                  <span className="font-medium text-right max-w-[60%] truncate">{value as string}</span>
+                                </div>
+                              ))}
                             </div>
 
                             {/* Processing Jobs */}
