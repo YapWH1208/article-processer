@@ -41,6 +41,9 @@ export default function ArticlesPage() {
   const [sortBy, setSortBy] = useState("created_at");
   const [sortOrder, setSortOrder] = useState("desc");
 
+  // Force-refetch counter (setPage(1) is a no-op when already on page 1)
+  const [refreshKey, setRefreshKey] = useState(0);
+
   // Batch selection
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [batchAction, setBatchAction] = useState<string | null>(null);
@@ -73,8 +76,7 @@ export default function ArticlesPage() {
     toast.success(`${ok} article(s) updated`);
     setSelected(new Set());
     setBatchAction(null);
-    // Reload
-    setPage(1);
+    setRefreshKey((k) => k + 1);
   };
 
   const handleBatchDelete = async () => {
@@ -90,8 +92,7 @@ export default function ArticlesPage() {
     toast.success(`${ok} article(s) deleted`);
     setSelected(new Set());
     setBatchAction(null);
-    // Reload
-    setPage(1);
+    setRefreshKey((k) => k + 1);
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -112,9 +113,9 @@ export default function ArticlesPage() {
       .then((d) => { setArticles(d.articles || []); setTotal(d.total || 0); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [page, statusFilter, includeArchived, search, searchContent, sortBy, sortOrder]);
+  }, [page, statusFilter, includeArchived, search, searchContent, sortBy, sortOrder, refreshKey]);
 
-  // Reset to page 1 when filters change
+  // Reset to page 1 when filters change (but NOT on refreshKey bump)
   useEffect(() => { setPage(1); }, [search, statusFilter, includeArchived, searchContent, sortBy, sortOrder]);
 
   const statusVariant = (s: string) => {

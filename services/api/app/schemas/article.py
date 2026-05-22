@@ -11,6 +11,7 @@ class ArticleSummary(BaseModel):
     status: str
     original_filename: str
     source_type: str
+    parser_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     needs_review: bool = False
@@ -25,6 +26,7 @@ class ArticleDetail(BaseModel):
     status: str
     original_filename: str
     source_type: str
+    parser_name: Optional[str] = None
     file_hash: Optional[str] = None
     created_at: datetime
     updated_at: datetime

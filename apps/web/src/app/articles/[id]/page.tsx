@@ -30,7 +30,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
 
 interface Article {
   id: number; title: string; status: string; original_filename: string;
-  source_type: string; created_at: string; updated_at: string; is_archived: number;
+  source_type: string; parser_name?: string | null; created_at: string; updated_at: string; is_archived: number;
   processing_error?: string | null;
 }
 
@@ -431,6 +431,7 @@ export default function ArticleDetailPage() {
                                 ["ID", String(article.id), <Info key="id" className="h-3.5 w-3.5 opacity-60" />],
                                 ["Filename", article.original_filename, <FileText key="fn" className="h-3.5 w-3.5 opacity-60" />],
                                 ["Source", article.source_type.toUpperCase(), <ScrollText key="src" className="h-3.5 w-3.5 opacity-60" />],
+                                ["Parser", article.parser_name || article.source_type?.toUpperCase(), <Wand2 key="pr" className="h-3.5 w-3.5 opacity-60" />],
                                 ["Status", article.status, <BarChart3 key="st" className="h-3.5 w-3.5 opacity-60" />],
                                 ["Archived", article.is_archived ? "Yes" : "No", <Archive key="ar" className="h-3.5 w-3.5 opacity-60" />],
                                 ["Created", new Date(article.created_at).toLocaleString(), <Calendar key="cr" className="h-3.5 w-3.5 opacity-60" />],

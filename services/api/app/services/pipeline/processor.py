@@ -111,6 +111,9 @@ async def run_pipeline(article_id: int) -> None:
         if not parser:
             raise ValueError(f"No parser for source type: {article.source_type}")
 
+        # Track which parser was used
+        article.parser_name = parser.__class__.__name__
+
         parse_result = await parser.parse(Path(article.storage_path))
         markdown = normalize_markdown(parse_result.markdown)
         article.title = parse_result.title or article.original_filename

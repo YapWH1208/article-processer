@@ -70,6 +70,7 @@ class Article(Base):
     original_filename = Column(String(1024), nullable=False)
     file_hash = Column(String(64), nullable=True, index=True)
     source_type = Column(String(16), nullable=False)  # pdf, zip, html, md, txt
+    parser_name = Column(String(64), nullable=True)   # e.g. PdfParser, DoclingAdapter, HtmlParser
     storage_path = Column(String(2048), nullable=False)
     markdown_path = Column(String(2048), nullable=True)
     markdown_text = Column(Text, nullable=True)
