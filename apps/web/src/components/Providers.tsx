@@ -24,11 +24,21 @@ function ThemeToggle() {
   const [dark, setDark] = useState(false);
 
   useEffect(() => {
-    const stored = localStorage.getItem("theme");
-    if (stored === "dark" || (!stored && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
-      document.documentElement.classList.add("dark");
-      setDark(true);
-    }
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      const stored = localStorage.getItem("theme");
+      if (stored === "dark" || (!stored && mq.matches)) {
+        document.documentElement.classList.add("dark");
+        setDark(true);
+      } else {
+        document.documentElement.classList.remove("dark");
+        setDark(false);
+      }
+    };
+    apply();
+    const onChange = () => { if (!localStorage.getItem("theme")) apply(); };
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
   }, []);
 
   const toggle = () => {
