@@ -47,18 +47,25 @@ export async function uploadFile(file: File) {
 export async function listArticles(params?: {
   status?: string;
   search?: string;
+  search_content?: string;
   skip?: number;
   limit?: number;
 }) {
   const searchParams = new URLSearchParams();
   if (params?.status) searchParams.set("status", params.status);
   if (params?.search) searchParams.set("search", params.search);
+  if (params?.search_content) searchParams.set("search_content", params.search_content);
   if (params?.skip != null) searchParams.set("skip", String(params.skip));
   if (params?.limit != null) searchParams.set("limit", String(params.limit));
   const qs = searchParams.toString();
   return apiFetch<import("./types").ArticleListResponse>(
     `/articles${qs ? `?${qs}` : ""}`
   );
+}
+
+/** Shorthand for full-text content search across article bodies. */
+export async function searchArticles(query: string, limit = 50) {
+  return listArticles({ search_content: query, limit });
 }
 
 export async function getArticle(id: number) {
