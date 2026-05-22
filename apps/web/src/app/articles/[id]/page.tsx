@@ -21,7 +21,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { sendChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill } from "@/lib/api";
+import { sendChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs } from "@/lib/api";
 import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
 
@@ -40,6 +40,7 @@ interface SkillDef {
 
 interface ChatMessage { role: string; content: string; citations_json?: string; }
 interface Citation { chunk_id: number; section_title: string; snippet: string; page_start?: number; }
+interface JobInfo { id: number; status: string; current_step: string | null; logs: { step: string; timestamp: string; message: string }[] | null; error: string | null; created_at: string; completed_at: string | null; }
 
 export default function ArticleDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -72,6 +73,9 @@ export default function ArticleDetailPage() {
   const [runningSkill, setRunningSkill] = useState<string | null>(null);
   const [skillResult, setSkillResult] = useState<{ skill: string; result: unknown } | null>(null);
 
+  // Jobs
+  const [jobs, setJobs] = useState<JobInfo[]>([]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -96,6 +100,8 @@ export default function ArticleDetailPage() {
       }
       // Load available skills
       listSkills().then((s) => setSkills(s.skills || [])).catch(() => {});
+      // Load job history
+      getArticleJobs(articleId).then((j) => setJobs(Array.isArray(j) ? j : [])).catch(() => {});
     } catch { /* handled */ }
     finally { setLoading(false); }
   }, [articleId]);
@@ -421,9 +427,46 @@ export default function ArticleDetailPage() {
                     <Card className="h-full flex flex-col">
                       <CardHeader className="shrink-0"><CardTitle className="text-lg">Metadata</CardTitle></CardHeader>
                       <CardContent className="flex-1 min-h-0 p-4">
-                        <div className="space-y-2 text-sm">
-                          {[["ID",article.id],["Filename",article.original_filename],["Source",article.source_type.toUpperCase()],["Status",article.status],["Archived",article.is_archived?"Yes":"No"],["Created",new Date(article.created_at).toLocaleString()],["Updated",new Date(article.updated_at).toLocaleString()]].map(([l,v])=><div key={l as string} className="flex justify-between py-1.5 border-b border-border/50"><span className="text-muted-foreground">{l}</span><span className="font-medium text-right max-w-[60%] truncate">{v}</span></div>)}
-                        </div>
+                        <ScrollArea className="h-full">
+                          <div className="space-y-4">
+                            <div className="space-y-2 text-sm">
+                              {[["ID",article.id],["Filename",article.original_filename],["Source",article.source_type.toUpperCase()],["Status",article.status],["Archived",article.is_archived?"Yes":"No"],["Created",new Date(article.created_at).toLocaleString()],["Updated",new Date(article.updated_at).toLocaleString()]].map(([l,v])=><div key={l as string} className="flex justify-between py-1.5 border-b border-border/50"><span className="text-muted-foreground">{l}</span><span className="font-medium text-right max-w-[60%] truncate">{v}</span></div>)}
+                            </div>
+
+                            {/* Processing Jobs */}
+                            {jobs.length > 0 && (
+                              <>
+                                <Separator />
+                                <div>
+                                  <h4 className="font-semibold text-sm mb-2">Processing Jobs ({jobs.length})</h4>
+                                  <div className="space-y-2">
+                                    {jobs.map((j) => (
+                                      <div key={j.id} className="p-3 rounded-md bg-muted/50 text-xs">
+                                        <div className="flex items-center justify-between mb-1">
+                                          <Badge variant={j.status === "completed" ? "default" : j.status === "failed" ? "destructive" : "secondary"} className="text-[10px]">{j.status}</Badge>
+                                          <span className="text-muted-foreground">{new Date(j.created_at).toLocaleString()}</span>
+                                        </div>
+                                        {j.current_step && <p className="text-muted-foreground">Step: {j.current_step}</p>}
+                                        {j.error && <p className="text-destructive mt-1">{j.error}</p>}
+                                        {j.logs && j.logs.length > 0 && (
+                                          <div className="mt-2 space-y-0.5">
+                                            {j.logs.slice(-5).map((l, i) => (
+                                              <div key={i} className="flex gap-2 text-[10px] text-muted-foreground">
+                                                <span className="shrink-0">{new Date(l.timestamp).toLocaleTimeString()}</span>
+                                                <span className="capitalize">{l.step.replace(/_/g, " ")}</span>
+                                                <span>— {l.message}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </ScrollArea>
                       </CardContent>
                     </Card>
                   </TabsContent>
