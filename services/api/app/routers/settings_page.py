@@ -1,7 +1,9 @@
 """Settings router — read / write application configuration via .env file."""
 
+import json
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.core.config import reload_settings, DOTENV_PATH
@@ -238,3 +240,78 @@ def update_settings(update: SettingsUpdate):
         logger.error(f"Settings reload failed: {e}")
 
     return get_settings()
+
+
+# ── Export / Import ───────────────────────────────────────────────────────
+
+class SettingsExportResponse(SettingsResponse):
+    """Same as SettingsResponse but all keys are unmasked for export."""
+    openai_api_key: str          # unmasked
+    anthropic_api_key: str       # unmasked
+    llm_custom_api_key: str      # unmasked
+    embedding_custom_api_key: str  # unmasked
+
+
+@router.get("/export", response_model=SettingsExportResponse)
+def export_settings():
+    """Export all settings as JSON — keys unmasked for cross-platform transfer."""
+    cfg = _fresh_settings()
+    return SettingsExportResponse(
+        llm_provider=cfg.llm_provider,
+        llm_custom_protocol=cfg.llm_custom_protocol,
+        llm_custom_base_url=cfg.llm_custom_base_url,
+        llm_custom_api_key=cfg.llm_custom_api_key,
+        llm_custom_model=cfg.llm_custom_model,
+        openai_api_key=cfg.openai_api_key,
+        openai_model=cfg.openai_model,
+        anthropic_api_key=cfg.anthropic_api_key,
+        anthropic_model=cfg.anthropic_model,
+        embedding_provider=cfg.embedding_provider,
+        embedding_custom_base_url=cfg.embedding_custom_base_url,
+        embedding_custom_api_key=cfg.embedding_custom_api_key,
+        embedding_custom_model=cfg.embedding_custom_model,
+        openai_embedding_model=cfg.openai_embedding_model,
+        use_mock_ai=cfg.use_mock_ai,
+        max_upload_mb=cfg.max_upload_mb,
+        host=cfg.host, port=cfg.port,
+        env_path=str(DOTENV_PATH),
+    )
+
+
+@router.post("/import")
+async def import_settings(file: UploadFile = File(...)):
+    """Import settings from a previously exported JSON file."""
+    if not file.filename or not file.filename.endswith(".json"):
+        raise HTTPException(400, "Please upload a .json settings file")
+
+    try:
+        content = await file.read()
+        data = json.loads(content.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(400, "Invalid JSON file")
+
+    # Validate by running through SettingsUpdate schema
+    try:
+        update = SettingsUpdate(
+            llm_provider=data.get("llm_provider"),
+            llm_custom_protocol=data.get("llm_custom_protocol"),
+            llm_custom_base_url=data.get("llm_custom_base_url"),
+            llm_custom_api_key=data.get("llm_custom_api_key"),
+            llm_custom_model=data.get("llm_custom_model"),
+            openai_api_key=data.get("openai_api_key"),
+            openai_model=data.get("openai_model"),
+            anthropic_api_key=data.get("anthropic_api_key"),
+            anthropic_model=data.get("anthropic_model"),
+            embedding_provider=data.get("embedding_provider"),
+            embedding_custom_base_url=data.get("embedding_custom_base_url"),
+            embedding_custom_api_key=data.get("embedding_custom_api_key"),
+            embedding_custom_model=data.get("embedding_custom_model"),
+            openai_embedding_model=data.get("openai_embedding_model"),
+            use_mock_ai=data.get("use_mock_ai"),
+            max_upload_mb=data.get("max_upload_mb"),
+        )
+    except Exception as e:
+        raise HTTPException(400, f"Invalid settings data: {e}")
+
+    # Apply — same logic as PUT
+    return update_settings(update)

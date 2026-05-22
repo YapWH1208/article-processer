@@ -4,6 +4,31 @@ All notable changes to the Article Processor project.
 
 ---
 
+## [0.2.6] — 2025-07-22
+
+### Added
+
+- **Article archive/delete** — soft-archive articles to hide them from the default list, or permanently delete with storage cleanup.
+- **Side-by-side chat** — the article detail page now shows content (Reader/Summary/Graph/Metadata) on the left and chat on the right, always visible. Collapsible on desktop, slide-out on mobile.
+- **Add to Chat** — select text in the Reader and click "Add to Chat" to inject context; click "Ask" buttons on summary sections to ask targeted questions about specific claims, methodology, etc.
+- **Settings export/import** — download all settings as JSON for cross-platform transfer; upload a previously exported JSON to restore configuration.
+
+### Changed
+
+- Article detail layout: chat is now always visible (side-by-side) instead of hidden behind a tab.
+- Articles list: "Show Archived" toggle button to include/exclude archived articles.
+- Archived articles show an "Archived" badge and reduced opacity in lists.
+
+### Backend
+
+- `is_archived` column added to Article model (Alembic migration).
+- `POST /articles/{id}/archive`, `POST /articles/{id}/unarchive`, `DELETE /articles/{id}` endpoints.
+- `GET /articles?include_archived=true` query param.
+- `GET /settings/export`, `POST /settings/import` endpoints.
+- `ArticleSummary` and `ArticleDetail` schemas now include `is_archived`.
+
+---
+
 ## [0.2.5] — 2025-07-22
 
 ### Changed (breaking)

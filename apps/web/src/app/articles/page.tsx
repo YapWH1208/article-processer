@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Search, Filter, FileText, ArrowRight } from "lucide-react";
+import { Search, Filter, FileText, ArrowRight, Archive } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
 interface Article {
   id: number; title: string; status: string;
   original_filename: string; source_type: string; created_at: string;
+  is_archived: number;
 }
 
 export default function ArticlesPage() {
@@ -24,13 +25,16 @@ export default function ArticlesPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [includeArchived, setIncludeArchived] = useState(false);
 
   useEffect(() => {
-    fetch(`${API_BASE}/articles`)
+    const params = new URLSearchParams();
+    if (includeArchived) params.set("include_archived", "true");
+    fetch(`${API_BASE}/articles?${params.toString()}`)
       .then((r) => r.json())
       .then((d) => { setArticles(d.articles || []); setFiltered(d.articles || []); })
       .catch(() => {}).finally(() => setLoading(false));
-  }, []);
+  }, [includeArchived]);
 
   useEffect(() => {
     let result = articles;
@@ -56,7 +60,7 @@ export default function ArticlesPage() {
       </FadeIn>
 
       <FadeIn delay={0.1}>
-        <div className="flex gap-3 flex-wrap">
+        <div className="flex gap-3 flex-wrap items-center">
           <div className="relative flex-1 min-w-[200px] max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input placeholder="Search articles..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
@@ -76,6 +80,15 @@ export default function ArticlesPage() {
               <SelectItem value="failed">Failed</SelectItem>
             </SelectContent>
           </Select>
+          <Button
+            variant={includeArchived ? "secondary" : "outline"}
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setIncludeArchived(!includeArchived)}
+          >
+            <Archive className="h-3.5 w-3.5" />
+            {includeArchived ? "Hide Archived" : "Show Archived"}
+          </Button>
         </div>
       </FadeIn>
 
@@ -100,7 +113,7 @@ export default function ArticlesPage() {
             <StaggerItem key={a.id}>
               <Link href={`/articles/${a.id}`}>
                 <HoverCard>
-                  <Card className="hover:bg-accent/50 transition-colors cursor-pointer group">
+                  <Card className={`hover:bg-accent/50 transition-colors cursor-pointer group ${a.is_archived === 1 ? "opacity-60" : ""}`}>
                     <CardContent className="flex items-center justify-between py-4">
                       <div className="flex-1 min-w-0 mr-4">
                         <p className="font-medium truncate group-hover:text-primary transition-colors">
@@ -114,14 +127,17 @@ export default function ArticlesPage() {
                           <span>{new Date(a.created_at).toLocaleDateString()}</span>
                         </div>
                       </div>
-                      <Badge variant={statusVariant(a.status)} className="shrink-0">
-                        {!["completed", "failed"].includes(a.status) ? (
-                          <span className="flex items-center gap-1.5">
-                            <span className="animate-pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-current" />
-                            {a.status}
-                          </span>
-                        ) : a.status}
-                      </Badge>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {a.is_archived === 1 && <Badge variant="outline" className="text-muted-foreground text-[10px]">Archived</Badge>}
+                        <Badge variant={statusVariant(a.status)}>
+                          {!["completed", "failed"].includes(a.status) ? (
+                            <span className="flex items-center gap-1.5">
+                              <span className="animate-pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-current" />
+                              {a.status}
+                            </span>
+                          ) : a.status}
+                        </Badge>
+                      </div>
                     </CardContent>
                   </Card>
                 </HoverCard>

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
-import { Save, RotateCcw, Brain, Cpu, Settings2, Server } from "lucide-react";
+import { Save, RotateCcw, Brain, Cpu, Settings2, Server, Download, Upload } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -131,6 +131,39 @@ export default function SettingsPage() {
   const [maxUploadMb, setMaxUploadMb] = useState(50);
 
   useEffect(() => { loadSettings(); }, []);
+
+  // ── Export/Import ─────────────────────────────────────────────────────
+
+  const handleExport = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/settings/export`);
+      if (!res.ok) throw new Error("Export failed");
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "article-processor-settings.json";
+      a.click(); URL.revokeObjectURL(url);
+      toast.success("Settings exported");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Export failed");
+    }
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${API_BASE}/settings/import`, { method: "POST", body: formData });
+      if (!res.ok) throw new Error((await res.json()).detail || "Import failed");
+      toast.success("Settings imported — reloading...");
+      await loadSettings();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Import failed");
+    }
+  };
 
   const loadSettings = async () => {
     setLoading(true);
@@ -387,10 +420,15 @@ export default function SettingsPage() {
         </AnimatePresence>
       </Tabs>
 
-      {/* Save */}
-      <div className="flex gap-3">
+      {/* Actions */}
+      <div className="flex gap-3 flex-wrap">
         <Button onClick={handleSave} disabled={saving} className="gap-2"><Save className="h-4 w-4"/>{saving?"Saving...":"Save Settings"}</Button>
         <Button variant="outline" onClick={loadSettings} className="gap-2"><RotateCcw className="h-4 w-4"/>Reset</Button>
+        <Button variant="outline" onClick={handleExport} className="gap-2"><Download className="h-4 w-4"/>Export</Button>
+        <label>
+          <Button variant="outline" className="gap-2 cursor-pointer" asChild><span><Upload className="h-4 w-4"/>Import</span></Button>
+          <input type="file" accept=".json" className="hidden" onChange={handleImport}/>
+        </label>
       </div>
     </div>
   );

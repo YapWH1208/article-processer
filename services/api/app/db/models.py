@@ -77,6 +77,7 @@ class Article(Base):
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     processing_error = Column(Text, nullable=True)
     needs_review = Column(Integer, default=0)
+    is_archived = Column(Integer, default=0)  # 0 = active, 1 = archived
 
     # Relationships
     metadata_items = relationship("ArticleMetadata", back_populates="article", uselist=False, cascade="all, delete-orphan")

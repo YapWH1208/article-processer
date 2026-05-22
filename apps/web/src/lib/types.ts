@@ -22,6 +22,7 @@ export interface ArticleDetail {
   updated_at: string;
   processing_error: string | null;
   needs_review: boolean;
+  is_archived: number;
 }
 
 export interface ArticleListResponse {

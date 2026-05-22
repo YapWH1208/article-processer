@@ -14,6 +14,7 @@ class ArticleSummary(BaseModel):
     created_at: datetime
     updated_at: datetime
     needs_review: bool = False
+    is_archived: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -29,6 +30,7 @@ class ArticleDetail(BaseModel):
     updated_at: datetime
     processing_error: Optional[str] = None
     needs_review: bool = False
+    is_archived: int = 0
 
     model_config = {"from_attributes": True}
 

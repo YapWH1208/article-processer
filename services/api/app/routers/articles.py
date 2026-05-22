@@ -1,7 +1,10 @@
-"""Articles router — list, detail, markdown, extraction, graph, reprocess."""
+"""Articles router — list, detail, markdown, extraction, graph, reprocess, archive, delete."""
 
 import json
 import logging
+import os
+import shutil
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -32,12 +35,16 @@ router = APIRouter()
 def list_articles(
     status: str | None = None,
     search: str | None = None,
+    include_archived: bool = False,
     skip: int = 0,
     limit: int = 50,
     db: Session = Depends(get_db),
 ):
-    """List all articles with optional filtering."""
+    """List articles with optional filtering. Archived articles hidden by default."""
     q = db.query(Article)
+
+    if not include_archived:
+        q = q.filter(Article.is_archived == 0)
 
     if status:
         q = q.filter(Article.status == status)
@@ -207,3 +214,56 @@ def reprocess_article(article_id: int, db: Session = Depends(get_db)):
         job_id=job.id,
         status="reprocessing",
     )
+
+
+@router.post("/{article_id}/archive")
+def archive_article(article_id: int, db: Session = Depends(get_db)):
+    """Soft-archive an article (hide from default list)."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+    article.is_archived = 1
+    db.commit()
+    return {"article_id": article_id, "is_archived": True}
+
+
+@router.post("/{article_id}/unarchive")
+def unarchive_article(article_id: int, db: Session = Depends(get_db)):
+    """Restore an archived article."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+    article.is_archived = 0
+    db.commit()
+    return {"article_id": article_id, "is_archived": False}
+
+
+@router.delete("/{article_id}")
+def delete_article(article_id: int, db: Session = Depends(get_db)):
+    """Hard-delete an article and its storage files."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    # Collect paths to clean up
+    paths_to_remove: list[str] = []
+    if article.storage_path and os.path.exists(article.storage_path):
+        paths_to_remove.append(article.storage_path)
+    if article.markdown_path and os.path.exists(article.markdown_path):
+        paths_to_remove.append(article.markdown_path)
+
+    # Delete from DB (cascade removes everything)
+    db.delete(article)
+    db.commit()
+
+    # Clean up files on disk
+    for path in paths_to_remove:
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+            elif os.path.isdir(path):
+                shutil.rmtree(path)
+        except OSError as e:
+            logger.warning(f"Failed to remove {path}: {e}")
+
+    return {"article_id": article_id, "deleted": True}
