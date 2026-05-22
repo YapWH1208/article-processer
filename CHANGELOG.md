@@ -4,6 +4,47 @@ All notable changes to the Article Processor project.
 
 ---
 
+## [0.2.7] — 2025-07-22
+
+### UX Enhancements
+
+- **Server-side pagination** — Article list loads 20 per page with page controls (Prev/Next + page numbers), replacing unbounded scroll.
+- **Global content search** — Dashboard hero search bar searches across all article Markdown bodies via `?q=` param, with full-text SQLite matching.
+- **Chat history persistence** — Chat messages saved server-side and reloaded on page refresh.
+- **Processing error display** — Failed articles show a red callout with the error message directly in the Reader tab.
+- **ReactMarkdown rendering** — Reader tab now renders formatted headings, bold, links, tables, and code blocks.
+- **Skills tab** — Built-in AI skills (summary, methodology, experiment extraction, literature review, reviewer critique) with Run button and inline results.
+- **Breadcrumb navigation** — `← Articles > Title` on article detail header.
+- **Sort controls** — Article list sort dropdown: Newest/Oldest first, Title A–Z/Z–A, Status. Backend `sort_by`/`sort_order` params with safe allowlist.
+- **Test Connection** — Settings page button validates LLM + embedding provider configs via minimal API calls before saving.
+- **Batch operations** — Checkbox selection, Select All, batch archive/restore, and batch delete with confirmation dialog on articles list.
+- **Processing job history** — Collapsible job list in Metadata tab showing steps, timestamps, and errors.
+
+### Visual Design
+
+- **Semantic color tokens** — `--success`, `--warning`, `--info` CSS vars with dark-mode variants; dashboard stat cards use theme-safe tokens.
+- **Nav prefix matching** — Navigation highlights parent route for sub-pages (e.g. `/articles/123` highlights Articles).
+- **Graph tab upgrade** — Entities grouped by type with color-coded badges; relationships rendered as directional cards with type badges.
+- **Custom fonts** — Inter (sans) + Source Serif 4 (serif for Reader prose) via `next/font/google`.
+- **Formal type scale** — `h1`–`h4`, `body`, `caption` font size tokens in Tailwind config.
+- **Dark mode OS listener** — App reacts to OS theme changes in real time when no explicit preference is set.
+- **CSS transition tokens** — `--ease-default`/`--ease-in`/`--ease-out` and duration tokens mapped to Tailwind.
+- **Favicon** — Custom SVG favicon (blue document icon).
+- **Empty state animations** — Gradient backgrounds, larger floating icons, better typography on empty dashboard/articles.
+- **Metadata tab icons** — Contextual icons per metadata field (Calendar, FileText, Archive, etc.).
+- **Source-type badges** — Article list rows show PDF/HTML/MD icon badges.
+- **Skills structured results** — Key-value card layout replaces raw JSON output.
+- **Suspense loading** — Root layout Suspense boundary with pulsing dot fallback for every route transition.
+
+### Fixed
+
+- **CI** — Changed `pip install -e ".[test]"` to `.[dev]` to match pyproject.toml extras definition.
+- **Syntax error** — `_SORT_COLUMNS` dict moved above `@router.get` decorator in `articles.py`.
+- **Missing import** — `settings` singleton imported in `settings_page.py` for Test Connection endpoint.
+- **Type mismatch** — `JobInfo.logs` field type corrected for API response compatibility.
+
+---
+
 ## [0.2.6] — 2025-07-22
 
 ### Added

@@ -54,9 +54,15 @@ cp .env.example apps/web/.env.local
 - **Document Ingestion**: Upload PDF, ZIP (containing PDFs/HTML/MD/TXT), HTML, Markdown, or plain text
 - **Automatic Parsing**: Convert documents to canonical Markdown with structure preservation
 - **AI Extraction**: Extract structured research information (authors, methodology, results, claims, etc.)
-- **RAG Q&A**: Ask questions about articles with cited answers
-- **Graph Analysis**: Entity and relationship extraction for article connections
-- **Export**: Export summaries as Markdown or JSON
+- **RAG Q&A**: Ask questions about articles with cited answers, side-by-side chat with citation sources, persistent chat history
+- **Built-in AI Skills**: Research summary, methodology extraction, experiment extraction, literature review notes, reviewer critique — all with structured results
+- **Graph Analysis**: Entity and relationship extraction with color-coded type visualization and directional relationship cards
+- **Batch Operations**: Select multiple articles for bulk archive/restore or delete
+- **Global Search**: Full-text search across all article content from the dashboard
+- **Export**: Markdown, JSON, and BibTeX export options
+- **Settings**: Configure LLM/embedding providers, test connections, import/export settings as JSON
+- **Dark Mode**: Full light/dark theme with system preference detection and live OS theme switching
+- **Pagination & Sort**: Server-side pagination with sort controls (newest, oldest, title, status)
 
 ## Testing
 
@@ -158,21 +164,20 @@ All settings can also be configured from the Settings page in the UI (`/settings
 
 ## Next Steps
 
-- Integrate Docling / Marker / GROBID for improved PDF parsing
-- Add OCR support (Tesseract/PaddleOCR)
 - PostgreSQL + pgvector for production vector search
 - Neo4j sync for graph analysis
 - MCP server support for tool extensibility
-- Multi-article comparison
-- Zotero/BibTeX import/export
-- Production authentication
+- Multi-article comparison view
+- Graph visualization (force-directed layout)
 - Cloud object storage (S3)
+- Real-time processing status (WebSocket/SSE)
+- Advanced PDF parsing (Docling/Marker/GROBID)
 
 ## CI/CD
 
 GitHub Actions runs on every push and PR:
 
-- **Backend**: Python 3.12, `pip install -e ".[test]"`, `pytest`
+- **Backend**: Python 3.12, `pip install -e ".[dev]"`, `pytest`
 - **Frontend**: Node 22, `npm ci`, `npm run build`
 
 See `.github/workflows/ci.yml`.

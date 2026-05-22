@@ -2,6 +2,15 @@
 setlocal enabledelayedexpansion
 title Article Processor — Quick Start
 
+REM ── Check for --skip-install flag ───────────────────────────────────
+set "SKIP_INSTALL=0"
+for %%a in (%*) do (
+    if /i "%%a"=="--skip-install" set "SKIP_INSTALL=1"
+    if /i "%%a"=="-S" set "SKIP_INSTALL=1"
+    if /i "%%a"=="--help" (echo Usage: start.bat [--skip-install] & exit /b 0)
+    if /i "%%a"=="-h" (echo Usage: start.bat [--skip-install] & exit /b 0)
+)
+
 echo.
 echo   ================================================
 echo     Article Processor — Quick Start (Windows)
@@ -51,8 +60,12 @@ if not exist "%BACKEND_DIR%\.venv" (
     python -m venv "%BACKEND_DIR%\.venv"
 )
 
-echo    Installing Python dependencies...
-"%BACKEND_DIR%\.venv\Scripts\pip.exe" install -e "%BACKEND_DIR%[dev]" -q
+if "%SKIP_INSTALL%"=="1" (
+    echo    [skip] Skipping pip install (--skip-install^)
+) else (
+    echo    Installing Python dependencies...
+    "%BACKEND_DIR%\.venv\Scripts\pip.exe" install -e "%BACKEND_DIR%[dev]" -q
+)
 
 REM Create .env from example if missing
 if not exist "%BACKEND_DIR%\.env" (
@@ -74,9 +87,13 @@ echo [*] Setting up frontend...
 
 set "FRONTEND_DIR=%SCRIPT_DIR%apps\web"
 
-if not exist "%FRONTEND_DIR%\node_modules" (
+if "%SKIP_INSTALL%"=="1" (
+    echo    [skip] Skipping npm install (--skip-install^)
+) else if not exist "%FRONTEND_DIR%\node_modules" (
     echo    Installing npm dependencies...
     call npm --prefix "%FRONTEND_DIR%" install --silent
+) else (
+    echo    Node modules already present
 )
 
 REM Create .env.local from example if missing

@@ -2,6 +2,15 @@
 set -euo pipefail
 
 # ── Article Processor — Quick Start Script (macOS / Linux) ──────────────
+# Usage: ./start.sh [--skip-install]
+
+SKIP_INSTALL=false
+for arg in "$@"; do
+  case "$arg" in
+    --skip-install|-S) SKIP_INSTALL=true ;;
+    --help|-h) echo "Usage: ./start.sh [--skip-install]"; exit 0 ;;
+  esac
+done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -49,8 +58,13 @@ if [ ! -d "$BACKEND_DIR/.venv" ]; then
 fi
 
 source "$BACKEND_DIR/.venv/bin/activate"
-echo -e "   Installing Python dependencies..."
-pip install -e "$BACKEND_DIR/.[dev]" -q
+
+if [ "$SKIP_INSTALL" = false ]; then
+    echo -e "   Installing Python dependencies..."
+    pip install -e "$BACKEND_DIR/.[dev]" -q
+else
+    echo -e "   ⏭ Skipping pip install (--skip-install)"
+fi
 
 # Create .env from example if missing
 if [ ! -f "$BACKEND_DIR/.env" ]; then
@@ -63,8 +77,7 @@ mkdir -p "$SCRIPT_DIR/data"
 
 echo -e "   Running database migrations..."
 cd "$BACKEND_DIR"
-alembic -c "$BACKEND_DIR/alembic.ini" upgrade head 2>/dev/null || \
-    alembic -c "$SCRIPT_DIR/services/api/alembic.ini" upgrade head
+alembic upgrade head 2>/dev/null || alembic -c "$BACKEND_DIR/alembic.ini" upgrade head
 cd "$SCRIPT_DIR"
 
 # ── Frontend setup ───────────────────────────────────────────────────────
@@ -74,9 +87,15 @@ echo -e "${YELLOW}📦 Setting up frontend...${NC}"
 
 FRONTEND_DIR="$SCRIPT_DIR/apps/web"
 
-if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
-    echo -e "   Installing npm dependencies..."
-    npm --prefix "$FRONTEND_DIR" install --silent
+if [ "$SKIP_INSTALL" = false ]; then
+    if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
+        echo -e "   Installing npm dependencies..."
+        npm --prefix "$FRONTEND_DIR" install --silent
+    else
+        echo -e "   Node modules already present"
+    fi
+else
+    echo -e "   ⏭ Skipping npm install (--skip-install)"
 fi
 
 # Create .env.local from example if missing
