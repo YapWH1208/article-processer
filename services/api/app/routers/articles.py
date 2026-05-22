@@ -32,11 +32,21 @@ router = APIRouter()
 
 
 @router.get("", response_model=ArticleListResponse)
+# Safe sort allowlist — prevents SQL injection via dynamic column names
+_SORT_COLUMNS = {
+    "created_at": Article.created_at,
+    "title": Article.title,
+    "status": Article.status,
+    "updated_at": Article.updated_at,
+}
+
 def list_articles(
     status: str | None = None,
     search: str | None = None,
     search_content: str | None = None,
     include_archived: bool = False,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
     skip: int = 0,
     limit: int = 50,
     db: Session = Depends(get_db),
@@ -46,6 +56,8 @@ def list_articles(
     - `search`: matches title and filename (fast metadata search).
     - `search_content`: matches inside the parsed Markdown body (full-text search,
       clamped to 200 results max to keep SQLite responsive).
+    - `sort_by`: column to sort by (created_at, title, status, updated_at).
+    - `sort_order`: asc or desc.
     """
     q = db.query(Article)
 
@@ -64,8 +76,15 @@ def list_articles(
     if search_content:
         q = q.filter(Article.markdown_text.ilike(f"%{search_content}%"))
 
+    # Apply sort with allowlist validation
+    sort_col = _SORT_COLUMNS.get(sort_by, Article.created_at)
+    if sort_order == "asc":
+        q = q.order_by(sort_col.asc())
+    else:
+        q = q.order_by(sort_col.desc())
+
     total = q.count()
-    articles = q.order_by(Article.created_at.desc()).offset(skip).limit(min(limit, 200)).all()
+    articles = q.offset(skip).limit(min(limit, 200)).all()
 
     return ArticleListResponse(
         articles=[ArticleSummary.model_validate(a) for a in articles],
