@@ -21,12 +21,17 @@ interface Article {
 
 const PAGE_SIZE = 20;
 
+function getUrlParam(key: string): string {
+  if (typeof window === "undefined") return "";
+  return new URLSearchParams(window.location.search).get(key) || "";
+}
+
 export default function ArticlesPage() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [searchContent, setSearchContent] = useState("");
+  const [searchContent, setSearchContent] = useState(getUrlParam("q"));
   const [statusFilter, setStatusFilter] = useState("all");
   const [includeArchived, setIncludeArchived] = useState(false);
   const [page, setPage] = useState(1);

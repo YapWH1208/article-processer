@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { FileText, Upload, CheckCircle2, AlertCircle, Clock, ArrowRight, Sparkles } from "lucide-react";
+import { FileText, Upload, CheckCircle2, AlertCircle, Clock, ArrowRight, Sparkles, Search } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,9 +20,11 @@ interface Article {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
+  const [globalQuery, setGlobalQuery] = useState("");
 
   useEffect(() => {
     fetch(`${API_BASE}/health`)
@@ -88,6 +91,23 @@ export default function DashboardPage() {
                   Browse Library
                 </Button>
               </Link>
+            </div>
+            <div className="mt-4 max-w-md">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={globalQuery}
+                  onChange={(e) => setGlobalQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && globalQuery.trim()) {
+                      router.push(`/articles?q=${encodeURIComponent(globalQuery.trim())}`);
+                    }
+                  }}
+                  placeholder="Search across all article content..."
+                  className="w-full h-10 pl-9 pr-4 rounded-lg border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                />
+              </div>
             </div>
           </motion.div>
 
