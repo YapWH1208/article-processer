@@ -48,6 +48,8 @@ export async function listArticles(params?: {
   status?: string;
   search?: string;
   search_content?: string;
+  sort_by?: string;
+  sort_order?: string;
   skip?: number;
   limit?: number;
 }) {
@@ -55,6 +57,8 @@ export async function listArticles(params?: {
   if (params?.status) searchParams.set("status", params.status);
   if (params?.search) searchParams.set("search", params.search);
   if (params?.search_content) searchParams.set("search_content", params.search_content);
+  if (params?.sort_by) searchParams.set("sort_by", params.sort_by);
+  if (params?.sort_order) searchParams.set("sort_order", params.sort_order);
   if (params?.skip != null) searchParams.set("skip", String(params.skip));
   if (params?.limit != null) searchParams.set("limit", String(params.limit));
   const qs = searchParams.toString();

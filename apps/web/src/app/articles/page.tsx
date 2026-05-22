@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight, ArrowUpDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +35,8 @@ export default function ArticlesPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [includeArchived, setIncludeArchived] = useState(false);
   const [page, setPage] = useState(1);
+  const [sortBy, setSortBy] = useState("created_at");
+  const [sortOrder, setSortOrder] = useState("desc");
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -45,6 +47,8 @@ export default function ArticlesPage() {
     if (statusFilter !== "all") params.set("status", statusFilter);
     if (search) params.set("search", search);
     if (searchContent) params.set("search_content", searchContent);
+    params.set("sort_by", sortBy);
+    params.set("sort_order", sortOrder);
     params.set("skip", String((page - 1) * PAGE_SIZE));
     params.set("limit", String(PAGE_SIZE));
     fetch(`${API_BASE}/articles?${params.toString()}`)
@@ -52,10 +56,10 @@ export default function ArticlesPage() {
       .then((d) => { setArticles(d.articles || []); setTotal(d.total || 0); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [page, statusFilter, includeArchived, search, searchContent]);
+  }, [page, statusFilter, includeArchived, search, searchContent, sortBy, sortOrder]);
 
   // Reset to page 1 when filters change
-  useEffect(() => { setPage(1); }, [search, statusFilter, includeArchived, searchContent]);
+  useEffect(() => { setPage(1); }, [search, statusFilter, includeArchived, searchContent, sortBy, sortOrder]);
 
   const statusVariant = (s: string) => {
     if (s === "completed") return "default" as const;
@@ -113,6 +117,19 @@ export default function ArticlesPage() {
             <Archive className="h-3.5 w-3.5" />
             {includeArchived ? "Hide Archived" : "Show Archived"}
           </Button>
+          <Select value={`${sortBy}:${sortOrder}`} onValueChange={(v) => { const [by, ord] = v.split(":"); setSortBy(by); setSortOrder(ord); }}>
+            <SelectTrigger className="w-[170px]">
+              <ArrowUpDown className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Sort" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="created_at:desc">Newest first</SelectItem>
+              <SelectItem value="created_at:asc">Oldest first</SelectItem>
+              <SelectItem value="title:asc">Title A–Z</SelectItem>
+              <SelectItem value="title:desc">Title Z–A</SelectItem>
+              <SelectItem value="status:asc">Status</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </FadeIn>
 
