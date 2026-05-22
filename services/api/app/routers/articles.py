@@ -1,0 +1,209 @@
+"""Articles router — list, detail, markdown, extraction, graph, reprocess."""
+
+import json
+import logging
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from app.db.session import get_db
+from app.db.models import (
+    Article,
+    ArticleExtraction,
+    GraphEntity,
+    GraphRelationship,
+    ProcessingJob,
+    JobStatus,
+)
+from app.schemas.article import (
+    ArticleSummary,
+    ArticleDetail,
+    ArticleListResponse,
+    ReprocessResponse,
+)
+from app.schemas.extraction import ExtractionResponse
+from app.schemas.graph import GraphResponse
+from app.schemas.jobs import JobResponse
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+
+@router.get("", response_model=ArticleListResponse)
+def list_articles(
+    status: str | None = None,
+    search: str | None = None,
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+):
+    """List all articles with optional filtering."""
+    q = db.query(Article)
+
+    if status:
+        q = q.filter(Article.status == status)
+
+    if search:
+        q = q.filter(
+            Article.title.ilike(f"%{search}%")
+            | Article.original_filename.ilike(f"%{search}%")
+        )
+
+    total = q.count()
+    articles = q.order_by(Article.created_at.desc()).offset(skip).limit(limit).all()
+
+    return ArticleListResponse(
+        articles=[ArticleSummary.model_validate(a) for a in articles],
+        total=total,
+    )
+
+
+@router.get("/{article_id}", response_model=ArticleDetail)
+def get_article(article_id: int, db: Session = Depends(get_db)):
+    """Get article detail."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+    return ArticleDetail.model_validate(article)
+
+
+@router.get("/{article_id}/markdown")
+def get_article_markdown(article_id: int, db: Session = Depends(get_db)):
+    """Get the processed Markdown for an article."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    if article.markdown_text:
+        return {"markdown": article.markdown_text}
+
+    if article.markdown_path:
+        try:
+            with open(article.markdown_path, "r", encoding="utf-8") as f:
+                return {"markdown": f.read()}
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="Markdown file not found on disk")
+
+    raise HTTPException(status_code=404, detail="No Markdown available for this article")
+
+
+@router.get("/{article_id}/extraction", response_model=ExtractionResponse)
+def get_article_extraction(article_id: int, db: Session = Depends(get_db)):
+    """Get the AI extraction results for an article."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    extraction = (
+        db.query(ArticleExtraction)
+        .filter(ArticleExtraction.article_id == article_id)
+        .order_by(ArticleExtraction.created_at.desc())
+        .first()
+    )
+
+    if not extraction:
+        raise HTTPException(status_code=404, detail="No extraction available for this article")
+
+    extraction_data = None
+    validation_errors = None
+    if extraction.extraction_json:
+        try:
+            extraction_data = json.loads(extraction.extraction_json)
+        except json.JSONDecodeError:
+            pass
+
+    if extraction.validation_errors:
+        try:
+            validation_errors = json.loads(extraction.validation_errors)
+        except json.JSONDecodeError:
+            validation_errors = [extraction.validation_errors]
+
+    return ExtractionResponse(
+        article_id=article_id,
+        schema_version=extraction.schema_version,
+        extraction=extraction_data,
+        validation_errors=validation_errors,
+        confidence=extraction.confidence,
+        created_at=extraction.created_at,
+    )
+
+
+@router.get("/{article_id}/graph", response_model=GraphResponse)
+def get_article_graph(article_id: int, db: Session = Depends(get_db)):
+    """Get graph entities and relationships for an article."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    entities = db.query(GraphEntity).filter(GraphEntity.article_id == article_id).all()
+    relationships = (
+        db.query(GraphRelationship)
+        .filter(GraphRelationship.article_id == article_id)
+        .all()
+    )
+
+    return GraphResponse(entities=entities, relationships=relationships)
+
+
+@router.get("/{article_id}/jobs")
+def get_article_jobs(article_id: int, db: Session = Depends(get_db)):
+    """Get processing jobs for an article."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    jobs = (
+        db.query(ProcessingJob)
+        .filter(ProcessingJob.article_id == article_id)
+        .order_by(ProcessingJob.created_at.desc())
+        .all()
+    )
+
+    return [
+        JobResponse(
+            id=j.id,
+            article_id=j.article_id,
+            status=j.status,
+            current_step=j.current_step,
+            logs=json.loads(j.logs_json) if j.logs_json else None,
+            error=j.error,
+            created_at=j.created_at,
+            updated_at=j.updated_at,
+            completed_at=j.completed_at,
+        )
+        for j in jobs
+    ]
+
+
+@router.post("/{article_id}/reprocess", response_model=ReprocessResponse)
+def reprocess_article(article_id: int, db: Session = Depends(get_db)):
+    """Re-run the processing pipeline for an article."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    # Create a new job
+    import datetime
+    job = ProcessingJob(
+        article_id=article.id,
+        status=JobStatus.PENDING.value,
+        current_step="reprocess_queued",
+        logs_json=json.dumps([
+            {
+                "step": "reprocess_queued",
+                "timestamp": datetime.datetime.utcnow().isoformat(),
+                "message": "Reprocessing queued",
+            }
+        ]),
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    from app.services.pipeline.processor import run_pipeline_background
+    run_pipeline_background(article.id)
+
+    return ReprocessResponse(
+        article_id=article.id,
+        job_id=job.id,
+        status="reprocessing",
+    )
