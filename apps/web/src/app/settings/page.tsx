@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
-import { Save, RotateCcw, Brain, Cpu, Settings2, Server, Download, Upload, Wifi, Loader2 } from "lucide-react";
+import { Save, RotateCcw, Brain, Cpu, Settings2, Server, Download, Upload, Wifi, Loader2, FileCode, CheckCircle2, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FadeIn } from "@/components/ui/animated";
+import { listParsers } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -27,6 +28,7 @@ interface Settings {
   embedding_custom_base_url: string; embedding_custom_api_key: string; embedding_custom_model: string;
   openai_embedding_model: string;
   use_mock_ai: boolean; max_upload_mb: number;
+  parser_priority?: string;
   host: string; port: number; env_path: string;
 }
 
@@ -109,6 +111,8 @@ export default function SettingsPage() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ all_ok: boolean; results: Record<string, { ok: boolean; message: string }> } | null>(null);
   const [tab, setTab] = useState("llm");
+  const [parsers, setParsers] = useState<{ key: string; name: string; installed: boolean; version: string | null; description: string; install_cmd: string | null }[]>([]);
+  const [parserPriority, setParserPriority] = useState("docling_first");
 
   // LLM state
   const [llmProvider, setLlmProvider] = useState("openai");
@@ -174,6 +178,7 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error("Failed to load");
       const d: Settings = await res.json();
       setSettings(d);
+      setParserPriority(d.parser_priority || "docling_first");
       // LLM
       setLlmProvider(d.llm_provider); setLlmCustomProtocol(d.llm_custom_protocol);
       setLlmCustomBaseUrl(d.llm_custom_base_url); setLlmCustomKey(d.llm_custom_api_key); setLlmCustomModel(d.llm_custom_model);
@@ -206,6 +211,7 @@ export default function SettingsPage() {
         openai_embedding_model: openaiEmbeddingModel,
         use_mock_ai: mockAi,
         max_upload_mb: maxUploadMb,
+        parser_priority: parserPriority,
       };
       if (llmCustomKeyTouched) body.llm_custom_api_key = llmCustomKey;
       if (openaiKeyTouched) body.openai_api_key = openaiKey;
@@ -244,6 +250,7 @@ export default function SettingsPage() {
           <TabsTrigger value="llm" className="gap-1.5 flex-1"><Brain className="h-4 w-4"/>LLM</TabsTrigger>
           <TabsTrigger value="embeddings" className="gap-1.5 flex-1"><Cpu className="h-4 w-4"/>Embeddings</TabsTrigger>
           <TabsTrigger value="general" className="gap-1.5 flex-1"><Settings2 className="h-4 w-4"/>General</TabsTrigger>
+          <TabsTrigger value="parsers" className="gap-1.5 flex-1" onClick={() => { listParsers().then(setParsers).catch(() => {}); }}><FileCode className="h-4 w-4"/>Parsers</TabsTrigger>
         </TabsList>
 
         <AnimatePresence mode="wait">
@@ -414,6 +421,57 @@ export default function SettingsPage() {
                       <span>Host</span><code className="text-xs">{settings?.host||"—"}</code>
                       <span>Port</span><code className="text-xs">{settings?.port||"—"}</code>
                     </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </motion.div>
+          )}
+
+          {/* ── Parsers Tab ─────────────────────────────────────── */}
+          {tab === "parsers" && (
+            <motion.div key="parsers" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }}>
+              <TabsContent value="parsers" forceMount className="mt-4 space-y-4">
+                <Card>
+                  <CardHeader><CardTitle>PDF Parser Priority</CardTitle><CardDescription>Choose which parser to use for PDF documents. The pipeline auto-detects installed parsers.</CardDescription></CardHeader>
+                  <CardContent>
+                    <Select value={parserPriority} onValueChange={setParserPriority}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="docling_first">Docling (best quality, fallback to pypdf)</SelectItem>
+                        <SelectItem value="pypdf">pypdf only (built-in, no extra deps)</SelectItem>
+                        <SelectItem value="ocr">OCR-enhanced (pypdf + Tesseract)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader><CardTitle>Installed Parsers</CardTitle><CardDescription>Detection is automatic — install the Python package to enable each parser.</CardDescription></CardHeader>
+                  <CardContent>
+                    {parsers.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Loading parser info...</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {parsers.map((p) => (
+                          <div key={p.key} className={`flex items-start gap-3 p-3 rounded-md border text-sm ${p.installed ? "bg-success/5 border-success/20" : "bg-muted/30 border-border"}`}>
+                            {p.installed ? <CheckCircle2 className="h-5 w-5 text-success shrink-0 mt-0.5" /> : <AlertTriangle className="h-5 w-5 text-warning shrink-0 mt-0.5" />}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-medium">{p.name}</span>
+                                {p.version && <code className="text-[10px] bg-muted px-1 rounded">{p.version}</code>}
+                                <Badge variant={p.installed ? "default" : "secondary"} className="text-[10px]">{p.installed ? "Installed" : "Not installed"}</Badge>
+                              </div>
+                              <p className="text-muted-foreground mt-0.5">{p.description}</p>
+                              {!p.installed && p.install_cmd && (
+                                <div className="mt-2">
+                                  <code className="block text-[11px] bg-muted p-2 rounded whitespace-pre-wrap break-all">{p.install_cmd}</code>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>

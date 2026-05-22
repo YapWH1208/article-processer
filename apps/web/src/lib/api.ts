@@ -147,6 +147,12 @@ export async function runSkill(skillName: string, articleId: number) {
   );
 }
 
+// ── Parsers ──────────────────────────────────────────────────────
+
+export async function listParsers() {
+  return apiFetch<{ key: string; name: string; installed: boolean; version: string | null; description: string; install_cmd: string | null }[]>("/settings/parsers");
+}
+
 // ── Health ────────────────────────────────────────────────────────
 
 export async function healthCheck() {
