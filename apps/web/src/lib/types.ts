@@ -160,6 +160,8 @@ export interface ChatResponse {
   citations: Citation[];
   message_id: number;
   created_at: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
 }
 
 export interface ChatMessageResponse {

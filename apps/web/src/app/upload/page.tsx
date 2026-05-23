@@ -22,6 +22,19 @@ export default function UploadPage() {
   const [results, setResults] = useState<{ filename: string; article_id: number }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showSparkle, setShowSparkle] = useState(false);
+  const [modelInfo, setModelInfo] = useState<{ provider: string; model: string; mock: boolean } | null>(null);
+
+  useEffect(() => {
+    const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    fetch(`${API_BASE}/health`)
+      .then((r) => r.json())
+      .then((d) => setModelInfo({
+        provider: d.llm_provider || "unknown",
+        model: d.llm_model || "unknown",
+        mock: d.mock_ai || false,
+      }))
+      .catch(() => {});
+  }, []);
 
   const handleUpload = useCallback(async (files: FileList | File[]) => {
     setUploading(true); setError(null); setProgress(0);
@@ -45,8 +58,22 @@ export default function UploadPage() {
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
       <FadeIn>
-        <h1 className="text-3xl font-bold tracking-tight">Upload</h1>
-        <p className="text-muted-foreground mt-1">Drag and drop documents to upload.</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Upload</h1>
+            <p className="text-muted-foreground mt-1">Drag and drop documents to upload.</p>
+          </div>
+          {modelInfo && (
+            <Badge variant="outline" className="gap-2 px-3 py-1.5 text-xs">
+              <Brain className="h-3.5 w-3.5 text-primary" />
+              <span className="text-muted-foreground">Model:</span>
+              <span className="font-medium">{modelInfo.mock ? "Mock AI" : modelInfo.model}</span>
+              {!modelInfo.mock && (
+                <span className="text-muted-foreground">via {modelInfo.provider}</span>
+              )}
+            </Badge>
+          )}
+        </div>
       </FadeIn>
 
       {/* Drop Zone */}

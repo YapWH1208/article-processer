@@ -41,7 +41,7 @@ interface SkillDef {
   input_schema: Record<string, unknown>; output_schema: Record<string, unknown>;
 }
 
-interface ChatMessage { role: string; content: string; citations_json?: string; }
+interface ChatMessage { role: string; content: string; citations_json?: string; prompt_tokens?: number; completion_tokens?: number; }
 interface Citation { chunk_id: number; section_title: string; snippet: string; page_start?: number; }
 interface JobInfo { id: number; status: string; current_step: string | null; logs: Record<string, unknown>[] | null; error: string | null; created_at: string; completed_at: string | null; }
 
@@ -100,10 +100,12 @@ export default function ArticleDetailPage() {
       setGraph(gr);
       // Hydrate chat history from server
       if (histResp?.messages?.length) {
-        setMessages(histResp.messages.map((m: { role: string; content: string; citations: unknown[] | null }) => ({
+        setMessages(histResp.messages.map((m: { role: string; content: string; citations: unknown[] | null; prompt_tokens?: number; completion_tokens?: number }) => ({
           role: m.role,
           content: m.content,
           citations_json: m.citations ? JSON.stringify(m.citations) : undefined,
+          prompt_tokens: m.prompt_tokens || 0,
+          completion_tokens: m.completion_tokens || 0,
         })));
       }
       // Load available skills
@@ -160,7 +162,11 @@ export default function ArticleDetailPage() {
     setContextText("");
     try {
       const res = await sendChatMessage(articleId, userMsg.content);
-      setMessages((prev) => [...prev, { role: "assistant", content: res.answer, citations_json: JSON.stringify(res.citations) }]);
+      setMessages((prev) => [
+        ...prev.slice(0, -1),
+        { ...prev[prev.length - 1], prompt_tokens: res.prompt_tokens || 0 },
+        { role: "assistant", content: res.answer, citations_json: JSON.stringify(res.citations), prompt_tokens: 0, completion_tokens: res.completion_tokens || 0 },
+      ]);
     } catch (e: unknown) {
       setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${e instanceof Error ? e.message : "Chat failed"}` }]);
     } finally { setChatting(false); }
@@ -578,6 +584,11 @@ export default function ArticleDetailPage() {
                 <CardHeader className="pb-2 shrink-0 flex flex-row items-center justify-between">
                   <CardTitle className="text-base flex items-center gap-2">
                     <MessageCircle className="h-4 w-4"/> Chat
+                    {messages.length > 0 && (
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">
+                        {messages.reduce((sum, m) => sum + (m.prompt_tokens || 0) + (m.completion_tokens || 0), 0).toLocaleString()} tokens
+                      </Badge>
+                    )}
                   </CardTitle>
                   <div className="flex gap-1">
                     <Button variant="ghost" size="icon" className="h-7 w-7 md:hidden" onClick={() => setChatOpen(false)}>
@@ -616,14 +627,21 @@ export default function ArticleDetailPage() {
                             className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                             <div className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
                               <p className="whitespace-pre-wrap text-xs">{msg.content.slice(0, 600)}{msg.content.length > 600 ? "..." : ""}</p>
-                              {msg.role === "assistant" && citations(msg).length > 0 && (
-                                <div className="mt-1.5 pt-1.5 border-t border-border/50">
-                                  <p className="text-[10px] font-medium mb-0.5">Sources:</p>
-                                  {citations(msg).slice(0, 3).map((c, ci) => (
-                                    <div key={ci} className="text-[10px] opacity-70 mt-0.5">§{c.section_title} {c.page_start ? `p.${c.page_start}` : ""}</div>
-                                  ))}
-                                </div>
-                              )}
+                              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                {msg.role === "assistant" && citations(msg).length > 0 && (
+                                  <div className="mt-1.5 pt-1.5 border-t border-border/50 w-full">
+                                    <p className="text-[10px] font-medium mb-0.5">Sources:</p>
+                                    {citations(msg).slice(0, 3).map((c, ci) => (
+                                      <div key={ci} className="text-[10px] opacity-70 mt-0.5">§{c.section_title} {c.page_start ? `p.${c.page_start}` : ""}</div>
+                                    ))}
+                                  </div>
+                                )}
+                                {(msg.prompt_tokens || msg.completion_tokens) ? (
+                                  <span className="text-[9px] opacity-50 mt-0.5">
+                                    ~{(msg.prompt_tokens || 0) + (msg.completion_tokens || 0)} tokens
+                                  </span>
+                                ) : null}
+                              </div>
                             </div>
                           </motion.div>
                         ))}
