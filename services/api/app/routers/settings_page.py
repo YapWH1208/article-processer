@@ -469,23 +469,34 @@ def list_parsers():
     """Return available PDF parsers with installation status."""
     parsers: list[ParserInfo] = []
 
-    # MinerU
+    # MinerU (v3.x package: "mineru", formerly "magic-pdf")
+    mineru_installed = False
+    mineru_ver = None
     try:
-        import magic_pdf.model as model_config
-        model_config.__use_inside__ = True
-        import magic_pdf
-        mineru_ver = getattr(magic_pdf, "__version__", None)
-        parsers.append(ParserInfo(
-            key="mineru", name="MinerU (magic-pdf)", installed=True, version=mineru_ver,
-            description="State-of-the-art PDF parsing with layout preservation, image extraction, table detection, and formula recognition.",
-            install_cmd=None,
-        ))
+        import mineru
+        mineru_ver = getattr(mineru, "__version__", None)
+        mineru_installed = True
     except ImportError:
-        parsers.append(ParserInfo(
-            key="mineru", name="MinerU (magic-pdf)", installed=False,
-            description="State-of-the-art PDF parsing with layout preservation, image extraction, table detection, and formula recognition.",
-            install_cmd="pip install magic-pdf",
-        ))
+        # Try legacy package name
+        try:
+            import magic_pdf
+            mineru_ver = getattr(magic_pdf, "__version__", None)
+            mineru_installed = True
+        except ImportError:
+            pass
+
+    # Also check CLI availability
+    import shutil
+    cli_available = shutil.which("mineru") is not None
+
+    parsers.append(ParserInfo(
+        key="mineru",
+        name="MinerU" + (" (CLI)" if cli_available and not mineru_installed else ""),
+        installed=mineru_installed or cli_available,
+        version=mineru_ver,
+        description="State-of-the-art PDF parsing with layout preservation, image extraction, table detection, and formula recognition (v3.x+).",
+        install_cmd=None if mineru_installed else 'pip install -U "mineru[all]"',
+    ))
 
     # Docling
     try:
