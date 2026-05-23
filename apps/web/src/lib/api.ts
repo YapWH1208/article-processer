@@ -77,6 +77,14 @@ export async function getArticle(id: number) {
   return apiFetch<import("./types").ArticleDetail>(`/articles/${id}`);
 }
 
+export async function updateArticle(id: number, data: { title?: string }) {
+  return apiFetch<import("./types").ArticleDetail>(`/articles/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
 export async function getArticleMarkdown(id: number) {
   return apiFetch<{ markdown: string }>(`/articles/${id}/markdown`);
 }

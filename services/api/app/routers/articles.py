@@ -323,6 +323,24 @@ def unarchive_article(article_id: int, db: Session = Depends(get_db)):
     return {"article_id": article_id, "is_archived": False}
 
 
+@router.patch("/{article_id}")
+def update_article(article_id: int, body: dict, db: Session = Depends(get_db)):
+    """Update article metadata (title only for now). Body: {"title": "New Title"}."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    if "title" in body:
+        new_title = str(body["title"]).strip()
+        if not new_title:
+            raise HTTPException(status_code=400, detail="Title cannot be empty")
+        article.title = new_title
+
+    db.commit()
+    db.refresh(article)
+    return ArticleDetail.model_validate(article)
+
+
 @router.delete("/{article_id}")
 def delete_article(article_id: int, db: Session = Depends(get_db)):
     """Hard-delete an article and its storage files."""
