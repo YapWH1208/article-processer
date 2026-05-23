@@ -4,6 +4,25 @@ All notable changes to the Article Processor project.
 
 ---
 
+## [0.2.9] — 2025-07-22
+
+### Changed (breaking)
+
+- **BibTeX removed entirely** — BibTeX import endpoint, export endpoint, parser module, and all UI references deleted.
+- **Unified export/import** — `GET /settings/export` now bundles settings + all articles (full data with extraction, graph, markdown) + skills into one JSON file. `POST /settings/import` restores everything. Backwards-compatible with older settings-only exports.
+- **Standalone export/import removed** — Article export/import buttons removed from articles page. Skills export/import buttons removed from SkillManager. Everything is now unified under Settings → "Export All" / "Import All".
+- **Human-readable parser names** — API responses display "MinerU (magic-pdf)", "Docling", "pypdf", "BeautifulSoup (HTML)", "Markdown passthrough" instead of raw class names. Applies retroactively to all articles via schema `@model_validator`.
+
+### Added
+
+- **Inline article title editing** — Click the title in the article detail header to edit; Enter saves (`PATCH /articles/{id}`), Escape cancels. Title defaults to the original filename and is never overwritten by parsing.
+
+### Fixed
+
+- **BibTeX import crash** — would trigger pipeline processing with a fake `storage_path`, causing failures. Removed along with BibTeX entirely.
+
+---
+
 ## [0.2.8] — 2025-07-22
 
 ### Added

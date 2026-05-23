@@ -59,12 +59,13 @@ cp .env.example apps/web/.env.local
 - **Graph Analysis**: Entity and relationship extraction with color-coded type visualization and directional relationship cards
 - **Batch Operations**: Select multiple articles for bulk archive/restore, delete, or export
 - **Global Search**: Full-text search across all article content from the dashboard
-- **Export**: Markdown, JSON, BibTeX, and batch article export/import
+- **Export**: Individual article export (JSON, Markdown) and unified "Export All" (settings + articles + skills) from Settings
 - **Multi-Provider AI**: 9 LLM providers — OpenAI, Anthropic, DeepSeek, OpenRouter, GLM (Zhipu), MiniMax, Mimo (MiniMax-M1), Kimi (Moonshot), and Custom (any OpenAI/Anthropic-compatible endpoint)
 - **PDF Original View**: Toggle between parsed Markdown and the original PDF inline in the Reader
 - **Processing Progress**: Live step-by-step pipeline progress bar with auto-reload on completion
-- **Settings**: Configure LLM/embedding providers, test connections, manage skills, import/export settings as JSON
+- **Settings**: Configure LLM/embedding providers, test connections, manage skills, unified Export All / Import All (settings + articles + skills)
 - **Dark Mode**: Full light/dark theme with system preference detection and live OS theme switching
+- **Inline Title Editing**: Click any article title to rename it inline — defaults to the original filename
 - **Pagination & Sort**: Server-side pagination with sort controls (newest, oldest, title, status)
 
 ## Testing
