@@ -9,13 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { uploadFile } from "@/lib/api";
 import { FadeIn } from "@/components/ui/animated";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 export default function UploadPage() {
   const router = useRouter();
@@ -26,15 +22,6 @@ export default function UploadPage() {
   const [results, setResults] = useState<{ filename: string; article_id: number }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showSparkle, setShowSparkle] = useState(false);
-
-  // BibTeX
-  const [bibtexText, setBibtexText] = useState("");
-  const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<{
-    imported: number; skipped: number; total: number;
-    articles: { article_id: number; title: string }[];
-  } | null>(null);
-  const [importError, setImportError] = useState<string | null>(null);
 
   const handleUpload = useCallback(async (files: FileList | File[]) => {
     setUploading(true); setError(null); setProgress(0);
@@ -55,25 +42,11 @@ export default function UploadPage() {
     if (res.length > 0) { setShowSparkle(true); setTimeout(() => setShowSparkle(false), 2500); }
   }, [runAI]);
 
-  const handleBibtexImport = async () => {
-    if (!bibtexText.trim()) return;
-    setImporting(true); setImportError(null);
-    try {
-      const fd = new FormData(); fd.append("bibtex_text", bibtexText);
-      const res = await fetch(`${API_BASE}/imports/bibtex`, { method: "POST", body: fd });
-      if (!res.ok) throw new Error((await res.json()).detail || "Import failed");
-      setImportResult(await res.json());
-      setBibtexText("");
-    } catch (e: unknown) {
-      setImportError(e instanceof Error ? e.message : "Import failed");
-    } finally { setImporting(false); }
-  };
-
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
       <FadeIn>
         <h1 className="text-3xl font-bold tracking-tight">Upload</h1>
-        <p className="text-muted-foreground mt-1">Drag and drop documents or paste BibTeX entries.</p>
+        <p className="text-muted-foreground mt-1">Drag and drop documents to upload.</p>
       </FadeIn>
 
       {/* Drop Zone */}
@@ -109,7 +82,7 @@ export default function UploadPage() {
                 <span>Browse Files</span>
               </Button>
               <input type="file" className="hidden" multiple
-                accept=".pdf,.zip,.html,.htm,.md,.txt,.markdown,.bib,.bibtex"
+                accept=".pdf,.zip,.html,.htm,.md,.txt,.markdown"
                 onChange={(e) => e.target.files && handleUpload(e.target.files)} />
             </label>
             <div className="flex items-center gap-2 mt-3">
@@ -207,41 +180,6 @@ export default function UploadPage() {
         )}
       </AnimatePresence>
 
-      <Separator />
-
-      {/* BibTeX */}
-      <FadeIn delay={0.2}>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">📚 Import from BibTeX</CardTitle>
-            <CardDescription>Paste BibTeX entries to import article metadata.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Textarea value={bibtexText} onChange={(e) => setBibtexText(e.target.value)}
-              placeholder={`@article{example2024,\n  title = {An Example Paper},\n  ...\n}`}
-              className="min-h-[140px] font-mono text-sm" />
-            <div className="flex gap-3 items-center">
-              <Button onClick={handleBibtexImport} disabled={importing || !bibtexText.trim()} size="sm">
-                {importing ? "Importing..." : "Import BibTeX"}
-              </Button>
-            </div>
-            {importError && <div className="p-3 rounded-md bg-destructive/10 text-sm text-destructive">{importError}</div>}
-            {importResult && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                className="p-3 rounded-md bg-primary/5 border border-primary/20 text-sm">
-                <p className="font-medium text-primary">Imported {importResult.imported} articles</p>
-                <div className="mt-2 space-y-1">
-                  {importResult.articles.map((a) => (
-                    <Button key={a.article_id} variant="link" size="sm" className="h-auto p-0 text-primary"
-                      onClick={() => router.push(`/articles/${a.article_id}`)}>→ {a.title}</Button>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-          </CardContent>
-        </Card>
-      </FadeIn>
-
       {/* Accepted Types */}
       <FadeIn delay={0.3}>
         <Card>
@@ -249,7 +187,7 @@ export default function UploadPage() {
           <CardContent>
             <div className="grid sm:grid-cols-2 gap-2 text-sm text-muted-foreground">
               {[["PDF", "Papers, articles"], ["ZIP", "Archive of PDFs/HTML/MD"], ["HTML", "Web pages"],
-                ["Markdown", ".md files"], ["Text", ".txt files"], ["BibTeX", ".bib citations"]]
+                ["Markdown", ".md files"], ["Text", ".txt files"]]
                 .map(([ext, desc]) => (
                   <div key={ext} className="flex gap-2">
                     <Badge variant="outline" className="shrink-0 font-mono">{ext}</Badge><span>{desc}</span>

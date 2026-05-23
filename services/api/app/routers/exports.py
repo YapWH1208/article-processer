@@ -172,59 +172,6 @@ def export_markdown(article_id: int, db: Session = Depends(get_db)):
     return PlainTextResponse(content="\n".join(md_lines), media_type="text/markdown")
 
 
-@router.get("/{article_id}/export/bibtex")
-def export_bibtex(article_id: int, db: Session = Depends(get_db)):
-    """Export article metadata as a BibTeX entry."""
-    article = db.query(Article).filter(Article.id == article_id).first()
-    if not article:
-        raise HTTPException(status_code=404, detail="Article not found")
-
-    extraction = (
-        db.query(ArticleExtraction)
-        .filter(ArticleExtraction.article_id == article_id)
-        .order_by(ArticleExtraction.created_at.desc())
-        .first()
-    )
-
-    extraction_data = None
-    if extraction and extraction.extraction_json:
-        try:
-            extraction_data = json.loads(extraction.extraction_json)
-        except json.JSONDecodeError:
-            pass
-
-    from app.services.parsers.bibtex_parser import export_to_bibtex
-
-    title = (extraction_data or {}).get("title") or article.title or article.original_filename
-    authors = (extraction_data or {}).get("authors") or []
-    year = (extraction_data or {}).get("year")
-    venue = (extraction_data or {}).get("venue")
-    doi = (extraction_data or {}).get("doi")
-    url = (extraction_data or {}).get("url")
-    abstract = (extraction_data or {}).get("abstract")
-
-    # Determine entry type
-    entry_type = "article"
-    if venue and any(w in venue.lower() for w in ["conference", "proc", "workshop", "symposium"]):
-        entry_type = "inproceedings"
-    elif (extraction_data or {}).get("arxiv_id"):
-        entry_type = "online"
-
-    bibtex = export_to_bibtex(
-        title=title,
-        authors=authors,
-        year=year,
-        venue=venue,
-        doi=doi,
-        url=url,
-        abstract=abstract,
-        entry_type=entry_type,
-        citation_key="",
-    )
-
-    return PlainTextResponse(content=bibtex, media_type="text/plain")
-
-
 # ── Batch Export ─────────────────────────────────────────────────────────
 
 @router.post("/export")

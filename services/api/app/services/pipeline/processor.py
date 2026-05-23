@@ -142,12 +142,20 @@ async def run_pipeline(article_id: int, run_ai: bool = True) -> None:
         if not parser:
             raise ValueError(f"No parser for source type: {article.source_type}")
 
-        # Track which parser was used
-        article.parser_name = parser.__class__.__name__
+        # Track which parser was used (human-readable name)
+        _PARSER_DISPLAY_NAMES = {
+            "MinerUAdapter": "MinerU (magic-pdf)",
+            "DoclingAdapter": "Docling",
+            "PdfParser": "pypdf",
+            "HtmlParser": "BeautifulSoup (HTML)",
+            "MarkdownParser": "Markdown passthrough",
+        }
+        cls_name = parser.__class__.__name__
+        article.parser_name = _PARSER_DISPLAY_NAMES.get(cls_name, cls_name)
 
         parse_result = await parser.parse(Path(article.storage_path))
         markdown = normalize_markdown(parse_result.markdown)
-        article.title = parse_result.title or article.original_filename
+        # Title stays as the filename from upload (user can edit via PATCH /articles/{id})
         article.markdown_text = markdown
 
         # Also save to disk

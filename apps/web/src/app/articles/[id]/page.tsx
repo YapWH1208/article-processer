@@ -23,7 +23,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { sendChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob } from "@/lib/api";
+import { sendChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle } from "@/lib/api";
 import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
 
@@ -81,6 +81,8 @@ export default function ArticleDetailPage() {
   const [jobs, setJobs] = useState<JobInfo[]>([]);
   const [activeJob, setActiveJob] = useState<JobInfo | null>(null);
   const [prevStatus, setPrevStatus] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editTitleValue, setEditTitleValue] = useState("");
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -269,7 +271,33 @@ export default function ArticleDetailPage() {
         )}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold tracking-tight truncate">{article.title}</h1>
+            {editingTitle ? (
+              <form className="flex items-center gap-2" onSubmit={async (e) => {
+                e.preventDefault();
+                const trimmed = editTitleValue.trim();
+                if (!trimmed) { setEditingTitle(false); return; }
+                try {
+                  const updated = await updateArticle(articleId, { title: trimmed });
+                  setArticle(updated as Article);
+                  toast.success("Title updated");
+                } catch { toast.error("Failed to update title"); }
+                setEditingTitle(false);
+              }}>
+                <Input
+                  value={editTitleValue}
+                  onChange={(e) => setEditTitleValue(e.target.value)}
+                  className="text-2xl font-bold h-auto py-1 px-2 max-w-md"
+                  autoFocus
+                  onKeyDown={(e) => { if (e.key === "Escape") setEditingTitle(false); }}
+                />
+              </form>
+            ) : (
+              <h1
+                className="text-2xl font-bold tracking-tight truncate cursor-pointer hover:text-primary transition-colors"
+                onClick={() => { setEditTitleValue(article.title); setEditingTitle(true); }}
+                title="Click to edit title"
+              >{article.title}</h1>
+            )}
             <div className="flex gap-2 items-center mt-1 text-sm text-muted-foreground flex-wrap">
               <span>{article.original_filename}</span><span>·</span>
               <Badge variant={statusVariant(article.status)} className="gap-1.5">
@@ -400,7 +428,7 @@ export default function ArticleDetailPage() {
                       <CardHeader className="shrink-0 flex flex-row items-center justify-between">
                         <div><CardTitle className="text-lg">Extraction</CardTitle><CardDescription>AI-extracted info</CardDescription></div>
                         <div className="flex gap-2">
-                          {["json","markdown","bibtex"].map(f=><a key={f} href={`${API_BASE}/articles/${articleId}/export/${f}`} target="_blank" rel="noopener noreferrer"><Button variant="outline" size="sm" className="gap-1"><Download className="h-3.5 w-3.5"/>{f}</Button></a>)}
+                          {["json","markdown"].map(f=><a key={f} href={`${API_BASE}/articles/${articleId}/export/${f}`} target="_blank" rel="noopener noreferrer"><Button variant="outline" size="sm" className="gap-1"><Download className="h-3.5 w-3.5"/>{f}</Button></a>)}
                         </div>
                       </CardHeader>
                       <CardContent className="flex-1 min-h-0 p-4">

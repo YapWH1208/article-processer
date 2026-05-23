@@ -2,7 +2,24 @@
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+# Map internal parser class names to human-readable display names
+_PARSER_DISPLAY: dict[str, str] = {
+    "MinerUAdapter": "MinerU (magic-pdf)",
+    "DoclingAdapter": "Docling",
+    "PdfParser": "pypdf",
+    "HtmlParser": "BeautifulSoup (HTML)",
+    "MarkdownParser": "Markdown passthrough",
+}
+
+
+def _display_parser_name(raw: str | None) -> str | None:
+    """Translate raw parser class name to a human-readable label."""
+    if not raw:
+        return None
+    return _PARSER_DISPLAY.get(raw, raw)
 
 
 class ArticleSummary(BaseModel):
@@ -18,6 +35,11 @@ class ArticleSummary(BaseModel):
     is_archived: int = 0
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def _translate_parser(self):
+        self.parser_name = _display_parser_name(self.parser_name)
+        return self
 
 
 class ArticleDetail(BaseModel):
@@ -35,6 +57,11 @@ class ArticleDetail(BaseModel):
     is_archived: int = 0
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def _translate_parser(self):
+        self.parser_name = _display_parser_name(self.parser_name)
+        return self
 
 
 class ArticleListResponse(BaseModel):
