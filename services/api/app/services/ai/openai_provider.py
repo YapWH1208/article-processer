@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from typing import Any
 from openai import AsyncOpenAI
 from app.core.config import settings
@@ -15,6 +16,101 @@ from app.services.ai.prompts import (
 from app.core.security import protect_prompt_from_injection
 
 logger = logging.getLogger(__name__)
+
+
+def _repair_json(raw: str) -> dict:
+    """Attempt to repair common JSON malformations from LLM output.
+
+    Handles: unterminated strings, missing closing braces, trailing commas.
+    Returns a dict on success; raises json.JSONDecodeError if irreparable.
+    """
+    if not raw or not raw.strip():
+        raise json.JSONDecodeError("Empty response", raw, 0)
+
+    # 1. Strip markdown code fences
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*\n?", "", cleaned)
+        cleaned = re.sub(r"\n?```\s*$", "", cleaned)
+
+    # 2. Try parsing as-is
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    # 3. Unterminated string — close the last string + any unclosed structures
+    #    Find the last unescaped quote and close it
+    repaired = cleaned
+    in_string = False
+    escape_next = False
+    for i, ch in enumerate(repaired):
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == "\\":
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+    if in_string:
+        repaired = repaired + '"'
+
+    # 4. Close any unclosed braces/brackets
+    open_stack: list[str] = []
+    in_str = False
+    esc = False
+    for ch in repaired:
+        if esc:
+            esc = False
+            continue
+        if ch == "\\":
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch in "{[":
+            open_stack.append(ch)
+        elif ch in "}]":
+            if open_stack and (
+                (ch == "}" and open_stack[-1] == "{") or
+                (ch == "]" and open_stack[-1] == "[")
+            ):
+                open_stack.pop()
+
+    for opener in reversed(open_stack):
+        closer = "}" if opener == "{" else "]"
+        repaired = repaired + closer
+
+    # 5. Remove trailing commas before closing braces/brackets
+    repaired = re.sub(r",(\s*[}\]])", r"\1", repaired)
+
+    # 6. Try parsing repaired version
+    try:
+        return json.loads(repaired)
+    except json.JSONDecodeError:
+        pass
+
+    # 7. Last resort: extract the first complete JSON object
+    depth = 0
+    start = repaired.find("{")
+    if start != -1:
+        for i in range(start, len(repaired)):
+            ch = repaired[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(repaired[start:i + 1])
+                    except json.JSONDecodeError:
+                        break
+
+    raise json.JSONDecodeError("Irreparable JSON", repaired, 0)
 
 
 class OpenAIProvider(BaseLLMProvider):
@@ -44,10 +140,10 @@ class OpenAIProvider(BaseLLMProvider):
                 messages=messages,
                 response_format={"type": "json_object"},
                 temperature=0.1,
-                max_tokens=4000,
+                max_tokens=8000,
             )
             raw = response.choices[0].message.content or "{}"
-            result = json.loads(raw)
+            result = _repair_json(raw)
 
             # Validate and check for errors
             errors = self._validate_extraction(result)
@@ -66,17 +162,18 @@ class OpenAIProvider(BaseLLMProvider):
                     messages=messages,
                     response_format={"type": "json_object"},
                     temperature=0.1,
-                    max_tokens=4000,
+                    max_tokens=8000,
                 )
                 retry_raw = retry_response.choices[0].message.content or "{}"
-                result = json.loads(retry_raw)
+                result = _repair_json(retry_raw)
                 errors = self._validate_extraction(result)
 
             confidence = 0.85 if not errors else 0.6
             return result, errors, confidence
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse OpenAI extraction response: {e}")
+            logger.error(f"Failed to parse extraction response (after repair): {e}")
+            logger.debug(f"Raw response preview: {raw[:500] if 'raw' in dir() else 'N/A'}")
             return None, [f"JSON parse error: {str(e)}"], 0.0
         except Exception as e:
             logger.error(f"OpenAI extraction failed: {e}")

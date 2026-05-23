@@ -16,6 +16,7 @@ from app.services.ai.prompts import (
     SKILL_SYSTEM_PROMPT,
 )
 from app.core.security import protect_prompt_from_injection
+from app.services.ai.openai_provider import _repair_json
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ class AnthropicProvider(BaseLLMProvider):
             f"{protected_text}\n\n"
             f"Respond with a JSON object only, no other text."
         )
-        return await self._call_claude(prompt, "extraction")
+        return await self._call_claude(prompt, "extraction", max_tokens=8000)
 
     async def answer_question(
         self, question: str, article_title: str, chunks: list[Any],
@@ -89,27 +90,22 @@ class AnthropicProvider(BaseLLMProvider):
 
     # ── Internal ───────────────────────────────────────────────────────
 
-    async def _call_claude(self, prompt: str, task: str) -> tuple[dict | str, float]:
+    async def _call_claude(self, prompt: str, task: str, max_tokens: int = 4000) -> tuple[dict | str, float]:
         """Call Claude and parse the response. Returns (parsed_or_text, confidence)."""
         try:
             response = await self.client.messages.create(
                 model=self.model,
-                max_tokens=4000,
+                max_tokens=max_tokens,
                 temperature=0.1,
                 messages=[{"role": "user", "content": prompt}],
             )
             text = response.content[0].text if response.content else ""
 
-            # Try to parse as JSON
+            # Try to parse as JSON with repair
             try:
-                # Claude may wrap in ```json ... ``` blocks
-                if "```json" in text:
-                    text = text.split("```json")[1].split("```")[0].strip()
-                elif "```" in text:
-                    text = text.split("```")[1].split("```")[0].strip()
-                return json.loads(text), 0.85
-            except (json.JSONDecodeError, IndexError):
-                # Return raw text for QA responses
+                return _repair_json(text), 0.85
+            except json.JSONDecodeError:
+                # Return raw text for QA / skill responses
                 return text, 0.7
 
         except Exception as e:
