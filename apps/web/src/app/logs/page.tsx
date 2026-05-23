@@ -73,7 +73,7 @@ export default function LogsPage() {
 
   useEffect(() => {
     const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-    fetch(`${API_BASE}/logs?limit=100`)
+    fetch(`${API_BASE}/dashboard/logs?limit=100`)
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
