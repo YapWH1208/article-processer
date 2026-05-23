@@ -20,11 +20,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { sendChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs } from "@/lib/api";
+import { sendChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob } from "@/lib/api";
 import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
+
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -54,6 +56,7 @@ export default function ArticleDetailPage() {
   const [graph, setGraph] = useState<{ entities: unknown[]; relationships: unknown[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("reader");
+  const [readerView, setReaderView] = useState<"markdown" | "pdf">("markdown");
 
   // Chat
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -76,6 +79,8 @@ export default function ArticleDetailPage() {
 
   // Jobs
   const [jobs, setJobs] = useState<JobInfo[]>([]);
+  const [activeJob, setActiveJob] = useState<JobInfo | null>(null);
+  const [prevStatus, setPrevStatus] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -109,7 +114,35 @@ export default function ArticleDetailPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  // ── Polling for active job (progress bar) ──────────────────────
+  useEffect(() => {
+    if (!article) return;
+    const isProcessing = !["completed", "failed"].includes(article.status);
+    if (!isProcessing) {
+      setActiveJob(null);
+      // Detect transition to completed — soft reload
+      if (prevStatus && !["completed", "failed"].includes(prevStatus) && article.status === "completed") {
+        loadData();
+      }
+      setPrevStatus(article.status);
+      return;
+    }
+    setPrevStatus(article.status);
+
+    const poll = async () => {
+      try {
+        const res = await getArticleActiveJob(articleId);
+        setActiveJob(res.job);
+        // If job completed, reload article data
+        if (res.article_status === "completed" || res.article_status === "failed") {
+          loadData();
+        }
+      } catch { /* ignore poll errors */ }
+    };
+    poll(); // immediate first poll
+    const interval = setInterval(poll, 2000);
+    return () => clearInterval(interval);
+  }, [article?.status, articleId, loadData, prevStatus]);
 
   const handleChat = async () => {
     const msg = question.trim();
@@ -282,6 +315,22 @@ export default function ArticleDetailPage() {
         </div>
       </FadeIn>
 
+      {/* ── Processing Progress Bar ────────────────────────────── */}
+      <AnimatePresence>
+        {isProcessing && activeJob && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <Card className="border-primary/20 bg-primary/5">
+              <CardContent className="py-3">
+                <PipelineProgress job={activeJob} />
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ── Split Layout ───────────────────────────────────────── */}
       <div className="flex gap-4 h-[calc(100vh-14rem)]">
         {/* Left: Content + Tabs */}
@@ -306,8 +355,29 @@ export default function ArticleDetailPage() {
                 <motion.div key="reader" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 min-h-0">
                   <TabsContent value="reader" forceMount className="h-full m-0">
                     <Card className="h-full flex flex-col">
-                      <CardContent className="flex-1 min-h-0 p-4">
-                        {markdown ? (
+                      <CardHeader className="shrink-0 pb-2 flex flex-row items-center justify-between">
+                        <CardTitle className="text-sm font-medium text-muted-foreground">Document View</CardTitle>
+                        {article.source_type === "pdf" && (
+                          <div className="flex rounded-md border border-border overflow-hidden">
+                            <button
+                              onClick={() => setReaderView("markdown")}
+                              className={`px-3 py-1 text-xs font-medium transition-colors ${readerView === "markdown" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+                            >Markdown</button>
+                            <button
+                              onClick={() => setReaderView("pdf")}
+                              className={`px-3 py-1 text-xs font-medium transition-colors ${readerView === "pdf" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+                            >PDF</button>
+                          </div>
+                        )}
+                      </CardHeader>
+                      <CardContent className="flex-1 min-h-0 p-4 pt-0">
+                        {readerView === "pdf" && article.source_type === "pdf" ? (
+                          <iframe
+                            src={`${API_BASE}/articles/${articleId}/file`}
+                            className="w-full h-full rounded border border-border"
+                            title="Original PDF"
+                          />
+                        ) : markdown ? (
                           <ScrollArea className="h-full">
                             <MarkdownReader text={markdown} onSelect={addToChat} />
                           </ScrollArea>
@@ -493,13 +563,13 @@ export default function ArticleDetailPage() {
           </Tabs>
         </div>
 
-        {/* Right: Chat Panel */}
+        {/* Right: Chat Panel — aligned below tabs */}
         <AnimatePresence>
           {chatOpen && (
             <motion.div
               initial={{ width: 0, opacity: 0 }} animate={{ width: "40%", opacity: 1 }} exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="shrink-0 flex flex-col min-w-0 border-l md:border-l-0"
+              className="shrink-0 flex flex-col min-w-0 border-l md:border-l-0 pt-10"
             >
               <Card className="h-full flex flex-col border md:border rounded-lg">
                 <CardHeader className="pb-2 shrink-0 flex flex-row items-center justify-between">
@@ -768,6 +838,68 @@ function GraphRelationships({ relationships }: { relationships: any[] }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ── Pipeline Progress Bar ──────────────────────────────────────────────
+
+const PIPELINE_STEPS = [
+  { key: "started", label: "Queued", icon: "○" },
+  { key: "parsing", label: "Parsing", icon: "📄" },
+  { key: "chunking", label: "Chunking", icon: "✂️" },
+  { key: "extracting", label: "AI Extraction", icon: "🧠" },
+  { key: "indexing", label: "Embeddings", icon: "🔢" },
+  { key: "graph", label: "Graph", icon: "🔗" },
+  { key: "completed", label: "Done", icon: "✅" },
+  { key: "parse_complete", label: "Done", icon: "✅" },
+];
+
+function PipelineProgress({ job }: { job: JobInfo }) {
+  const logs = job.logs || [];
+  const completedSteps = new Set(logs.filter((l: any) => !l.error).map((l: any) => l.step));
+  const stepKeys = PIPELINE_STEPS.map(s => s.key);
+  const currentIdx = stepKeys.indexOf(job.current_step || "");
+  const effectiveCompleted = new Set(completedSteps);
+  if (currentIdx > 0) {
+    for (let i = 0; i < currentIdx; i++) effectiveCompleted.add(stepKeys[i]);
+  }
+  const isFailed = job.status === "failed";
+  const totalSteps = PIPELINE_STEPS.filter(s => s.key !== "completed" && s.key !== "parse_complete").length;
+  const doneCount = PIPELINE_STEPS.filter(s => {
+    if (s.key === "completed" || s.key === "parse_complete") return false;
+    return effectiveCompleted.has(s.key);
+  }).length;
+  const progressPct = Math.min(Math.round((doneCount / totalSteps) * 100), 100);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-sm">
+        <span className="font-medium flex items-center gap-2">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+          Processing
+        </span>
+        <span className="text-muted-foreground text-xs">{progressPct}%</span>
+      </div>
+      <Progress value={progressPct} className="h-2" />
+      <div className="flex items-center gap-1.5 flex-wrap text-xs text-muted-foreground">
+        {PIPELINE_STEPS.filter(s => s.key !== "completed" && s.key !== "parse_complete").map((step, i) => {
+          const done = effectiveCompleted.has(step.key);
+          const active = job.current_step === step.key && !isFailed;
+          return (
+            <div key={step.key} className="flex items-center gap-1">
+              {i > 0 && <ChevronRight className="h-3 w-3 opacity-40" />}
+              <span className={`flex items-center gap-1 ${done ? "text-primary font-medium" : active ? "text-amber-500 font-medium" : "opacity-50"}`}>
+                <span className="text-[10px]">{step.icon}</span>
+                <span className="hidden sm:inline">{step.label}</span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {isFailed && job.error && (
+        <p className="text-xs text-destructive mt-1">Error: {job.error.slice(0, 200)}</p>
+      )}
     </div>
   );
 }

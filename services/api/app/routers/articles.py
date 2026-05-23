@@ -4,8 +4,10 @@ import json
 import logging
 import os
 import shutil
+import mimetypes
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -101,6 +103,28 @@ def get_article(article_id: int, db: Session = Depends(get_db)):
     return ArticleDetail.model_validate(article)
 
 
+@router.get("/{article_id}/file")
+def get_article_file(article_id: int, db: Session = Depends(get_db)):
+    """Serve the original uploaded file (PDF, HTML, etc.) for inline viewing."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    file_path = article.storage_path
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Original file not found on disk")
+
+    # Determine media type for proper browser handling
+    media_type, _ = mimetypes.guess_type(article.original_filename)
+    if not media_type:
+        media_type = "application/octet-stream"
+
+    return FileResponse(
+        path=file_path,
+        media_type=media_type,
+    )
+
+
 @router.get("/{article_id}/markdown")
 def get_article_markdown(article_id: int, db: Session = Depends(get_db)):
     """Get the processed Markdown for an article."""
@@ -177,6 +201,39 @@ def get_article_graph(article_id: int, db: Session = Depends(get_db)):
     )
 
     return GraphResponse(entities=entities, relationships=relationships)
+
+
+@router.get("/{article_id}/jobs/active")
+def get_article_active_job(article_id: int, db: Session = Depends(get_db)):
+    """Get the currently active (or latest) processing job for polling."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    job = (
+        db.query(ProcessingJob)
+        .filter(ProcessingJob.article_id == article_id)
+        .order_by(ProcessingJob.created_at.desc())
+        .first()
+    )
+
+    if not job:
+        return {"job": None, "article_status": article.status}
+
+    return {
+        "job": JobResponse(
+            id=job.id,
+            article_id=job.article_id,
+            status=job.status,
+            current_step=job.current_step,
+            logs=json.loads(job.logs_json) if job.logs_json else None,
+            error=job.error,
+            created_at=job.created_at,
+            updated_at=job.updated_at,
+            completed_at=job.completed_at,
+        ),
+        "article_status": article.status,
+    }
 
 
 @router.get("/{article_id}/jobs")

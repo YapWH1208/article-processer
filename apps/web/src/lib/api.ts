@@ -95,6 +95,12 @@ export async function getArticleJobs(id: number) {
   return apiFetch<import("./types").JobResponse[]>(`/articles/${id}/jobs`);
 }
 
+export async function getArticleActiveJob(id: number) {
+  return apiFetch<{ job: import("./types").JobResponse | null; article_status: string }>(
+    `/articles/${id}/jobs/active`
+  );
+}
+
 export async function reprocessArticle(id: number, fullPipeline = true) {
   const qs = fullPipeline ? "" : "?full_pipeline=false";
   return apiFetch<{ article_id: number; job_id: number; status: string }>(
@@ -130,6 +136,22 @@ export function getExportJsonUrl(articleId: number): string {
 
 export function getExportMarkdownUrl(articleId: number): string {
   return `${API_BASE}/articles/${articleId}/export/markdown`;
+}
+
+export async function exportArticles(articleIds: number[]) {
+  return apiFetch<{ articles: unknown[]; count: number }>("/articles/export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ article_ids: articleIds }),
+  });
+}
+
+export async function importArticles(articles: unknown[]) {
+  return apiFetch<{ imported: number; skipped: number; errors: string[] }>("/imports/articles", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ articles }),
+  });
 }
 
 // ── Skills ────────────────────────────────────────────────────────
