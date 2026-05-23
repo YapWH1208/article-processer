@@ -185,10 +185,26 @@ export async function listParsers() {
   return apiFetch<{ key: string; name: string; installed: boolean; version: string | null; description: string; install_cmd: string | null }[]>("/settings/parsers");
 }
 
+// ── Dashboard ─────────────────────────────────────────────────────
+
+export async function getDashboardMetrics(days = 30) {
+  return apiFetch<import("./types").DashboardMetrics>(
+    `/dashboard/metrics?days=${days}`
+  );
+}
+
+// ── Global Graph ───────────────────────────────────────────────────
+
+export async function getGlobalGraph(limit = 200) {
+  return apiFetch<import("./types").GlobalGraphData>(
+    `/articles/graph/global?limit=${limit}`
+  );
+}
+
 // ── Health ────────────────────────────────────────────────────────
 
 export async function healthCheck() {
-  return apiFetch<{ status: string; version: string; mock_ai: boolean }>(
+  return apiFetch<import("./types").HealthInfo>(
     "/health"
   );
 }

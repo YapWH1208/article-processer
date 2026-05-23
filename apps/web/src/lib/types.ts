@@ -198,3 +198,67 @@ export interface SkillDef {
   input_schema: Record<string, unknown>;
   output_schema: Record<string, unknown>;
 }
+
+// ── Dashboard types ──────────────────────────────────────────────
+
+export interface DashboardMetrics {
+  total_articles: number;
+  total_completed: number;
+  total_failed: number;
+  total_processing: number;
+  articles_by_day: { date: string; count: number }[];
+  articles_by_status: { status: string; count: number }[];
+  total_chat_messages: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  token_usage_by_model: {
+    model: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    message_count: number;
+  }[];
+  top_articles_by_tokens: {
+    article_id: number;
+    title: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  }[];
+  total_graph_entities: number;
+  total_graph_relationships: number;
+  articles_with_graph: number;
+  avg_processing_seconds: number;
+}
+
+export interface GlobalGraphData {
+  entities: {
+    id: number;
+    article_id: number;
+    article_title: string;
+    type: string;
+    name: string;
+    canonical_name: string | null;
+    confidence: number;
+  }[];
+  relationships: {
+    id: number;
+    article_id: number;
+    article_title: string;
+    source_entity_id: number;
+    target_entity_id: number;
+    type: string;
+    confidence: number;
+  }[];
+}
+
+export interface HealthInfo {
+  status: string;
+  version: string;
+  mock_ai: boolean;
+  llm_provider: string;
+  llm_model: string;
+  embedding_provider: string;
+  embedding_model: string;
+}
