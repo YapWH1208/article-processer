@@ -125,7 +125,12 @@ class OpenAIProvider(BaseLLMProvider):
         markdown: str,
         article_title: str,
     ) -> tuple[dict | None, list[str] | None, float]:
-        """Extract structured information using OpenAI."""
+        """Extract structured information using OpenAI-compatible API.
+
+        Tries JSON mode first; falls back to plain prompting if the model
+        doesn't support ``response_format``.  Uses ``_repair_json`` to
+        salvage malformed output from smaller / cheaper models.
+        """
         protected_text = protect_prompt_from_injection(markdown)
 
         messages = [
@@ -133,51 +138,74 @@ class OpenAIProvider(BaseLLMProvider):
             {"role": "user", "content": f"Title: {article_title}\n\n{protected_text}"},
         ]
 
-        # First attempt
+        result, errors = await self._extract_with(messages, use_json_mode=True)
+
+        # If JSON mode was rejected by the API, retry without it
+        if result is None and errors == ["json_mode_unsupported"]:
+            logger.info("Model rejected response_format — retrying without JSON mode")
+            result, errors = await self._extract_with(messages, use_json_mode=False)
+
+        confidence = 0.85 if not errors else (0.6 if result else 0.0)
+        return result, errors, confidence
+
+    async def _extract_with(
+        self, messages: list, use_json_mode: bool,
+    ) -> tuple[dict | None, list[str] | None]:
+        """Run extraction + optional correction retry.  Returns (parsed, errors)."""
+        kwargs: dict = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.1,
+            "max_tokens": 8000,
+        }
+        if use_json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                response_format={"type": "json_object"},
-                temperature=0.1,
-                max_tokens=8000,
-            )
-            raw = response.choices[0].message.content or "{}"
-            result = _repair_json(raw)
-
-            # Validate and check for errors
-            errors = self._validate_extraction(result)
-            if errors:
-                # Retry with correction prompt
-                logger.warning(f"Extraction validation errors: {errors}")
-                correction_msg = EXTRACTION_CORRECTION_PROMPT.format(
-                    errors=json.dumps(errors),
-                    title=article_title,
-                )
-                messages.append({"role": "assistant", "content": raw})
-                messages.append({"role": "user", "content": correction_msg})
-
-                retry_response = await self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    response_format={"type": "json_object"},
-                    temperature=0.1,
-                    max_tokens=8000,
-                )
-                retry_raw = retry_response.choices[0].message.content or "{}"
-                result = _repair_json(retry_raw)
-                errors = self._validate_extraction(result)
-
-            confidence = 0.85 if not errors else 0.6
-            return result, errors, confidence
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse extraction response (after repair): {e}")
-            logger.debug(f"Raw response preview: {raw[:500] if 'raw' in dir() else 'N/A'}")
-            return None, [f"JSON parse error: {str(e)}"], 0.0
+            response = await self.client.chat.completions.create(**kwargs)
         except Exception as e:
-            logger.error(f"OpenAI extraction failed: {e}")
-            raise
+            err = str(e).lower()
+            if "response_format" in err or "json_object" in err:
+                return None, ["json_mode_unsupported"]
+            logger.error(f"Extraction API call failed: {e}")
+            return None, [str(e)]
+
+        raw = response.choices[0].message.content or ""
+        if not raw.strip():
+            return None, ["model returned empty response"]
+
+        # Parse (with repair) + validate
+        try:
+            result = _repair_json(raw)
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse extraction response (after repair): raw len={len(raw)}")
+            return None, ["JSON parse error"]
+
+        errors = self._validate_extraction(result)
+        if not errors:
+            return result, None
+
+        # Validation errors → retry once with correction
+        logger.warning(f"Extraction validation errors: {errors}")
+        correction_msg = EXTRACTION_CORRECTION_PROMPT.format(
+            errors=json.dumps(errors),
+            title="(see above)",
+        )
+        retry_kwargs = dict(kwargs)
+        retry_kwargs["messages"] = messages + [
+            {"role": "assistant", "content": raw},
+            {"role": "user", "content": correction_msg},
+        ]
+
+        try:
+            retry_response = await self.client.chat.completions.create(**retry_kwargs)
+            retry_raw = retry_response.choices[0].message.content or ""
+            result = _repair_json(retry_raw)
+            errors = self._validate_extraction(result)
+        except Exception as e:
+            logger.error(f"Extraction correction retry failed: {e}")
+
+        return result, errors
 
     async def answer_question(
         self,
