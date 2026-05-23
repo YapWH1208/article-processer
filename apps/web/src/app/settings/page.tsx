@@ -14,7 +14,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FadeIn } from "@/components/ui/animated";
-import { listParsers } from "@/lib/api";
+import { listParsers, listSkills } from "@/lib/api";
+import SkillManager from "@/components/skills/SkillManager";
+import { Wand2 } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -25,6 +27,12 @@ interface Settings {
   llm_custom_base_url: string; llm_custom_api_key: string; llm_custom_model: string;
   openai_api_key: string; openai_model: string;
   anthropic_api_key: string; anthropic_model: string;
+  deepseek_api_key?: string; deepseek_model?: string; deepseek_coding_model?: string;
+  openrouter_api_key?: string; openrouter_model?: string; openrouter_coding_model?: string;
+  glm_api_key?: string; glm_model?: string; glm_coding_model?: string;
+  minimax_api_key?: string; minimax_model?: string; minimax_coding_model?: string;
+  mimo_api_key?: string; mimo_model?: string; mimo_coding_model?: string;
+  kimi_api_key?: string; kimi_model?: string; kimi_coding_model?: string;
   embedding_provider: string;
   embedding_custom_base_url: string; embedding_custom_api_key: string; embedding_custom_model: string;
   openai_embedding_model: string;
@@ -38,6 +46,12 @@ interface Settings {
 const LLM_PROVIDERS = [
   { value: "openai", label: "OpenAI", desc: "GPT-4.1, GPT-4o, GPT-4 Turbo" },
   { value: "anthropic", label: "Anthropic", desc: "Claude Sonnet, Haiku, Opus" },
+  { value: "deepseek", label: "DeepSeek", desc: "DeepSeek-Chat, DeepSeek-Coder, DeepSeek-Reasoner" },
+  { value: "openrouter", label: "OpenRouter", desc: "Unified API for 200+ models" },
+  { value: "glm", label: "GLM (Zhipu)", desc: "GLM-4 Plus, Flash, Long, Air" },
+  { value: "minimax", label: "MiniMax", desc: "MiniMax-Text-01, abab6.5s" },
+  { value: "mimo", label: "Mimo (MiniMax-M1)", desc: "MiniMax-M1, MiniMax-M1-8k" },
+  { value: "kimi", label: "Kimi (Moonshot)", desc: "moonshot-v1-8k, 32k, 128k" },
   { value: "custom", label: "Custom Endpoint", desc: "Any OpenAI or Anthropic compatible API" },
 ];
 
@@ -64,6 +78,44 @@ const EMBEDDING_MODELS = [
   { value: "text-embedding-3-small", label: "3-small (1536d)" },
   { value: "text-embedding-3-large", label: "3-large (3072d)" },
   { value: "text-embedding-ada-002", label: "ada-002 (legacy)" },
+];
+
+const DEEPSEEK_MODELS = [
+  { value: "deepseek-chat", label: "DeepSeek-Chat (V3)" },
+  { value: "deepseek-coder", label: "DeepSeek-Coder" },
+  { value: "deepseek-reasoner", label: "DeepSeek-Reasoner (R1)" },
+];
+
+const OPENROUTER_MODELS = [
+  { value: "openai/gpt-4.1-mini", label: "GPT-4.1 Mini" },
+  { value: "openai/gpt-4o", label: "GPT-4o" },
+  { value: "anthropic/claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
+  { value: "google/gemini-2.5-pro-preview", label: "Gemini 2.5 Pro" },
+  { value: "deepseek/deepseek-chat", label: "DeepSeek V3" },
+  { value: "meta-llama/llama-4-maverick", label: "Llama 4 Maverick" },
+];
+
+const GLM_MODELS = [
+  { value: "glm-4-plus", label: "GLM-4 Plus" },
+  { value: "glm-4-flash", label: "GLM-4 Flash" },
+  { value: "glm-4-long", label: "GLM-4 Long (1M ctx)" },
+  { value: "glm-4-air", label: "GLM-4 Air" },
+];
+
+const MINIMAX_MODELS = [
+  { value: "MiniMax-Text-01", label: "MiniMax-Text-01" },
+  { value: "abab6.5s-chat", label: "abab6.5s-chat" },
+];
+
+const MIMO_MODELS = [
+  { value: "MiniMax-M1", label: "MiniMax-M1" },
+  { value: "MiniMax-M1-8k", label: "MiniMax-M1-8k" },
+];
+
+const KIMI_MODELS = [
+  { value: "moonshot-v1-8k", label: "Moonshot v1 8K" },
+  { value: "moonshot-v1-32k", label: "Moonshot v1 32K" },
+  { value: "moonshot-v1-128k", label: "Moonshot v1 128K" },
 ];
 
 // ── Reusable fields ──────────────────────────────────────────────────────
@@ -113,7 +165,8 @@ export default function SettingsPage() {
   const [testResult, setTestResult] = useState<{ all_ok: boolean; results: Record<string, { ok: boolean; message: string }> } | null>(null);
   const [tab, setTab] = useState("llm");
   const [parsers, setParsers] = useState<{ key: string; name: string; installed: boolean; version: string | null; description: string; install_cmd: string | null }[]>([]);
-  const [parserPriority, setParserPriority] = useState("docling_first");
+  const [parserPriority, setParserPriority] = useState("mineru_first");
+  const [skillDefs, setSkillDefs] = useState<{ name: string; purpose: string; description: string; input_schema: Record<string, unknown>; output_schema: Record<string, unknown>; prompt_instructions?: string }[]>([]);
 
   // LLM state
   const [llmProvider, setLlmProvider] = useState("openai");
@@ -125,6 +178,26 @@ export default function SettingsPage() {
   const [openaiModel, setOpenaiModel] = useState("gpt-4.1-mini");
   const [anthropicKey, setAnthropicKey] = useState(""); const [anthropicKeyTouched, setAnthropicKeyTouched] = useState(false);
   const [anthropicModel, setAnthropicModel] = useState("claude-sonnet-4-20250514");
+
+  // New provider state
+  const [deepseekKey, setDeepseekKey] = useState(""); const [deepseekKeyTouched, setDeepseekKeyTouched] = useState(false);
+  const [deepseekModel, setDeepseekModel] = useState("deepseek-chat");
+  const [deepseekCodingModel, setDeepseekCodingModel] = useState("");
+  const [openrouterKey, setOpenrouterKey] = useState(""); const [openrouterKeyTouched, setOpenrouterKeyTouched] = useState(false);
+  const [openrouterModel, setOpenrouterModel] = useState("openai/gpt-4.1-mini");
+  const [openrouterCodingModel, setOpenrouterCodingModel] = useState("");
+  const [glmKey, setGlmKey] = useState(""); const [glmKeyTouched, setGlmKeyTouched] = useState(false);
+  const [glmModel, setGlmModel] = useState("glm-4-plus");
+  const [glmCodingModel, setGlmCodingModel] = useState("");
+  const [minimaxKey, setMinimaxKey] = useState(""); const [minimaxKeyTouched, setMinimaxKeyTouched] = useState(false);
+  const [minimaxModel, setMinimaxModel] = useState("MiniMax-Text-01");
+  const [minimaxCodingModel, setMinimaxCodingModel] = useState("");
+  const [mimoKey, setMimoKey] = useState(""); const [mimoKeyTouched, setMimoKeyTouched] = useState(false);
+  const [mimoModel, setMimoModel] = useState("MiniMax-M1");
+  const [mimoCodingModel, setMimoCodingModel] = useState("");
+  const [kimiKey, setKimiKey] = useState(""); const [kimiKeyTouched, setKimiKeyTouched] = useState(false);
+  const [kimiModel, setKimiModel] = useState("moonshot-v1-8k");
+  const [kimiCodingModel, setKimiCodingModel] = useState("");
 
   // Embedding state
   const [embeddingProvider, setEmbeddingProvider] = useState("openai");
@@ -185,12 +258,22 @@ export default function SettingsPage() {
       setLlmCustomBaseUrl(d.llm_custom_base_url); setLlmCustomKey(d.llm_custom_api_key); setLlmCustomModel(d.llm_custom_model);
       setOpenaiKey(d.openai_api_key); setOpenaiModel(d.openai_model);
       setAnthropicKey(d.anthropic_api_key); setAnthropicModel(d.anthropic_model);
+      // New providers
+      setDeepseekKey(d.deepseek_api_key || ""); setDeepseekModel(d.deepseek_model || "deepseek-chat"); setDeepseekCodingModel(d.deepseek_coding_model || "");
+      setOpenrouterKey(d.openrouter_api_key || ""); setOpenrouterModel(d.openrouter_model || "openai/gpt-4.1-mini"); setOpenrouterCodingModel(d.openrouter_coding_model || "");
+      setGlmKey(d.glm_api_key || ""); setGlmModel(d.glm_model || "glm-4-plus"); setGlmCodingModel(d.glm_coding_model || "");
+      setMinimaxKey(d.minimax_api_key || ""); setMinimaxModel(d.minimax_model || "MiniMax-Text-01"); setMinimaxCodingModel(d.minimax_coding_model || "");
+      setMimoKey(d.mimo_api_key || ""); setMimoModel(d.mimo_model || "MiniMax-M1"); setMimoCodingModel(d.mimo_coding_model || "");
+      setKimiKey(d.kimi_api_key || ""); setKimiModel(d.kimi_model || "moonshot-v1-8k"); setKimiCodingModel(d.kimi_coding_model || "");
       // Embedding
       setEmbeddingProvider(d.embedding_provider);
       setEmbeddingCustomBaseUrl(d.embedding_custom_base_url); setEmbeddingCustomKey(d.embedding_custom_api_key); setEmbeddingCustomModel(d.embedding_custom_model);
       setOpenaiEmbeddingModel(d.openai_embedding_model);
       // General
       setMockAi(d.use_mock_ai); setMaxUploadMb(d.max_upload_mb);
+
+      // Skills
+      try { const s = await listSkills(); setSkillDefs(s.skills || []); } catch { /* keep existing */ }
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Failed to load settings");
     } finally { setLoading(false); }
@@ -217,6 +300,19 @@ export default function SettingsPage() {
       if (llmCustomKeyTouched) body.llm_custom_api_key = llmCustomKey;
       if (openaiKeyTouched) body.openai_api_key = openaiKey;
       if (anthropicKeyTouched) body.anthropic_api_key = anthropicKey;
+      // New providers
+      body.deepseek_model = deepseekModel; body.deepseek_coding_model = deepseekCodingModel;
+      if (deepseekKeyTouched) body.deepseek_api_key = deepseekKey;
+      body.openrouter_model = openrouterModel; body.openrouter_coding_model = openrouterCodingModel;
+      if (openrouterKeyTouched) body.openrouter_api_key = openrouterKey;
+      body.glm_model = glmModel; body.glm_coding_model = glmCodingModel;
+      if (glmKeyTouched) body.glm_api_key = glmKey;
+      body.minimax_model = minimaxModel; body.minimax_coding_model = minimaxCodingModel;
+      if (minimaxKeyTouched) body.minimax_api_key = minimaxKey;
+      body.mimo_model = mimoModel; body.mimo_coding_model = mimoCodingModel;
+      if (mimoKeyTouched) body.mimo_api_key = mimoKey;
+      body.kimi_model = kimiModel; body.kimi_coding_model = kimiCodingModel;
+      if (kimiKeyTouched) body.kimi_api_key = kimiKey;
       if (embeddingCustomKeyTouched) body.embedding_custom_api_key = embeddingCustomKey;
 
       const res = await fetch(`${API_BASE}/settings`, {
@@ -247,11 +343,12 @@ export default function SettingsPage() {
       </FadeIn>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="w-full">
+        <TabsList className="w-full flex-wrap">
           <TabsTrigger value="llm" className="gap-1.5 flex-1"><Brain className="h-4 w-4"/>LLM</TabsTrigger>
           <TabsTrigger value="embeddings" className="gap-1.5 flex-1"><Cpu className="h-4 w-4"/>Embeddings</TabsTrigger>
           <TabsTrigger value="general" className="gap-1.5 flex-1"><Settings2 className="h-4 w-4"/>General</TabsTrigger>
           <TabsTrigger value="parsers" className="gap-1.5 flex-1" onClick={() => { listParsers().then(setParsers).catch(() => {}); }}><FileCode className="h-4 w-4"/>Parsers</TabsTrigger>
+          <TabsTrigger value="skills" className="gap-1.5 flex-1"><Wand2 className="h-4 w-4"/>Skills</TabsTrigger>
         </TabsList>
 
         <AnimatePresence mode="wait">
@@ -298,6 +395,132 @@ export default function SettingsPage() {
                               <SelectTrigger><SelectValue/></SelectTrigger>
                               <SelectContent>{ANTHROPIC_MODELS.map(m=><SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
                             </Select>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* DeepSeek fields */}
+                    <AnimatePresence>
+                      {llmProvider === "deepseek" && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                          className="pl-4 border-l-2 border-blue-400/30 space-y-3 overflow-hidden">
+                          <KeyField label="DeepSeek API Key" value={deepseekKey} savedMasked={settings?.deepseek_api_key}
+                            touched={deepseekKeyTouched} onChange={(v) => { setDeepseekKey(v); setDeepseekKeyTouched(true); }}
+                            onFocus={() => { if (!deepseekKeyTouched) setDeepseekKey(""); }} placeholder="sk-..." />
+                          <div className="space-y-1.5"><Label>Model</Label>
+                            <Select value={deepseekModel} onValueChange={setDeepseekModel}>
+                              <SelectTrigger><SelectValue/></SelectTrigger>
+                              <SelectContent>{DEEPSEEK_MODELS.map(m=><SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1.5"><Label>Coding Model (optional, for plan/reasoning)</Label>
+                            <Input value={deepseekCodingModel} onChange={(e) => setDeepseekCodingModel(e.target.value)} placeholder="deepseek-coder" />
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* OpenRouter fields */}
+                    <AnimatePresence>
+                      {llmProvider === "openrouter" && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                          className="pl-4 border-l-2 border-indigo-400/30 space-y-3 overflow-hidden">
+                          <KeyField label="OpenRouter API Key" value={openrouterKey} savedMasked={settings?.openrouter_api_key}
+                            touched={openrouterKeyTouched} onChange={(v) => { setOpenrouterKey(v); setOpenrouterKeyTouched(true); }}
+                            onFocus={() => { if (!openrouterKeyTouched) setOpenrouterKey(""); }} placeholder="sk-or-..." />
+                          <div className="space-y-1.5"><Label>Model</Label>
+                            <Select value={openrouterModel} onValueChange={setOpenrouterModel}>
+                              <SelectTrigger><SelectValue/></SelectTrigger>
+                              <SelectContent>{OPENROUTER_MODELS.map(m=><SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1.5"><Label>Coding Model (optional)</Label>
+                            <Input value={openrouterCodingModel} onChange={(e) => setOpenrouterCodingModel(e.target.value)} placeholder="anthropic/claude-sonnet-4-20250514" />
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* GLM fields */}
+                    <AnimatePresence>
+                      {llmProvider === "glm" && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                          className="pl-4 border-l-2 border-teal-400/30 space-y-3 overflow-hidden">
+                          <KeyField label="GLM API Key (ZhipuAI)" value={glmKey} savedMasked={settings?.glm_api_key}
+                            touched={glmKeyTouched} onChange={(v) => { setGlmKey(v); setGlmKeyTouched(true); }}
+                            onFocus={() => { if (!glmKeyTouched) setGlmKey(""); }} placeholder="..." />
+                          <div className="space-y-1.5"><Label>Model</Label>
+                            <Select value={glmModel} onValueChange={setGlmModel}>
+                              <SelectTrigger><SelectValue/></SelectTrigger>
+                              <SelectContent>{GLM_MODELS.map(m=><SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1.5"><Label>Coding Model (optional)</Label>
+                            <Input value={glmCodingModel} onChange={(e) => setGlmCodingModel(e.target.value)} placeholder="glm-4-plus" />
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* MiniMax fields */}
+                    <AnimatePresence>
+                      {llmProvider === "minimax" && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                          className="pl-4 border-l-2 border-rose-400/30 space-y-3 overflow-hidden">
+                          <KeyField label="MiniMax API Key" value={minimaxKey} savedMasked={settings?.minimax_api_key}
+                            touched={minimaxKeyTouched} onChange={(v) => { setMinimaxKey(v); setMinimaxKeyTouched(true); }}
+                            onFocus={() => { if (!minimaxKeyTouched) setMinimaxKey(""); }} placeholder="..." />
+                          <div className="space-y-1.5"><Label>Model</Label>
+                            <Select value={minimaxModel} onValueChange={setMinimaxModel}>
+                              <SelectTrigger><SelectValue/></SelectTrigger>
+                              <SelectContent>{MINIMAX_MODELS.map(m=><SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1.5"><Label>Coding Model (optional)</Label>
+                            <Input value={minimaxCodingModel} onChange={(e) => setMinimaxCodingModel(e.target.value)} placeholder="MiniMax-Text-01" />
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* Mimo fields */}
+                    <AnimatePresence>
+                      {llmProvider === "mimo" && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                          className="pl-4 border-l-2 border-violet-400/30 space-y-3 overflow-hidden">
+                          <KeyField label="Mimo (MiniMax-M1) API Key" value={mimoKey} savedMasked={settings?.mimo_api_key}
+                            touched={mimoKeyTouched} onChange={(v) => { setMimoKey(v); setMimoKeyTouched(true); }}
+                            onFocus={() => { if (!mimoKeyTouched) setMimoKey(""); }} placeholder="..." />
+                          <div className="space-y-1.5"><Label>Model</Label>
+                            <Select value={mimoModel} onValueChange={setMimoModel}>
+                              <SelectTrigger><SelectValue/></SelectTrigger>
+                              <SelectContent>{MIMO_MODELS.map(m=><SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1.5"><Label>Coding Model (optional)</Label>
+                            <Input value={mimoCodingModel} onChange={(e) => setMimoCodingModel(e.target.value)} placeholder="MiniMax-M1" />
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* Kimi fields */}
+                    <AnimatePresence>
+                      {llmProvider === "kimi" && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                          className="pl-4 border-l-2 border-sky-400/30 space-y-3 overflow-hidden">
+                          <KeyField label="Kimi (Moonshot) API Key" value={kimiKey} savedMasked={settings?.kimi_api_key}
+                            touched={kimiKeyTouched} onChange={(v) => { setKimiKey(v); setKimiKeyTouched(true); }}
+                            onFocus={() => { if (!kimiKeyTouched) setKimiKey(""); }} placeholder="sk-..." />
+                          <div className="space-y-1.5"><Label>Model</Label>
+                            <Select value={kimiModel} onValueChange={setKimiModel}>
+                              <SelectTrigger><SelectValue/></SelectTrigger>
+                              <SelectContent>{KIMI_MODELS.map(m=><SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1.5"><Label>Coding Model (optional)</Label>
+                            <Input value={kimiCodingModel} onChange={(e) => setKimiCodingModel(e.target.value)} placeholder="moonshot-v1-8k" />
                           </div>
                         </motion.div>
                       )}
@@ -438,7 +661,8 @@ export default function SettingsPage() {
                     <Select value={parserPriority} onValueChange={setParserPriority}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="docling_first">Docling (best quality, fallback to pypdf)</SelectItem>
+                        <SelectItem value="mineru_first">MinerU (best quality, fallback to Docling → pypdf)</SelectItem>
+                        <SelectItem value="docling">Docling only (layout-aware, table extraction)</SelectItem>
                         <SelectItem value="pypdf">pypdf only (built-in, no extra deps)</SelectItem>
                         <SelectItem value="ocr">OCR-enhanced (pypdf + Tesseract)</SelectItem>
                       </SelectContent>
@@ -478,6 +702,26 @@ export default function SettingsPage() {
               </TabsContent>
             </motion.div>
           )}
+
+          {/* ── Skills Tab ─────────────────────────────────────── */}
+          {tab === "skills" && (
+            <motion.div key="skills" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }}>
+              <TabsContent value="skills" forceMount className="mt-4 space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>AI Skills Management</CardTitle>
+                    <CardDescription>Create, edit, delete, import, and export analysis skills. Skills define focused AI-powered extraction workflows.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <SkillManager
+                      skills={skillDefs}
+                      onSkillsChanged={() => { listSkills().then((s) => setSkillDefs(s.skills || [])).catch(() => {}); }}
+                    />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </motion.div>
+          )}
         </AnimatePresence>
       </Tabs>
 
@@ -508,6 +752,12 @@ export default function SettingsPage() {
               if (llmCustomKeyTouched) body.llm_custom_api_key = llmCustomKey;
               if (openaiKeyTouched) body.openai_api_key = openaiKey;
               if (anthropicKeyTouched) body.anthropic_api_key = anthropicKey;
+              if (deepseekKeyTouched) body.deepseek_api_key = deepseekKey;
+              if (openrouterKeyTouched) body.openrouter_api_key = openrouterKey;
+              if (glmKeyTouched) body.glm_api_key = glmKey;
+              if (minimaxKeyTouched) body.minimax_api_key = minimaxKey;
+              if (mimoKeyTouched) body.mimo_api_key = mimoKey;
+              if (kimiKeyTouched) body.kimi_api_key = kimiKey;
               if (embeddingCustomKeyTouched) body.embedding_custom_api_key = embeddingCustomKey;
               const res = await fetch(`${API_BASE}/settings/test`, {
                 method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),

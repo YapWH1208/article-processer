@@ -247,15 +247,20 @@ class OpenAIProvider(BaseLLMProvider):
 class CustomOpenAIProvider(OpenAIProvider):
     """OpenAI-compatible provider pointed at a custom endpoint.
 
-    Uses ``llm_custom_base_url``, ``llm_custom_api_key``, ``llm_custom_model``.
+    Uses ``llm_custom_base_url``, ``llm_custom_api_key``, ``llm_custom_model``
+    by default, but can be constructed with explicit parameters for preset providers.
     """
 
-    def __init__(self):
+    def __init__(self, base_url: str = "", api_key: str = "", model: str = ""):
+        effective_url = base_url or settings.llm_custom_base_url
+        effective_key = api_key or settings.llm_custom_api_key or "not-needed"
+        effective_model = model or settings.llm_custom_model
+
         self.client = AsyncOpenAI(
-            api_key=settings.llm_custom_api_key or "not-needed",
-            base_url=settings.llm_custom_base_url.rstrip("/"),
+            api_key=effective_key,
+            base_url=effective_url.rstrip("/") if effective_url else "http://localhost:11434/v1",
         )
-        self.model = settings.llm_custom_model
+        self.model = effective_model
 
 
 class CustomEmbeddingProvider(BaseEmbeddingProvider):

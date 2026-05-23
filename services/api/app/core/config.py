@@ -19,6 +19,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 (_PROJECT_ROOT / "storage" / "uploads").mkdir(parents=True, exist_ok=True)
 (_PROJECT_ROOT / "storage" / "markdown").mkdir(parents=True, exist_ok=True)
 (_PROJECT_ROOT / "storage" / "exports").mkdir(parents=True, exist_ok=True)
+(_PROJECT_ROOT / "storage" / "images").mkdir(parents=True, exist_ok=True)
 
 
 def _resolve_path(raw: str) -> str:
@@ -43,7 +44,8 @@ class Settings(BaseSettings):
     max_upload_mb: int = 50
 
     # ── LLM Provider ──────────────────────────────────────────────────────
-    # "openai" | "anthropic" | "custom"
+    # "openai" | "anthropic" | "custom" | "deepseek" | "openrouter" |
+    # "glm" | "minimax" | "mimo" | "kimi"
     llm_provider: str = "openai"
     # When llm_provider = "custom", which protocol to speak
     llm_custom_protocol: str = "openai"  # "openai" | "anthropic"
@@ -60,6 +62,31 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-20250514"
 
+    # ── Additional Provider API Keys ──────────────────────────────────────
+    deepseek_api_key: str = ""
+    deepseek_model: str = "deepseek-chat"
+    deepseek_coding_model: str = "deepseek-coder"
+
+    openrouter_api_key: str = ""
+    openrouter_model: str = "openai/gpt-4.1-mini"
+    openrouter_coding_model: str = ""
+
+    glm_api_key: str = ""
+    glm_model: str = "glm-4-plus"
+    glm_coding_model: str = ""
+
+    minimax_api_key: str = ""
+    minimax_model: str = "MiniMax-Text-01"
+    minimax_coding_model: str = ""
+
+    mimo_api_key: str = ""
+    mimo_model: str = "MiniMax-M1"
+    mimo_coding_model: str = ""
+
+    kimi_api_key: str = ""
+    kimi_model: str = "moonshot-v1-8k"
+    kimi_coding_model: str = ""
+
     # ── Embedding Provider ───────────────────────────────────────────────
     # "openai" | "custom"
     embedding_provider: str = "openai"
@@ -71,8 +98,8 @@ class Settings(BaseSettings):
     use_mock_ai: bool = True
 
     # ── Parsing ──────────────────────────────────────────────────────────
-    # Priority: "docling_first" | "pypdf" | "ocr"
-    parser_priority: str = "docling_first"
+    # Priority: "mineru_first" | "docling" | "pypdf" | "ocr"
+    parser_priority: str = "mineru_first"
 
     # ── Server ────────────────────────────────────────────────────────────
     host: str = "0.0.0.0"

@@ -74,6 +74,72 @@ def get_llm_provider() -> BaseLLMProvider:
             from app.services.ai.openai_provider import CustomOpenAIProvider
             return CustomOpenAIProvider()
 
+    elif provider == "deepseek":
+        if not settings.deepseek_api_key:
+            from app.services.ai.mock_provider import MockLLMProvider
+            return MockLLMProvider()
+        from app.services.ai.openai_provider import CustomOpenAIProvider
+        return CustomOpenAIProvider(
+            base_url="https://api.deepseek.com/v1",
+            api_key=settings.deepseek_api_key,
+            model=settings.deepseek_model,
+        )
+
+    elif provider == "openrouter":
+        if not settings.openrouter_api_key:
+            from app.services.ai.mock_provider import MockLLMProvider
+            return MockLLMProvider()
+        from app.services.ai.openai_provider import CustomOpenAIProvider
+        return CustomOpenAIProvider(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=settings.openrouter_api_key,
+            model=settings.openrouter_model,
+        )
+
+    elif provider == "glm":
+        if not settings.glm_api_key:
+            from app.services.ai.mock_provider import MockLLMProvider
+            return MockLLMProvider()
+        from app.services.ai.openai_provider import CustomOpenAIProvider
+        return CustomOpenAIProvider(
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            api_key=settings.glm_api_key,
+            model=settings.glm_model,
+        )
+
+    elif provider == "minimax":
+        if not settings.minimax_api_key:
+            from app.services.ai.mock_provider import MockLLMProvider
+            return MockLLMProvider()
+        from app.services.ai.openai_provider import CustomOpenAIProvider
+        return CustomOpenAIProvider(
+            base_url="https://api.minimax.chat/v1",
+            api_key=settings.minimax_api_key,
+            model=settings.minimax_model,
+        )
+
+    elif provider == "mimo":
+        if not settings.mimo_api_key:
+            from app.services.ai.mock_provider import MockLLMProvider
+            return MockLLMProvider()
+        from app.services.ai.openai_provider import CustomOpenAIProvider
+        return CustomOpenAIProvider(
+            base_url="https://api.minimax.chat/v1",
+            api_key=settings.mimo_api_key,
+            model=settings.mimo_model,
+        )
+
+    elif provider == "kimi":
+        if not settings.kimi_api_key:
+            from app.services.ai.mock_provider import MockLLMProvider
+            return MockLLMProvider()
+        from app.services.ai.openai_provider import CustomOpenAIProvider
+        return CustomOpenAIProvider(
+            base_url="https://api.moonshot.cn/v1",
+            api_key=settings.kimi_api_key,
+            model=settings.kimi_model,
+        )
+
     # Fallback
     from app.services.ai.mock_provider import MockLLMProvider
     return MockLLMProvider()
