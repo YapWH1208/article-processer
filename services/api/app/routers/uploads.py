@@ -27,10 +27,12 @@ storage = LocalStorage()
 @router.post("", response_model=UploadResponse)
 async def upload_file(
     file: UploadFile = File(...),
-    run_ai: bool = Form(True),
+    run_ai: str = Form("true"),
     db: Session = Depends(get_db),
 ):
     """Upload a PDF, ZIP, HTML, MD, or TXT file for processing."""
+    # Explicitly parse run_ai — avoid FastAPI bool coercion edge cases
+    run_ai_bool = run_ai.lower() in ("true", "1", "yes")
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
 
@@ -117,7 +119,7 @@ async def upload_file(
     db.refresh(job)
 
     # Kick off background processing
-    run_pipeline_background(article.id, run_ai=run_ai)
+    run_pipeline_background(article.id, run_ai=run_ai_bool)
 
     return UploadResponse(
         article_id=article.id,

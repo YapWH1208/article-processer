@@ -22,6 +22,7 @@ from app.services.parsers.pdf import PdfParser
 from app.services.parsers.html import HtmlParser
 from app.services.parsers.markdown import MarkdownParser
 from app.services.parsers.docling_adapter import DoclingAdapter
+from app.services.parsers.mineru_adapter import MinerUAdapter
 from app.services.pipeline.markdown_normalizer import normalize_markdown
 from app.services.pipeline.chunking import chunk_markdown, estimate_tokens
 from app.services.ai.base import get_llm_provider
@@ -34,16 +35,19 @@ storage = LocalStorage()
 
 
 # Parser registry — instantiate once, select at call time based on priority setting
+_mineru = MinerUAdapter()
 _docling = DoclingAdapter()
 _pypdf = PdfParser()
 _html = HtmlParser()
 _md = MarkdownParser()
 
-if _docling.is_available:
+if _mineru.is_available:
+    logger.info("MinerU detected — available for PDF parsing (default)")
+elif _docling.is_available:
     logger.info("Docling detected — available for PDF parsing")
 else:
-    logger.info("Docling not installed — pypdf will be used for PDFs. "
-                 "Install docling for better results: pip install docling")
+    logger.info("Neither MinerU nor Docling installed — pypdf will be used for PDFs. "
+                 "Install mineru for best results: pip install magic-pdf")
 
 
 def _select_pdf_parser(priority: str):
@@ -52,7 +56,13 @@ def _select_pdf_parser(priority: str):
         return _pypdf
     if priority == "ocr":
         return _pypdf  # PdfParser already has OCR fallback
-    # docling_first or unknown
+    if priority == "docling":
+        if _docling.is_available:
+            return _docling
+        logger.warning("docling requested but not installed, falling back")
+    # mineru_first (default) or unknown — try MinerU first, then Docling, then pypdf
+    if _mineru.is_available:
+        return _mineru
     if _docling.is_available:
         return _docling
     return _pypdf
@@ -149,7 +159,6 @@ async def run_pipeline(article_id: int, run_ai: bool = True) -> None:
 
         # ── Step 2: Chunking ───────────────────────────────────────────
         add_log("chunking", "Chunking document...")
-        article.status = ArticleStatus.EXTRACTING.value
         db.commit()
 
         chunks = chunk_markdown(markdown)
@@ -173,12 +182,16 @@ async def run_pipeline(article_id: int, run_ai: bool = True) -> None:
 
         # ── Step 3: AI Extraction ──────────────────────────────────────
         if not run_ai:
-            add_log("extracting", "AI pipeline disabled — skipping extraction, embeddings, and graph")
+            add_log("parse_complete", "AI pipeline disabled — skipping extraction, embeddings, and graph. Article ready for reading.")
             article.status = ArticleStatus.COMPLETED.value
             db.commit()
             job.status = JobStatus.COMPLETED.value
+            job.completed_at = datetime.datetime.utcnow()
             db.commit()
             return
+
+        article.status = ArticleStatus.EXTRACTING.value
+        db.commit()
 
         add_log("extracting", "Running AI extraction...")
         llm = get_llm_provider()

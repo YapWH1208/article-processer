@@ -53,7 +53,7 @@ export default function UploadPage() {
     setResults((prev) => [...prev, ...res]);
     setUploading(false);
     if (res.length > 0) { setShowSparkle(true); setTimeout(() => setShowSparkle(false), 2500); }
-  }, []);
+  }, [runAI]);
 
   const handleBibtexImport = async () => {
     if (!bibtexText.trim()) return;
