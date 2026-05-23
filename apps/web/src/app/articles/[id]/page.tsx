@@ -10,7 +10,7 @@ import {
   FileText, MessageCircle, Info, ScrollText, Loader2, Send,
   RotateCw, Download, AlertCircle, Trash2, Archive, ArchiveRestore, Plus,
   PanelRightClose, PanelRightOpen, X, Wand2, ArrowLeft, ChevronRight,
-  Calendar,
+  Calendar, Activity,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -517,7 +517,7 @@ export default function ArticleDetailPage() {
                                 ["Filename", article.original_filename, <FileText key="fn" className="h-3.5 w-3.5 opacity-60" />],
                                 ["Source", article.source_type.toUpperCase(), <ScrollText key="src" className="h-3.5 w-3.5 opacity-60" />],
                                 ["Parser", article.parser_name || article.source_type?.toUpperCase(), <Wand2 key="pr" className="h-3.5 w-3.5 opacity-60" />],
-                                ["Status", article.status, <BarChart3 key="st" className="h-3.5 w-3.5 opacity-60" />],
+                                ["Status", article.status, <Activity key="st" className="h-3.5 w-3.5 opacity-60" />],
                                 ["Archived", article.is_archived ? "Yes" : "No", <Archive key="ar" className="h-3.5 w-3.5 opacity-60" />],
                                 ["Created", new Date(article.created_at).toLocaleString(), <Calendar key="cr" className="h-3.5 w-3.5 opacity-60" />],
                                 ["Updated", new Date(article.updated_at).toLocaleString(), <Calendar key="up" className="h-3.5 w-3.5 opacity-60" />],
