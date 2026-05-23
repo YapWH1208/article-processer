@@ -211,6 +211,8 @@ class ChatMessage(Base):
     role = Column(String(32), nullable=False)  # user / assistant
     content = Column(Text, nullable=False)
     citations_json = Column(Text, nullable=True)  # JSON array of citation objects
+    prompt_tokens = Column(Integer, default=0)
+    completion_tokens = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     article = relationship("Article", back_populates="messages")

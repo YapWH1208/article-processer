@@ -58,18 +58,26 @@ async def chat_with_article(
         chunks=relevant_chunks,
     )
 
+    # Estimate token counts (~4 chars per token for English text)
+    prompt_tokens = max(1, len(request.message) // 4)
+    completion_tokens = max(1, len(answer) // 4)
+
     # Save message
     citations_json = json.dumps([c.model_dump() if hasattr(c, 'model_dump') else c for c in citations])
     user_msg = ChatMessage(
         article_id=article_id,
         role="user",
         content=request.message,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=0,
     )
     assistant_msg = ChatMessage(
         article_id=article_id,
         role="assistant",
         content=answer,
         citations_json=citations_json,
+        prompt_tokens=0,
+        completion_tokens=completion_tokens,
     )
     db.add(user_msg)
     db.add(assistant_msg)
@@ -81,6 +89,8 @@ async def chat_with_article(
         citations=citations,
         message_id=assistant_msg.id,
         created_at=assistant_msg.created_at,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
     )
 
 
@@ -113,6 +123,8 @@ def get_chat_history(article_id: int, db: Session = Depends(get_db)):
                 role=m.role,
                 content=m.content,
                 citations=citations,
+                prompt_tokens=m.prompt_tokens or 0,
+                completion_tokens=m.completion_tokens or 0,
                 created_at=m.created_at,
             )
         )

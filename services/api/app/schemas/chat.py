@@ -22,6 +22,8 @@ class ChatResponse(BaseModel):
     citations: list[Citation] = Field(default_factory=list)
     message_id: int
     created_at: datetime
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
 
 class ChatMessageResponse(BaseModel):
@@ -29,6 +31,8 @@ class ChatMessageResponse(BaseModel):
     role: str
     content: str
     citations: Optional[list[Citation]] = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
     created_at: datetime
 
     model_config = {"from_attributes": True}

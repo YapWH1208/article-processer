@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.db.session import engine, Base
-from app.routers import uploads, articles, chat, exports, imports, skills as skills_router, auth, settings_page
+from app.routers import uploads, articles, chat, exports, imports, skills as skills_router, auth, settings_page, dashboard
 
 
 @asynccontextmanager
@@ -45,11 +45,55 @@ app.add_middleware(
 
 @app.get("/health")
 async def health_check():
+    # Resolve the effective model name based on provider config
+    model_name = _resolve_model_name()
+
     return {
         "status": "ok",
         "version": "0.1.0",
         "mock_ai": settings.use_mock_ai,
+        "llm_provider": settings.llm_provider,
+        "llm_model": model_name,
+        "embedding_provider": settings.embedding_provider,
+        "embedding_model": _resolve_embedding_model(),
     }
+
+
+def _resolve_model_name() -> str:
+    """Resolve the effective LLM model name from settings."""
+    if settings.use_mock_ai:
+        return "mock (no model)"
+    provider = settings.llm_provider
+    if provider == "openai":
+        return settings.openai_model
+    elif provider == "anthropic":
+        return settings.anthropic_model
+    elif provider == "deepseek":
+        return settings.deepseek_model
+    elif provider == "openrouter":
+        return settings.openrouter_model
+    elif provider == "glm":
+        return settings.glm_model
+    elif provider == "minimax":
+        return settings.minimax_model
+    elif provider == "mimo":
+        return settings.mimo_model
+    elif provider == "kimi":
+        return settings.kimi_model
+    elif provider == "custom":
+        return settings.llm_custom_model or "custom (no model set)"
+    return "unknown"
+
+
+def _resolve_embedding_model() -> str:
+    """Resolve the effective embedding model name from settings."""
+    if settings.use_mock_ai:
+        return "mock"
+    if settings.embedding_provider == "openai":
+        return settings.openai_embedding_model
+    elif settings.embedding_provider == "custom":
+        return settings.embedding_custom_model or "custom"
+    return "unknown"
 
 
 # Register routers
@@ -61,6 +105,7 @@ app.include_router(imports.router, prefix="/imports", tags=["imports"])
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(settings_page.router, prefix="/settings", tags=["settings"])
 app.include_router(skills_router.router, prefix="/skills", tags=["skills"])
+app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 
 # Mount storage/images for extracted figure serving
 _images_dir = settings.project_root / "storage" / "images"

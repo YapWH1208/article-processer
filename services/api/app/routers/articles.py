@@ -94,6 +94,63 @@ def list_articles(
     )
 
 
+@router.get("/graph/global")
+def get_global_graph(
+    limit: int = 200,
+    include_archived: bool = False,
+    db: Session = Depends(get_db),
+):
+    """Return all graph entities and relationships across articles for global graph view."""
+    entity_q = db.query(GraphEntity)
+    rel_q = db.query(GraphRelationship)
+
+    if not include_archived:
+        entity_q = entity_q.join(Article).filter(Article.is_archived == 0)
+        rel_q = rel_q.join(Article).filter(Article.is_archived == 0)
+
+    entities = entity_q.limit(limit).all()
+    relationships = rel_q.limit(limit).all()
+
+    # Enrich entities with article title
+    article_ids: set[int] = set()
+    for e in entities:
+        article_ids.add(e.article_id)
+    for r in relationships:
+        article_ids.add(r.article_id)
+
+    articles_map: dict[int, str] = {}
+    if article_ids:
+        arts = db.query(Article).filter(Article.id.in_(article_ids)).all()
+        articles_map = {a.id: a.title or a.original_filename for a in arts}
+
+    return {
+        "entities": [
+            {
+                "id": e.id,
+                "article_id": e.article_id,
+                "article_title": articles_map.get(e.article_id, f"Article #{e.article_id}"),
+                "type": e.type,
+                "name": e.name,
+                "canonical_name": e.canonical_name,
+                "confidence": e.confidence,
+            }
+            for e in entities
+        ],
+        "relationships": [
+            {
+                "id": r.id,
+                "article_id": r.article_id,
+                "article_title": articles_map.get(r.article_id, f"Article #{r.article_id}"),
+                "source_entity_id": r.source_entity_id,
+                "target_entity_id": r.target_entity_id,
+                "type": r.type,
+                "confidence": r.confidence,
+            }
+            for r in relationships
+        ],
+    }
+
+
 @router.get("/{article_id}", response_model=ArticleDetail)
 def get_article(article_id: int, db: Session = Depends(get_db)):
     """Get article detail."""
