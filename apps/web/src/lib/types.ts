@@ -261,6 +261,7 @@ export interface HealthInfo {
   mock_ai: boolean;
   llm_provider: string;
   llm_model: string;
+  llm_custom_protocol?: string | null;
   embedding_provider: string;
   embedding_model: string;
 }

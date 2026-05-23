@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileText, CheckCircle2, AlertCircle, Inbox, Sparkles, Brain } from "lucide-react";
+import { Upload, FileText, CheckCircle2, AlertCircle, Inbox, Sparkles, Brain, Layers } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,15 +22,22 @@ export default function UploadPage() {
   const [results, setResults] = useState<{ filename: string; article_id: number }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showSparkle, setShowSparkle] = useState(false);
-  const [modelInfo, setModelInfo] = useState<{ provider: string; model: string; mock: boolean } | null>(null);
+  const [modelInfo, setModelInfo] = useState<{
+    llmProvider: string; llmModel: string; llmProtocol: string | null;
+    embProvider: string; embModel: string;
+    mock: boolean;
+  } | null>(null);
 
   useEffect(() => {
     const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
     fetch(`${API_BASE}/health`)
       .then((r) => r.json())
       .then((d) => setModelInfo({
-        provider: d.llm_provider || "unknown",
-        model: d.llm_model || "unknown",
+        llmProvider: d.llm_provider || "unknown",
+        llmModel: d.llm_model || "unknown",
+        llmProtocol: d.llm_custom_protocol || null,
+        embProvider: d.embedding_provider || "unknown",
+        embModel: d.embedding_model || "unknown",
         mock: d.mock_ai || false,
       }))
       .catch(() => {});
@@ -64,14 +71,30 @@ export default function UploadPage() {
             <p className="text-muted-foreground mt-1">Drag and drop documents to upload.</p>
           </div>
           {modelInfo && (
-            <Badge variant="outline" className="gap-2 px-3 py-1.5 text-xs">
-              <Brain className="h-3.5 w-3.5 text-primary" />
-              <span className="text-muted-foreground">Model:</span>
-              <span className="font-medium">{modelInfo.mock ? "Mock AI" : modelInfo.model}</span>
-              {!modelInfo.mock && (
-                <span className="text-muted-foreground">via {modelInfo.provider}</span>
-              )}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="gap-1.5 px-2.5 py-1 text-xs">
+                <Brain className="h-3 w-3 text-primary" />
+                <span className="text-muted-foreground">LLM:</span>
+                <span className="font-medium">{modelInfo.mock ? "Mock" : modelInfo.llmModel}</span>
+                {!modelInfo.mock && modelInfo.llmProvider === "custom" && modelInfo.llmProtocol && (
+                  <span className="text-muted-foreground">via {modelInfo.llmProtocol}</span>
+                )}
+                {!modelInfo.mock && modelInfo.llmProvider !== "openai" && modelInfo.llmProvider !== "custom" && (
+                  <span className="text-muted-foreground">@{modelInfo.llmProvider}</span>
+                )}
+              </Badge>
+              <Badge variant="outline" className="gap-1.5 px-2.5 py-1 text-xs">
+                <Layers className="h-3 w-3 text-primary" />
+                <span className="text-muted-foreground">Emb:</span>
+                <span className="font-medium">{modelInfo.mock ? "Mock" : modelInfo.embModel}</span>
+                {!modelInfo.mock && modelInfo.embProvider === "custom" && (
+                  <span className="text-muted-foreground">custom</span>
+                )}
+                {!modelInfo.mock && modelInfo.embProvider !== "openai" && modelInfo.embProvider !== "custom" && (
+                  <span className="text-muted-foreground">@{modelInfo.embProvider}</span>
+                )}
+              </Badge>
+            </div>
           )}
         </div>
       </FadeIn>

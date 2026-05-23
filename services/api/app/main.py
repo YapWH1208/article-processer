@@ -54,6 +54,7 @@ async def health_check():
         "mock_ai": settings.use_mock_ai,
         "llm_provider": settings.llm_provider,
         "llm_model": model_name,
+        "llm_custom_protocol": settings.llm_custom_protocol if settings.llm_provider == "custom" else None,
         "embedding_provider": settings.embedding_provider,
         "embedding_model": _resolve_embedding_model(),
     }
