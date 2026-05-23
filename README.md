@@ -51,14 +51,16 @@ cp .env.example apps/web/.env.local
 
 ## Features
 
-- **Document Ingestion**: Upload PDF, ZIP (containing PDFs/HTML/MD/TXT), HTML, Markdown, or plain text
-- **Automatic Parsing**: Convert documents to canonical Markdown with structure preservation — MinerU (best), Docling, or pypdf
+- **Landing Page**: Attractive home page with feature overview, how-it-works steps, and quick search
+- **Document Ingestion**: Upload PDF, ZIP (containing PDFs/HTML/MD/TXT), HTML, Markdown, or plain text — with live model info badge
+- **Automatic Parsing**: Convert documents to canonical Markdown with structure preservation — MinerU v3.x (best), Docling, or pypdf
 - **AI Extraction**: Extract structured research information (authors, methodology, results, claims, etc.)
-- **RAG Q&A**: Ask questions about articles with cited answers, side-by-side chat with citation sources, persistent chat history
+- **RAG Q&A**: Ask questions about articles with cited answers, token usage tracking, persistent chat history
 - **Built-in AI Skills**: Research summary, methodology extraction, experiment extraction, literature review notes, reviewer critique — all with structured results. Create, edit, import, and export custom skills.
-- **Graph Analysis**: Entity and relationship extraction with color-coded type visualization and directional relationship cards
+- **Global Knowledge Graph**: Interactive canvas-based force-directed graph of all entities and relationships across articles (Obsidian-style), with zoom/pan, type filtering, and click-to-navigate
+- **Metrics Dashboard**: Professional analytics with time-range filter, KPI cards, charts (line, bar, donut), and top articles table — track token usage, article throughput, and processing metrics
 - **Batch Operations**: Select multiple articles for bulk archive/restore, delete, or export
-- **Global Search**: Full-text search across all article content from the dashboard
+- **Global Search**: Full-text search across all article content from the home page
 - **Export**: Individual article export (JSON, Markdown) and unified "Export All" (settings + articles + skills) from Settings
 - **Multi-Provider AI**: 9 LLM providers — OpenAI, Anthropic, DeepSeek, OpenRouter, GLM (Zhipu), MiniMax, Mimo (MiniMax-M1), Kimi (Moonshot), and Custom (any OpenAI/Anthropic-compatible endpoint)
 - **PDF Original View**: Toggle between parsed Markdown and the original PDF inline in the Reader

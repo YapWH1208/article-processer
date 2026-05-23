@@ -4,6 +4,27 @@ All notable changes to the Article Processor project.
 
 ---
 
+## [0.3.0] — 2026-05-23
+
+### Added
+
+- **Metrics dashboard** (`/dashboard`) — Professional analytics page with time-range filter (7d/30d/90d/1y/All), KPI cards (total articles, completed, tokens, graph entities, processing, failed, chat messages, avg process time), line chart for articles over time, stacked bar chart for token usage by model, donut chart for articles by status, and top articles table by chat token usage. Backend: `GET /dashboard/metrics` with configurable `?days=` param.
+- **Global knowledge graph** (`/graph`) — Lightweight canvas-based force-directed graph (Obsidian-style), with zoom/pan/drag, entity type color coding, toggleable type filter, hover tooltips, and click-to-navigate to article. Backend: `GET /articles/graph/global`.
+- **Model display on upload page** — Current LLM provider and model shown as a badge on the upload page, fetched from the enhanced `GET /health` endpoint.
+- **Token usage tracking in chat** — `ChatMessage` model now tracks `prompt_tokens` and `completion_tokens`. Chat UI shows per-message token counts and cumulative token usage in the chat header. Backend estimates tokens from text length (~4 chars/token).
+- **Enhanced health endpoint** — `GET /health` now returns `llm_provider`, `llm_model`, `embedding_provider`, and `embedding_model`.
+
+### Changed
+
+- **Home page redesign** — Dashboard page refactored into an attractive landing page at `/` with hero section, features grid, how-it-works steps, and CTA. NavBar link renamed from "Dashboard" to "Home".
+- **Graph tab removed from article detail** — Per-article graph view removed; knowledge graph is now a global page (`/graph`).
+
+### Fixed
+
+- **MinerU adapter updated for v3.x** — The package is now `mineru` (not `magic-pdf`). Adapter detects via CLI (`shutil.which`), Python module (`import mineru`), `do_parse` API, and legacy `magic_pdf` UNIPipe — with graceful fallback to pypdf. Install instruction updated to `pip install -U "mineru[all]"`.
+
+---
+
 ## [0.2.9] — 2025-07-22
 
 ### Changed (breaking)
