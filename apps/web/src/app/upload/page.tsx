@@ -24,7 +24,7 @@ export default function UploadPage() {
   const [showSparkle, setShowSparkle] = useState(false);
   const [modelInfo, setModelInfo] = useState<{
     llmProvider: string; llmModel: string; llmProtocol: string | null;
-    embProvider: string; embModel: string;
+    embProvider: string; embModel: string; embProtocol: string | null;
     mock: boolean;
   } | null>(null);
 
@@ -38,6 +38,7 @@ export default function UploadPage() {
         llmProtocol: d.llm_custom_protocol || null,
         embProvider: d.embedding_provider || "unknown",
         embModel: d.embedding_model || "unknown",
+        embProtocol: d.embedding_custom_protocol || null,
         mock: d.mock_ai || false,
       }))
       .catch(() => {});
@@ -87,8 +88,10 @@ export default function UploadPage() {
                 <Layers className="h-3 w-3 text-primary" />
                 <span className="text-muted-foreground">Emb:</span>
                 <span className="font-medium">{modelInfo.mock ? "Mock" : modelInfo.embModel}</span>
-                {!modelInfo.mock && modelInfo.embProvider === "custom" && (
-                  <span className="text-muted-foreground">custom</span>
+                {!modelInfo.mock && modelInfo.embProvider === "custom" && modelInfo.embProtocol && (
+                  <span className="text-muted-foreground text-[10px] truncate max-w-[100px]" title={modelInfo.embProtocol}>
+                    via {new URL(modelInfo.embProtocol).hostname}
+                  </span>
                 )}
                 {!modelInfo.mock && modelInfo.embProvider !== "openai" && modelInfo.embProvider !== "custom" && (
                   <span className="text-muted-foreground">@{modelInfo.embProvider}</span>

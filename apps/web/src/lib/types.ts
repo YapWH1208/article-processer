@@ -264,4 +264,5 @@ export interface HealthInfo {
   llm_custom_protocol?: string | null;
   embedding_provider: string;
   embedding_model: string;
+  embedding_custom_protocol?: string | null;
 }

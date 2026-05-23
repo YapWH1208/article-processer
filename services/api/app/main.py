@@ -45,56 +45,81 @@ app.add_middleware(
 
 @app.get("/health")
 async def health_check():
-    # Resolve the effective model name based on provider config
-    model_name = _resolve_model_name()
+    # Resolve the effective model names based on provider config
+    llm_model = _resolve_model_name()
+    emb_model = _resolve_embedding_model()
 
     return {
         "status": "ok",
         "version": "0.1.0",
         "mock_ai": settings.use_mock_ai,
         "llm_provider": settings.llm_provider,
-        "llm_model": model_name,
+        "llm_model": llm_model,
         "llm_custom_protocol": settings.llm_custom_protocol if settings.llm_provider == "custom" else None,
         "embedding_provider": settings.embedding_provider,
-        "embedding_model": _resolve_embedding_model(),
+        "embedding_model": emb_model,
+        "embedding_custom_protocol": settings.embedding_custom_base_url if settings.embedding_provider == "custom" else None,
     }
 
 
 def _resolve_model_name() -> str:
-    """Resolve the effective LLM model name from settings."""
+    """Resolve the effective LLM model name from settings.
+
+    Mirrors the logic in ``get_llm_provider()`` factory so the health
+    endpoint always reports the model that would actually be used,
+    including fallback annotations.
+    """
     if settings.use_mock_ai:
         return "mock (no model)"
+
     provider = settings.llm_provider
+    no_key_suffix = " (no key — falls back to mock)"
+
     if provider == "openai":
-        return settings.openai_model
+        return settings.openai_model if settings.openai_api_key else f"{settings.openai_model}{no_key_suffix}"
     elif provider == "anthropic":
-        return settings.anthropic_model
+        return settings.anthropic_model if settings.anthropic_api_key else f"{settings.anthropic_model}{no_key_suffix}"
     elif provider == "deepseek":
-        return settings.deepseek_model
+        return settings.deepseek_model if settings.deepseek_api_key else f"{settings.deepseek_model}{no_key_suffix}"
     elif provider == "openrouter":
-        return settings.openrouter_model
+        return settings.openrouter_model if settings.openrouter_api_key else f"{settings.openrouter_model}{no_key_suffix}"
     elif provider == "glm":
-        return settings.glm_model
+        return settings.glm_model if settings.glm_api_key else f"{settings.glm_model}{no_key_suffix}"
     elif provider == "minimax":
-        return settings.minimax_model
+        return settings.minimax_model if settings.minimax_api_key else f"{settings.minimax_model}{no_key_suffix}"
     elif provider == "mimo":
-        return settings.mimo_model
+        return settings.mimo_model if settings.mimo_api_key else f"{settings.mimo_model}{no_key_suffix}"
     elif provider == "kimi":
-        return settings.kimi_model
+        return settings.kimi_model if settings.kimi_api_key else f"{settings.kimi_model}{no_key_suffix}"
     elif provider == "custom":
-        return settings.llm_custom_model or "custom (no model set)"
+        if settings.llm_custom_model:
+            return settings.llm_custom_model
+        else:
+            return "custom (no model configured)"
     return "unknown"
 
 
 def _resolve_embedding_model() -> str:
-    """Resolve the effective embedding model name from settings."""
+    """Resolve the effective embedding model name from settings.
+
+    Mirrors the logic in ``get_embedding_provider()`` factory so the
+    health endpoint always reports the model that would actually be used.
+    """
     if settings.use_mock_ai:
         return "mock"
     if settings.embedding_provider == "openai":
-        return settings.openai_embedding_model
+        if settings.openai_api_key:
+            return settings.openai_embedding_model
+        else:
+            return f"{settings.openai_embedding_model} (no key — will fall back to mock)"
     elif settings.embedding_provider == "custom":
-        return settings.embedding_custom_model or "custom"
-    return "unknown"
+        if settings.embedding_custom_base_url and settings.embedding_custom_model:
+            return settings.embedding_custom_model
+        elif settings.embedding_custom_model:
+            return f"{settings.embedding_custom_model} (no endpoint — will fall back to mock)"
+        else:
+            return "custom (no model configured)"
+    return f"unknown provider: {settings.embedding_provider}"
 
 
 # Register routers
