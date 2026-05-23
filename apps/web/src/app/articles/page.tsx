@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight, ArrowUpDown, CheckSquare, Square, Trash2, ArchiveRestore, X, FileType, Globe, FileCode } from "lucide-react";
+import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight, ArrowUpDown, CheckSquare, Square, Trash2, ArchiveRestore, X, FileType, Globe, FileCode, Download, Upload } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -93,6 +93,50 @@ export default function ArticlesPage() {
     setSelected(new Set());
     setBatchAction(null);
     setRefreshKey((k) => k + 1);
+  };
+
+  const handleExport = async () => {
+    setBatchAction("export");
+    try {
+      const ids = Array.from(selected);
+      const res = await fetch(`${API_BASE}/articles/export`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ article_ids: ids }),
+      });
+      if (!res.ok) throw new Error("Export failed");
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data.articles, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `articles-export-${ids.length}.json`; a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${data.count} articles`);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Export failed");
+    } finally { setBatchAction(null); }
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBatchAction("import");
+    try {
+      const text = await file.text();
+      const articles = JSON.parse(text);
+      const arr = Array.isArray(articles) ? articles : (articles.articles || []);
+      const res = await fetch(`${API_BASE}/imports/articles`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ articles: arr }),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || "Import failed");
+      const result = await res.json();
+      toast.success(`Imported ${result.imported} articles${result.skipped ? `, ${result.skipped} skipped` : ""}`);
+      setRefreshKey((k) => k + 1);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Import failed");
+    } finally { setBatchAction(null); }
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -187,6 +231,12 @@ export default function ArticlesPage() {
               <SelectItem value="status:asc">Status</SelectItem>
             </SelectContent>
           </Select>
+          <label>
+            <Button variant="outline" size="sm" className="gap-1.5 cursor-pointer" disabled={batchAction === "import"} asChild>
+              <span><Upload className="h-3.5 w-3.5"/> Import Articles</span>
+            </Button>
+            <input type="file" accept=".json" className="hidden" onChange={handleImport} />
+          </label>
         </div>
       </FadeIn>
 
@@ -195,12 +245,15 @@ export default function ArticlesPage() {
         <FadeIn>
           <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20 flex-wrap">
             <span className="text-sm font-medium">{selected.size} selected</span>
-            <Button variant="outline" size="sm" className="gap-1" onClick={handleBatchArchive} disabled={batchAction === "archive"}>
+            <Button variant="outline" size="sm" className="gap-1" onClick={handleBatchArchive} disabled={!!batchAction}>
               <ArchiveRestore className="h-3.5 w-3.5"/> Archive/Restore
+            </Button>
+            <Button variant="outline" size="sm" className="gap-1" onClick={handleExport} disabled={!!batchAction}>
+              <Download className="h-3.5 w-3.5"/> Export
             </Button>
             <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
               <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-1 text-destructive hover:bg-destructive/10" disabled={batchAction === "delete"}>
+                <Button variant="outline" size="sm" className="gap-1 text-destructive hover:bg-destructive/10" disabled={!!batchAction}>
                   <Trash2 className="h-3.5 w-3.5"/> Delete
                 </Button>
               </DialogTrigger>

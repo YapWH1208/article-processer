@@ -223,3 +223,26 @@ def export_bibtex(article_id: int, db: Session = Depends(get_db)):
     )
 
     return PlainTextResponse(content=bibtex, media_type="text/plain")
+
+
+# ── Batch Export ─────────────────────────────────────────────────────────
+
+@router.post("/export")
+def export_articles(body: dict, db: Session = Depends(get_db)):
+    """Export multiple articles as a JSON array. Body: {"article_ids": [1, 2, 3]} or {"all": true}."""
+    article_ids = body.get("article_ids")
+    export_all = body.get("all", False)
+
+    if export_all:
+        articles = db.query(Article).all()
+    elif article_ids and isinstance(article_ids, list):
+        articles = db.query(Article).filter(Article.id.in_(article_ids)).all()
+    else:
+        raise HTTPException(status_code=400, detail="Provide 'article_ids' list or 'all': true")
+
+    result = []
+    for article in articles:
+        data = _build_export_data(article, db)
+        result.append(data)
+
+    return JSONResponse(content={"articles": result, "count": len(result)})
