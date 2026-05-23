@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.db.models import Article, ChatMessage, ArticleChunk
+from app.db.models import Article, ChatMessage, ArticleChunk, TokenUsage
 from app.schemas.chat import ChatRequest, ChatResponse, ChatHistoryResponse, ChatMessageResponse, Citation
 from app.services.ai.rag import RagService
 from app.services.ai.base import get_llm_provider
@@ -58,9 +58,13 @@ async def chat_with_article(
         chunks=relevant_chunks,
     )
 
-    # Estimate token counts (~4 chars per token for English text)
-    prompt_tokens = max(1, len(request.message) // 4)
-    completion_tokens = max(1, len(answer) // 4)
+    # Use real token counts from LLM when available; fall back to estimate
+    if llm.last_usage and llm.last_usage.total_tokens > 0:
+        prompt_tokens = llm.last_usage.prompt_tokens
+        completion_tokens = llm.last_usage.completion_tokens
+    else:
+        prompt_tokens = max(1, len(request.message) // 4)
+        completion_tokens = max(1, len(answer) // 4)
 
     # Save message
     citations_json = json.dumps([c.model_dump() if hasattr(c, 'model_dump') else c for c in citations])
@@ -81,6 +85,19 @@ async def chat_with_article(
     )
     db.add(user_msg)
     db.add(assistant_msg)
+
+    # Record chat token usage
+    if llm.last_usage and llm.last_usage.total_tokens > 0:
+        db.add(TokenUsage(
+            article_id=article_id,
+            step="chat",
+            model=llm.last_usage.model,
+            provider=llm.last_usage.provider,
+            prompt_tokens=llm.last_usage.prompt_tokens,
+            completion_tokens=llm.last_usage.completion_tokens,
+            total_tokens=llm.last_usage.total_tokens,
+        ))
+
     db.commit()
     db.refresh(assistant_msg)
 

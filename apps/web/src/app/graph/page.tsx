@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
-  GitBranch, Loader2, ZoomIn, ZoomOut, Maximize2, Filter,
+  GitBranch, Loader2, ZoomIn, ZoomOut, Maximize2, Filter, Upload,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -525,9 +525,21 @@ export default function GraphPage() {
                 <p className="text-sm">Failed to load graph: {error}</p>
               </div>
             ) : nodes.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-[70vh] text-muted-foreground gap-2">
-                <GitBranch className="h-12 w-12 opacity-30" />
-                <p className="text-sm">No graph data yet. Process some articles to build the knowledge graph.</p>
+              <div className="flex flex-col items-center justify-center h-[70vh] text-muted-foreground gap-3">
+                <GitBranch className="h-16 w-16 opacity-20" />
+                <div className="text-center space-y-1">
+                  <p className="text-sm font-medium">No graph data yet</p>
+                  <p className="text-xs text-muted-foreground/70 max-w-xs">
+                    Process articles with AI extraction enabled to populate the knowledge graph with entities and relationships.
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => router.push("/upload")} className="mt-2 gap-1.5">
+                  <Upload className="h-3.5 w-3.5" />
+                  Upload Articles
+                </Button>
+                <p className="text-[11px] text-muted-foreground/50 mt-2">
+                  Tip: Drag to pan · Scroll to zoom · Click node to open article
+                </p>
               </div>
             ) : (
               <GraphCanvas

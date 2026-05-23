@@ -88,6 +88,7 @@ class Article(Base):
     relationships_graph = relationship("GraphRelationship", back_populates="article", cascade="all, delete-orphan")
     jobs = relationship("ProcessingJob", back_populates="article", cascade="all, delete-orphan")
     messages = relationship("ChatMessage", back_populates="article", cascade="all, delete-orphan")
+    token_usage = relationship("TokenUsage", cascade="all, delete-orphan")
 
 
 class ArticleMetadata(Base):
@@ -216,6 +217,24 @@ class ChatMessage(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     article = relationship("Article", back_populates="messages")
+
+
+class TokenUsage(Base):
+    """Per-step LLM / embedding token usage for cost tracking and analytics."""
+
+    __tablename__ = "token_usage"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    article_id = Column(Integer, ForeignKey("articles.id", ondelete="CASCADE"), nullable=False, index=True)
+    step = Column(String(64), nullable=False)  # extraction / embedding / chat / skill
+    model = Column(String(128), nullable=False)
+    provider = Column(String(64), nullable=False)
+    prompt_tokens = Column(Integer, default=0)
+    completion_tokens = Column(Integer, default=0)
+    total_tokens = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    article = relationship("Article", back_populates="token_usage")
 
 
 class User(Base):

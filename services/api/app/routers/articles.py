@@ -17,6 +17,7 @@ from app.db.models import (
     GraphEntity,
     GraphRelationship,
     ProcessingJob,
+    TokenUsage,
     JobStatus,
 )
 from app.schemas.article import (
@@ -427,3 +428,56 @@ def delete_article(article_id: int, db: Session = Depends(get_db)):
             logger.warning(f"Failed to remove {path}: {e}")
 
     return {"article_id": article_id, "deleted": True}
+
+
+@router.get("/{article_id}/logs")
+def get_article_logs(article_id: int, db: Session = Depends(get_db)):
+    """Return processing logs and token usage for an article."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    jobs = (
+        db.query(ProcessingJob)
+        .filter(ProcessingJob.article_id == article_id)
+        .order_by(ProcessingJob.created_at.asc())
+        .all()
+    )
+
+    token_rows = (
+        db.query(TokenUsage)
+        .filter(TokenUsage.article_id == article_id)
+        .order_by(TokenUsage.created_at.asc())
+        .all()
+    )
+
+    return {
+        "article_id": article_id,
+        "title": article.title,
+        "status": article.status.value if hasattr(article.status, 'value') else article.status,
+        "jobs": [
+            {
+                "id": j.id,
+                "status": j.status,
+                "current_step": j.current_step,
+                "logs": json.loads(j.logs_json) if j.logs_json else [],
+                "error": j.error,
+                "created_at": j.created_at.isoformat() if j.created_at else None,
+                "completed_at": j.completed_at.isoformat() if j.completed_at else None,
+            }
+            for j in jobs
+        ],
+        "token_usage": [
+            {
+                "id": t.id,
+                "step": t.step,
+                "model": t.model,
+                "provider": t.provider,
+                "prompt_tokens": t.prompt_tokens,
+                "completion_tokens": t.completion_tokens,
+                "total_tokens": t.total_tokens,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+            }
+            for t in token_rows
+        ],
+    }

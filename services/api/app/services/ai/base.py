@@ -1,12 +1,30 @@
 """Abstract LLM provider interface with factory function."""
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any
 from app.core.config import settings
 
 
+@dataclass
+class TokenUsage:
+    """Token usage snapshot from an AI provider call."""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    model: str = ""
+    provider: str = ""
+
+
 class BaseLLMProvider(ABC):
-    """Abstract interface for LLM providers."""
+    """Abstract interface for LLM providers.
+
+    Subclasses should set ``self.last_usage`` after each API call so callers
+    can record token consumption without changing every return signature.
+    """
+
+    def __init__(self) -> None:
+        self.last_usage = TokenUsage()
 
     @abstractmethod
     async def extract_structured(
@@ -26,7 +44,13 @@ class BaseLLMProvider(ABC):
 
 
 class BaseEmbeddingProvider(ABC):
-    """Abstract interface for embedding providers."""
+    """Abstract interface for embedding providers.
+
+    Subclasses should set ``self.last_usage`` after each API call.
+    """
+
+    def __init__(self) -> None:
+        self.last_usage = TokenUsage()
 
     @abstractmethod
     async def embed(self, text: str) -> list[float]:

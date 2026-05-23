@@ -201,6 +201,14 @@ export async function getGlobalGraph(limit = 200) {
   );
 }
 
+// ── Logs ──────────────────────────────────────────────────────────
+
+export async function getArticleLogs(articleId: number) {
+  return apiFetch<import("./types").ArticleLogs>(
+    `/articles/${articleId}/logs`
+  );
+}
+
 // ── Health ────────────────────────────────────────────────────────
 
 export async function healthCheck() {

@@ -255,6 +255,39 @@ export interface GlobalGraphData {
   }[];
 }
 
+// ── Logs ───────────────────────────────────────────────────
+
+export interface TokenUsageLog {
+  id: number;
+  step: string;
+  model: string;
+  provider: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  created_at: string | null;
+}
+
+export interface JobLog {
+  id: number;
+  status: string;
+  current_step: string | null;
+  logs: { step: string; timestamp: string; message: string; error?: boolean }[];
+  error: string | null;
+  created_at: string | null;
+  completed_at: string | null;
+}
+
+export interface ArticleLogs {
+  article_id: number;
+  title: string;
+  status: string;
+  jobs: JobLog[];
+  token_usage: TokenUsageLog[];
+}
+
+// ── Health ──────────────────────────────────────────────────
+
 export interface HealthInfo {
   status: string;
   version: string;

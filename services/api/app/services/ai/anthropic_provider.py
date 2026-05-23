@@ -33,12 +33,14 @@ class AnthropicProvider(BaseLLMProvider):
     """Anthropic Claude provider via official SDK."""
 
     def __init__(self):
+        super().__init__()
         if not HAS_ANTHROPIC:
             raise RuntimeError(
                 "Anthropic SDK not installed. Run: pip install anthropic"
             )
         self.client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
         self.model = settings.anthropic_model
+        self._provider_name = "anthropic"
 
     async def extract_structured(
         self, markdown: str, article_title: str,
@@ -99,6 +101,15 @@ class AnthropicProvider(BaseLLMProvider):
                 temperature=0.1,
                 messages=[{"role": "user", "content": prompt}],
             )
+            # Capture token usage from Anthropic response
+            if hasattr(response, "usage") and response.usage:
+                self.last_usage.prompt_tokens += response.usage.input_tokens or 0
+                self.last_usage.completion_tokens += response.usage.output_tokens or 0
+                total = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
+                self.last_usage.total_tokens += total
+                self.last_usage.model = self.model
+                self.last_usage.provider = self._provider_name
+
             text = response.content[0].text if response.content else ""
 
             # Try to parse as JSON with repair
@@ -144,6 +155,7 @@ class CustomAnthropicProvider(AnthropicProvider):
     """
 
     def __init__(self):
+        super().__init__()
         if not HAS_ANTHROPIC:
             raise RuntimeError("Anthropic SDK not installed. Run: pip install anthropic")
         self.client = anthropic.AsyncAnthropic(
@@ -151,3 +163,4 @@ class CustomAnthropicProvider(AnthropicProvider):
             base_url=settings.llm_custom_base_url.rstrip("/"),
         )
         self.model = settings.llm_custom_model
+        self._provider_name = "custom"

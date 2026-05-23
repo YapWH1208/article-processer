@@ -14,6 +14,7 @@ from app.db.models import (
     GraphEntity,
     GraphRelationship,
     ProcessingJob,
+    TokenUsage,
     ArticleStatus,
     JobStatus,
 )
@@ -229,6 +230,18 @@ async def run_pipeline(article_id: int, run_ai: bool = True) -> None:
         else:
             add_log("extracting", f"Extraction complete. Confidence: {confidence:.2f}")
 
+        # Record extraction token usage
+        if llm.last_usage and llm.last_usage.total_tokens > 0:
+            db.add(TokenUsage(
+                article_id=article_id,
+                step="extraction",
+                model=llm.last_usage.model,
+                provider=llm.last_usage.provider,
+                prompt_tokens=llm.last_usage.prompt_tokens,
+                completion_tokens=llm.last_usage.completion_tokens,
+                total_tokens=llm.last_usage.total_tokens,
+            ))
+
         db.commit()
 
         # ── Step 4: Embeddings ─────────────────────────────────────────
@@ -245,6 +258,19 @@ async def run_pipeline(article_id: int, run_ai: bool = True) -> None:
             chunk.embedding_json = json.dumps(embedding)
 
         add_log("indexing", f"Embeddings generated for {len(chunks)} chunks")
+
+        # Record embedding token usage
+        if embedding_provider.last_usage and embedding_provider.last_usage.total_tokens > 0:
+            db.add(TokenUsage(
+                article_id=article_id,
+                step="embedding",
+                model=embedding_provider.last_usage.model,
+                provider=embedding_provider.last_usage.provider,
+                prompt_tokens=embedding_provider.last_usage.prompt_tokens,
+                completion_tokens=0,
+                total_tokens=embedding_provider.last_usage.total_tokens,
+            ))
+
         db.commit()
 
         # ── Step 5: Graph Building ─────────────────────────────────────

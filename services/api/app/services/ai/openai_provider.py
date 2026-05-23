@@ -117,8 +117,10 @@ class OpenAIProvider(BaseLLMProvider):
     """OpenAI LLM provider for extraction, Q&A, and skill execution."""
 
     def __init__(self):
+        super().__init__()
         self.client = AsyncOpenAI(api_key=settings.openai_api_key)
         self.model = settings.openai_model
+        self._provider_name = "openai"
 
     async def extract_structured(
         self,
@@ -170,6 +172,9 @@ class OpenAIProvider(BaseLLMProvider):
             logger.error(f"Extraction API call failed: {e}")
             return None, [str(e)]
 
+        # Capture usage from first call
+        self._capture_usage(response)
+
         raw = response.choices[0].message.content or ""
         if not raw.strip():
             return None, ["model returned empty response"]
@@ -199,6 +204,7 @@ class OpenAIProvider(BaseLLMProvider):
 
         try:
             retry_response = await self.client.chat.completions.create(**retry_kwargs)
+            self._capture_usage(retry_response)
             retry_raw = retry_response.choices[0].message.content or ""
             result = _repair_json(retry_raw)
             errors = self._validate_extraction(result)
@@ -206,6 +212,15 @@ class OpenAIProvider(BaseLLMProvider):
             logger.error(f"Extraction correction retry failed: {e}")
 
         return result, errors
+
+    def _capture_usage(self, response: Any) -> None:
+        """Accumulate token usage from an OpenAI chat completion response."""
+        if hasattr(response, "usage") and response.usage:
+            self.last_usage.prompt_tokens += response.usage.prompt_tokens or 0
+            self.last_usage.completion_tokens += response.usage.completion_tokens or 0
+            self.last_usage.total_tokens += response.usage.total_tokens or 0
+            self.last_usage.model = self.model
+            self.last_usage.provider = self._provider_name
 
     async def answer_question(
         self,
@@ -240,6 +255,7 @@ class OpenAIProvider(BaseLLMProvider):
                 temperature=0.3,
                 max_tokens=1500,
             )
+            self._capture_usage(response)
             answer = response.choices[0].message.content or ""
 
             # Extract citations from chunk references in answer
@@ -274,6 +290,7 @@ class OpenAIProvider(BaseLLMProvider):
                 temperature=0.2,
                 max_tokens=2000,
             )
+            self._capture_usage(response)
             raw = response.choices[0].message.content or "{}"
             return json.loads(raw)
         except Exception as e:
@@ -377,6 +394,7 @@ class CustomOpenAIProvider(OpenAIProvider):
     """
 
     def __init__(self, base_url: str = "", api_key: str = "", model: str = ""):
+        super().__init__()
         effective_url = base_url or settings.llm_custom_base_url
         effective_key = api_key or settings.llm_custom_api_key or "not-needed"
         effective_model = model or settings.llm_custom_model
@@ -387,6 +405,7 @@ class CustomOpenAIProvider(OpenAIProvider):
             base_url=normalized,
         )
         self.model = effective_model
+        self._provider_name = "custom"
 
 
 def _normalize_openai_base_url(raw: str) -> str:
@@ -418,6 +437,7 @@ class CustomEmbeddingProvider(BaseEmbeddingProvider):
     """
 
     def __init__(self):
+        super().__init__()
         raw_url = settings.embedding_custom_base_url
         normalized = _normalize_openai_base_url(raw_url) if raw_url else ""
         self.client = AsyncOpenAI(
@@ -425,12 +445,14 @@ class CustomEmbeddingProvider(BaseEmbeddingProvider):
             base_url=normalized,
         )
         self.model = settings.embedding_custom_model or "text-embedding-3-small"
+        self._provider_name = "custom"
 
     async def embed(self, text: str) -> list[float]:
         try:
             response = await self.client.embeddings.create(
                 model=self.model, input=text[:8000],
             )
+            self._capture_usage(response)
             return response.data[0].embedding
         except Exception as e:
             logger.error(f"Custom embedding failed: {e}")
@@ -442,18 +464,29 @@ class CustomEmbeddingProvider(BaseEmbeddingProvider):
             response = await self.client.embeddings.create(
                 model=self.model, input=truncated,
             )
+            self._capture_usage(response)
             return [d.embedding for d in response.data]
         except Exception as e:
             logger.error(f"Custom batch embedding failed: {e}")
             raise
+
+    def _capture_usage(self, response: Any) -> None:
+        """Accumulate token usage from an OpenAI embeddings response."""
+        if hasattr(response, "usage") and response.usage:
+            self.last_usage.prompt_tokens += response.usage.prompt_tokens or 0
+            self.last_usage.total_tokens += response.usage.total_tokens or 0
+            self.last_usage.model = self.model
+            self.last_usage.provider = self._provider_name
 
 
 class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
     """OpenAI embedding provider."""
 
     def __init__(self):
+        super().__init__()
         self.client = AsyncOpenAI(api_key=settings.openai_api_key)
         self.model = settings.openai_embedding_model
+        self._provider_name = "openai"
 
     async def embed(self, text: str) -> list[float]:
         try:
@@ -461,6 +494,7 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
                 model=self.model,
                 input=text[:8000],  # Truncate to token limit
             )
+            self._capture_usage(response)
             return response.data[0].embedding
         except Exception as e:
             logger.error(f"OpenAI embedding failed: {e}")
@@ -473,7 +507,16 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
                 model=self.model,
                 input=truncated,
             )
+            self._capture_usage(response)
             return [d.embedding for d in response.data]
         except Exception as e:
             logger.error(f"OpenAI batch embedding failed: {e}")
             raise
+
+    def _capture_usage(self, response: Any) -> None:
+        """Accumulate token usage from an OpenAI embeddings response."""
+        if hasattr(response, "usage") and response.usage:
+            self.last_usage.prompt_tokens += response.usage.prompt_tokens or 0
+            self.last_usage.total_tokens += response.usage.total_tokens or 0
+            self.last_usage.model = self.model
+            self.last_usage.provider = self._provider_name
