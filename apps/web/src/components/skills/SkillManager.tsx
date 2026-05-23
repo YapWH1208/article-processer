@@ -1,17 +1,15 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Wand2, Plus, Trash2, Edit3, Download, Upload, X, Save, Loader2 } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Plus, Trash2, Edit3, X, Save, Loader2 } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -32,9 +30,6 @@ export default function SkillManager({ skills, onSkillsChanged }: SkillManagerPr
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deletingName, setDeletingName] = useState<string | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
-  const [importText, setImportText] = useState("");
-  const [importing, setImporting] = useState(false);
 
   // Form state
   const [formName, setFormName] = useState("");
@@ -107,42 +102,6 @@ export default function SkillManager({ skills, onSkillsChanged }: SkillManagerPr
     } finally { setDeletingName(null); }
   };
 
-  const handleExport = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/skills/export`);
-      if (!res.ok) throw new Error("Export failed");
-      const data = await res.json();
-      const blob = new Blob([JSON.stringify(data.skills, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = "skills-export.json"; a.click();
-      URL.revokeObjectURL(url);
-      toast.success("Skills exported");
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Export failed");
-    }
-  };
-
-  const handleImport = async () => {
-    if (!importText.trim()) return;
-    setImporting(true);
-    try {
-      const skills = JSON.parse(importText);
-      const res = await fetch(`${API_BASE}/skills/import`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ skills, overwrite: true }),
-      });
-      if (!res.ok) throw new Error((await res.json()).detail || "Import failed");
-      const result = await res.json();
-      toast.success(`Imported ${result.imported} skills${result.skipped ? `, ${result.skipped} skipped` : ""}`);
-      setImportText(""); setImportOpen(false);
-      onSkillsChanged();
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Invalid JSON or import failed");
-    } finally { setImporting(false); }
-  };
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -154,31 +113,6 @@ export default function SkillManager({ skills, onSkillsChanged }: SkillManagerPr
           <Button size="sm" variant="outline" className="gap-1" onClick={openCreate}>
             <Plus className="h-3.5 w-3.5"/> New
           </Button>
-          <Button size="sm" variant="outline" className="gap-1" onClick={handleExport}>
-            <Download className="h-3.5 w-3.5"/> Export
-          </Button>
-          <Dialog open={importOpen} onOpenChange={setImportOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm" variant="outline" className="gap-1"><Upload className="h-3.5 w-3.5"/> Import</Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Import Skills</DialogTitle>
-                <DialogDescription>Paste a JSON array of skill definitions.</DialogDescription>
-              </DialogHeader>
-              <Textarea
-                value={importText} onChange={(e) => setImportText(e.target.value)}
-                placeholder='[{"name": "my_skill", "purpose": "...", ...}]'
-                className="min-h-[200px] font-mono text-xs"
-              />
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setImportOpen(false)}>Cancel</Button>
-                <Button onClick={handleImport} disabled={importing || !importText.trim()}>
-                  {importing ? "Importing..." : "Import"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
         </div>
       </div>
 

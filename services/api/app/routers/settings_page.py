@@ -4,6 +4,7 @@ import json
 import logging
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
+from app.db.session import SessionLocal
 from pydantic import BaseModel, Field
 
 from app.core.config import reload_settings, DOTENV_PATH, settings
@@ -377,11 +378,14 @@ class SettingsExportResponse(SettingsResponse):
     kimi_api_key: str = ""       # unmasked
 
 
-@router.get("/export", response_model=SettingsExportResponse)
+@router.get("/export")
 def export_settings():
-    """Export all settings as JSON — keys unmasked for cross-platform transfer."""
+    """Export all settings + articles as JSON for cross-platform transfer."""
+    from app.db.session import SessionLocal
+    from app.routers.exports import _build_export_data
+
     cfg = _fresh_settings()
-    return SettingsExportResponse(
+    settings_data = SettingsExportResponse(
         llm_provider=cfg.llm_provider,
         llm_custom_protocol=cfg.llm_custom_protocol,
         llm_custom_base_url=cfg.llm_custom_base_url,
@@ -420,6 +424,33 @@ def export_settings():
         host=cfg.host, port=cfg.port,
         env_path=str(DOTENV_PATH),
     )
+
+    # Include full articles data
+    db = SessionLocal()
+    try:
+        from app.db.models import Article
+        articles = db.query(Article).all()
+        articles_data = [_build_export_data(a, db) for a in articles]
+    finally:
+        db.close()
+
+    # Include skills
+    try:
+        from app.services.skills.registry import SkillRegistry
+        from app.services.skills.default_skills import DEFAULT_SKILLS
+        skills_reg = SkillRegistry()
+        for skill in DEFAULT_SKILLS:
+            skills_reg.register(skill, persist=False)
+        skills_reg.load_persisted()
+        skills_data = skills_reg.export_all()
+    except Exception:
+        skills_data = []
+
+    return JSONResponse(content={
+        "settings": settings_data.model_dump(),
+        "articles": articles_data,
+        "skills": skills_data,
+    })
 
 
 # ── Parser Detection ──────────────────────────────────────────────────────
@@ -732,7 +763,7 @@ async def test_connection(body: TestConnectionBody):
 
 @router.post("/import")
 async def import_settings(file: UploadFile = File(...)):
-    """Import settings from a previously exported JSON file."""
+    """Import settings + articles from a previously exported JSON file."""
     if not file.filename or not file.filename.endswith(".json"):
         raise HTTPException(400, "Please upload a .json settings file")
 
@@ -742,29 +773,123 @@ async def import_settings(file: UploadFile = File(...)):
     except (json.JSONDecodeError, UnicodeDecodeError):
         raise HTTPException(400, "Invalid JSON file")
 
+    # Support both flat (old) and nested (new) formats
+    settings_data = data.get("settings", data)
+
     # Validate by running through SettingsUpdate schema
     try:
         update = SettingsUpdate(
-            llm_provider=data.get("llm_provider"),
-            llm_custom_protocol=data.get("llm_custom_protocol"),
-            llm_custom_base_url=data.get("llm_custom_base_url"),
-            llm_custom_api_key=data.get("llm_custom_api_key"),
-            llm_custom_model=data.get("llm_custom_model"),
-            openai_api_key=data.get("openai_api_key"),
-            openai_model=data.get("openai_model"),
-            anthropic_api_key=data.get("anthropic_api_key"),
-            anthropic_model=data.get("anthropic_model"),
-            embedding_provider=data.get("embedding_provider"),
-            embedding_custom_base_url=data.get("embedding_custom_base_url"),
-            embedding_custom_api_key=data.get("embedding_custom_api_key"),
-            embedding_custom_model=data.get("embedding_custom_model"),
-            openai_embedding_model=data.get("openai_embedding_model"),
-            use_mock_ai=data.get("use_mock_ai"),
-            max_upload_mb=data.get("max_upload_mb"),
-            parser_priority=data.get("parser_priority"),
+            llm_provider=settings_data.get("llm_provider"),
+            llm_custom_protocol=settings_data.get("llm_custom_protocol"),
+            llm_custom_base_url=settings_data.get("llm_custom_base_url"),
+            llm_custom_api_key=settings_data.get("llm_custom_api_key"),
+            llm_custom_model=settings_data.get("llm_custom_model"),
+            openai_api_key=settings_data.get("openai_api_key"),
+            openai_model=settings_data.get("openai_model"),
+            anthropic_api_key=settings_data.get("anthropic_api_key"),
+            anthropic_model=settings_data.get("anthropic_model"),
+            embedding_provider=settings_data.get("embedding_provider"),
+            embedding_custom_base_url=settings_data.get("embedding_custom_base_url"),
+            embedding_custom_api_key=settings_data.get("embedding_custom_api_key"),
+            embedding_custom_model=settings_data.get("embedding_custom_model"),
+            openai_embedding_model=settings_data.get("openai_embedding_model"),
+            use_mock_ai=settings_data.get("use_mock_ai"),
+            max_upload_mb=settings_data.get("max_upload_mb"),
+            parser_priority=settings_data.get("parser_priority"),
         )
     except Exception as e:
         raise HTTPException(400, f"Invalid settings data: {e}")
 
-    # Apply — same logic as PUT
-    return update_settings(update)
+    # Apply settings
+    result = update_settings(update)
+
+    # Restore articles if present
+    articles_data = data.get("articles")
+    if articles_data and isinstance(articles_data, list):
+        from app.db.session import SessionLocal
+        from app.db.models import Article, ArticleExtraction, GraphEntity, GraphRelationship, ProcessingJob, ArticleStatus, JobStatus
+        from app.core.security import compute_file_hash
+        import datetime as dt
+
+        db = SessionLocal()
+        try:
+            for item in articles_data:
+                article_meta = item.get("article", {})
+                title = article_meta.get("title", "Imported Article")
+                original_filename = article_meta.get("original_filename", "imported.json")
+                source_type = article_meta.get("source_type", "md")
+                file_hash = compute_file_hash(title.encode() + original_filename.encode())
+
+                existing = db.query(Article).filter(Article.file_hash == file_hash).first()
+                if existing:
+                    continue
+
+                markdown_text = item.get("markdown", "") or ""
+                article = Article(
+                    title=title, status=ArticleStatus.COMPLETED.value,
+                    original_filename=original_filename, file_hash=file_hash,
+                    source_type=source_type, storage_path="import://json",
+                    markdown_text=markdown_text,
+                )
+                db.add(article)
+                db.flush()
+
+                extraction_data = item.get("extraction")
+                if extraction_data:
+                    db.add(ArticleExtraction(
+                        article_id=article.id, schema_version="1.0",
+                        extraction_json=json.dumps(extraction_data), confidence=0.85,
+                    ))
+
+                graph = item.get("graph", {})
+                entity_map: dict[str, int] = {}
+                for ent in graph.get("entities", []):
+                    ge = GraphEntity(
+                        article_id=article.id, type=ent.get("type", "Keyword"),
+                        name=ent.get("name", ""), canonical_name=ent.get("canonical_name"),
+                        properties_json=json.dumps(ent.get("properties") or {}),
+                        confidence=ent.get("confidence", 0.5),
+                    )
+                    db.add(ge)
+                    db.flush()
+                    entity_map[ent.get("name", "")] = ge.id
+
+                for rel in graph.get("relationships", []):
+                    sid = entity_map.get(rel.get("source_name", ""))
+                    tid = entity_map.get(rel.get("target_name", ""))
+                    if sid and tid:
+                        db.add(GraphRelationship(
+                            article_id=article.id, source_entity_id=sid,
+                            target_entity_id=tid, type=rel.get("type", "RELATES_TO"),
+                            confidence=rel.get("confidence", 0.5),
+                        ))
+
+                db.add(ProcessingJob(
+                    article_id=article.id, status=JobStatus.COMPLETED.value,
+                    current_step="imported",
+                    logs_json=json.dumps([{"step": "imported", "timestamp": dt.datetime.utcnow().isoformat(), "message": "Imported from settings backup"}]),
+                    completed_at=dt.datetime.utcnow(),
+                ))
+
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Article import during settings restore failed: {e}")
+        finally:
+            db.close()
+
+    # Restore skills if present
+    skills_data = data.get("skills")
+    if skills_data and isinstance(skills_data, list):
+        try:
+            from app.services.skills.registry import SkillRegistry
+            from app.services.skills.default_skills import DEFAULT_SKILLS
+            skills_reg = SkillRegistry()
+            for skill in DEFAULT_SKILLS:
+                skills_reg.register(skill, persist=False)
+            skills_reg.load_persisted()
+            skills_reg.import_skills(skills_data, overwrite=True)
+        except Exception as e:
+            logger.error(f"Skills import during settings restore failed: {e}")
+
+    return result

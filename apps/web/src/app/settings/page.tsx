@@ -729,9 +729,9 @@ export default function SettingsPage() {
       <div className="flex gap-3 flex-wrap items-center">
         <Button onClick={handleSave} disabled={saving} className="gap-2"><Save className="h-4 w-4"/>{saving?"Saving...":"Save Settings"}</Button>
         <Button variant="outline" onClick={loadSettings} className="gap-2"><RotateCcw className="h-4 w-4"/>Reset</Button>
-        <Button variant="outline" onClick={handleExport} className="gap-2"><Download className="h-4 w-4"/>Export</Button>
+        <Button variant="outline" onClick={handleExport} className="gap-2"><Download className="h-4 w-4"/>Export All</Button>
         <label>
-          <Button variant="outline" className="gap-2 cursor-pointer" asChild><span><Upload className="h-4 w-4"/>Import</span></Button>
+          <Button variant="outline" className="gap-2 cursor-pointer" asChild><span><Upload className="h-4 w-4"/>Import All</span></Button>
           <input type="file" accept=".json" className="hidden" onChange={handleImport}/>
         </label>
         <div className="w-full border-t my-1" />
