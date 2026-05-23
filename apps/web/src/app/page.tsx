@@ -4,243 +4,278 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { FileText, Upload, CheckCircle2, AlertCircle, Clock, ArrowRight, Sparkles, Search } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  FileText, Upload, Search, ArrowRight, Sparkles,
+  Brain, BarChart3, MessageCircle, Zap, Shield, Layers,
+} from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
-import { AnimatedCounter, StaggerContainer, StaggerItem, HoverCard, FadeIn, PulseDot } from "@/components/ui/animated";
+import { AnimatedCounter, FadeIn, PulseDot } from "@/components/ui/animated";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
-interface Article {
-  id: number; title: string; status: string;
-  original_filename: string; created_at: string;
-}
-
-export default function DashboardPage() {
+export default function HomePage() {
   const router = useRouter();
-  const [articles, setArticles] = useState<Article[]>([]);
+  const [stats, setStats] = useState({ total: 0, completed: 0 });
   const [loading, setLoading] = useState(true);
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
   const [globalQuery, setGlobalQuery] = useState("");
 
   useEffect(() => {
     fetch(`${API_BASE}/health`)
-      .then((r) => r.json()).then((d) => setBackendOk(d.status === "ok"))
+      .then((r) => r.json())
+      .then((d) => setBackendOk(d.status === "ok"))
       .catch(() => setBackendOk(false));
-    fetch(`${API_BASE}/articles`)
-      .then((r) => r.json()).then((d) => setArticles(d.articles || []))
-      .catch(() => {}).finally(() => setLoading(false));
+    fetch(`${API_BASE}/articles?limit=1000`)
+      .then((r) => r.json())
+      .then((d) => {
+        const arts = d.articles || [];
+        setStats({
+          total: arts.length,
+          completed: arts.filter((a: { status: string }) => a.status === "completed").length,
+        });
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
-  const stats = {
-    total: articles.length,
-    completed: articles.filter((a) => a.status === "completed").length,
-    processing: articles.filter((a) => !["completed", "failed"].includes(a.status)).length,
-    failed: articles.filter((a) => a.status === "failed").length,
-  };
-
-  const recent = [...articles]
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    .slice(0, 5);
-
-  const statusVariant = (s: string) => {
-    switch (s) {
-      case "completed": return "default" as const;
-      case "failed": return "destructive" as const;
-      default: return "secondary" as const;
-    }
-  };
+  const features = [
+    {
+      icon: Upload,
+      title: "Upload & Parse",
+      desc: "Drag-and-drop PDF, HTML, Markdown, ZIP. Automatic parsing with MinerU, Docling, or pypdf.",
+      color: "text-blue-500",
+      bg: "bg-blue-500/10",
+    },
+    {
+      icon: Brain,
+      title: "AI Extraction",
+      desc: "LLM-powered structured extraction: authors, methodology, claims, references, and more.",
+      color: "text-purple-500",
+      bg: "bg-purple-500/10",
+    },
+    {
+      icon: MessageCircle,
+      title: "RAG Chat",
+      desc: "Ask questions about your articles with cited answers. Select text to add context.",
+      color: "text-green-500",
+      bg: "bg-green-500/10",
+    },
+    {
+      icon: BarChart3,
+      title: "Knowledge Graph",
+      desc: "Auto-extracted entities and relationships. Explore connections across all your articles.",
+      color: "text-orange-500",
+      bg: "bg-orange-500/10",
+    },
+    {
+      icon: Zap,
+      title: "AI Skills",
+      desc: "Run focused analysis: summarization, bias detection, methodology critique, and more.",
+      color: "text-amber-500",
+      bg: "bg-amber-500/10",
+    },
+    {
+      icon: Layers,
+      title: "Export & Integrate",
+      desc: "Export to Markdown or JSON. Import/export your entire library with one click.",
+      color: "text-cyan-500",
+      bg: "bg-cyan-500/10",
+    },
+  ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-12">
       {/* ── Hero ──────────────────────────────────────────────── */}
       <FadeIn>
-        <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-primary/5 via-primary/10 to-blue-500/5 border p-8 md:p-10 animate-gradient">
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/5 via-primary/10 to-blue-500/5 border p-8 md:p-12 lg:p-16">
+          {/* Background orbs */}
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.1 }}
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <Sparkles className="h-5 w-5 text-primary" />
-              <span className="text-xs font-medium text-primary uppercase tracking-wider">
-                Research Intelligence
-              </span>
-            </div>
-            <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
-              Your Article<br />
-              <span className="text-primary">Processing Pipeline</span>
-            </h1>
-            <p className="text-muted-foreground mt-3 max-w-lg">
-              Upload papers, extract insights, chat with your research, and
-              build a knowledge graph — all in one place.
-            </p>
-            <div className="flex gap-3 mt-5">
-              <Link href="/upload">
-                <Button size="lg" className="gap-2">
-                  <Upload className="h-4 w-4" />
-                  Upload Article
-                </Button>
-              </Link>
-              <Link href="/articles">
-                <Button variant="outline" size="lg" className="gap-2">
-                  <FileText className="h-4 w-4" />
-                  Browse Library
-                </Button>
-              </Link>
-            </div>
-            <div className="mt-4 max-w-md">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="text"
-                  value={globalQuery}
-                  onChange={(e) => setGlobalQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && globalQuery.trim()) {
-                      router.push(`/articles?q=${encodeURIComponent(globalQuery.trim())}`);
-                    }
-                  }}
-                  placeholder="Search across all article content..."
-                  className="pl-9 h-10"
-                />
-              </div>
-            </div>
-          </motion.div>
-
-          {/* Background decoration */}
-          <motion.div
-            className="absolute -top-20 -right-20 w-64 h-64 rounded-full bg-primary/10 blur-3xl"
-            animate={{ scale: [1, 1.2, 1], opacity: [0.5, 0.8, 0.5] }}
-            transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
+            className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-primary/10 blur-3xl"
+            animate={{ scale: [1, 1.15, 1], opacity: [0.5, 0.7, 0.5] }}
+            transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
           />
+          <motion.div
+            className="absolute -bottom-24 -left-24 w-80 h-80 rounded-full bg-blue-500/10 blur-3xl"
+            animate={{ scale: [1, 1.2, 1], opacity: [0.4, 0.6, 0.4] }}
+            transition={{ duration: 6, repeat: Infinity, ease: "easeInOut", delay: 2 }}
+          />
+
+          <div className="relative z-10">
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7 }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <Sparkles className="h-5 w-5 text-primary" />
+                <span className="text-xs font-semibold text-primary uppercase tracking-widest">
+                  Research Intelligence Platform
+                </span>
+              </div>
+
+              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-tight">
+                Transform Papers
+                <br />
+                <span className="text-primary">Into Knowledge</span>
+              </h1>
+
+              <p className="text-muted-foreground mt-4 max-w-xl text-base md:text-lg leading-relaxed">
+                Upload research papers, extract structured insights with AI,
+                chat with your documents, and explore an auto-generated
+                knowledge graph — all in one place.
+              </p>
+
+              <div className="flex flex-wrap gap-3 mt-6">
+                <Link href="/upload">
+                  <Button size="lg" className="gap-2 shadow-lg shadow-primary/25">
+                    <Upload className="h-4 w-4" />
+                    Upload Your First Paper
+                  </Button>
+                </Link>
+                <Link href="/articles">
+                  <Button variant="outline" size="lg" className="gap-2">
+                    <FileText className="h-4 w-4" />
+                    Browse Library
+                  </Button>
+                </Link>
+              </div>
+
+              {/* Search bar */}
+              <div className="mt-6 max-w-lg">
+                <div className="relative">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    type="text"
+                    value={globalQuery}
+                    onChange={(e) => setGlobalQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && globalQuery.trim()) {
+                        router.push(`/articles?search_content=${encodeURIComponent(globalQuery.trim())}`);
+                      }
+                    }}
+                    placeholder="Search across all article content..."
+                    className="pl-10 h-11 text-base bg-background/80 backdrop-blur"
+                  />
+                </div>
+              </div>
+
+              {/* Status + quick stats */}
+              <div className="flex flex-wrap items-center gap-4 mt-5">
+                {backendOk === null ? (
+                  <Skeleton className="h-6 w-36" />
+                ) : (
+                  <Badge variant={backendOk ? "default" : "destructive"} className="gap-2 text-sm px-3 py-1.5">
+                    <PulseDot color={backendOk ? "bg-green-500" : "bg-red-500"} />
+                    {backendOk ? "Backend connected" : "Backend offline"}
+                  </Badge>
+                )}
+                {!loading && (
+                  <span className="text-sm text-muted-foreground">
+                    <span className="font-semibold text-foreground">
+                      <AnimatedCounter value={stats.total} duration={1} />
+                    </span>{" "}
+                    articles ·{" "}
+                    <span className="font-semibold text-foreground">
+                      <AnimatedCounter value={stats.completed} duration={1} />
+                    </span>{" "}
+                    processed
+                  </span>
+                )}
+              </div>
+            </motion.div>
+          </div>
         </div>
       </FadeIn>
 
-      {/* ── Status ────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2">
-        {backendOk === null ? (
-          <Skeleton className="h-6 w-36" />
-        ) : (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.3 }}
-          >
-            <Badge variant={backendOk ? "default" : "destructive"} className="gap-2 text-sm px-3 py-1.5">
-              <PulseDot color={backendOk ? "bg-green-500" : "bg-red-500"} />
-              {backendOk ? "Backend connected" : "Backend offline"}
-            </Badge>
-          </motion.div>
-        )}
-      </div>
-
-      {/* ── Stat Cards ────────────────────────────────────────── */}
-      <StaggerContainer className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          { label: "Total Articles", value: stats.total, icon: FileText, color: "text-info", bg: "bg-info/10" },
-          { label: "Completed", value: stats.completed, icon: CheckCircle2, color: "text-success", bg: "bg-success/10" },
-          { label: "Processing", value: stats.processing, icon: Clock, color: "text-warning", bg: "bg-warning/10" },
-          { label: "Failed", value: stats.failed, icon: AlertCircle, color: "text-destructive", bg: "bg-destructive/10" },
-        ].map(({ label, value, icon: Icon, color, bg }, i) => (
-          <StaggerItem key={label}>
-            <HoverCard>
-              <Card className="overflow-hidden">
-                <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
-                  <div className={`p-2 rounded-lg ${bg}`}>
-                    <Icon className={`h-4 w-4 ${color}`} />
+      {/* ── Features Grid ─────────────────────────────────────── */}
+      <FadeIn delay={0.1}>
+        <div className="text-center mb-6">
+          <h2 className="text-2xl font-bold tracking-tight">Everything You Need</h2>
+          <p className="text-muted-foreground mt-1">A complete pipeline for research document intelligence.</p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {features.map(({ icon: Icon, title, desc, color, bg }, i) => (
+            <motion.div
+              key={title}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.1 + i * 0.07 }}
+            >
+              <Card className="h-full hover:shadow-md hover:border-primary/30 transition-all duration-300 group">
+                <CardContent className="p-5">
+                  <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center mb-3 group-hover:scale-110 transition-transform`}>
+                    <Icon className={`h-5 w-5 ${color}`} />
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold tabular-nums">
-                    {loading ? "—" : <AnimatedCounter value={value} duration={1} />}
-                  </div>
+                  <h3 className="font-semibold mb-1">{title}</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
                 </CardContent>
               </Card>
-            </HoverCard>
-          </StaggerItem>
-        ))}
-      </StaggerContainer>
-
-      <Separator />
-
-      {/* ── Recent Articles ───────────────────────────────────── */}
-      <FadeIn delay={0.2}>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold">Recent Articles</h2>
-          <Link href="/articles">
-            <Button variant="ghost" size="sm" className="gap-1">
-              View all <ArrowRight className="h-3.5 w-3.5" />
-            </Button>
-          </Link>
+            </motion.div>
+          ))}
         </div>
       </FadeIn>
 
-      {loading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
+      {/* ── How It Works ─────────────────────────────────────── */}
+      <FadeIn delay={0.2}>
+        <div className="text-center mb-6">
+          <h2 className="text-2xl font-bold tracking-tight">How It Works</h2>
+          <p className="text-muted-foreground mt-1">From upload to insight in four steps.</p>
         </div>
-      ) : recent.length === 0 ? (
-        <FadeIn delay={0.3}>
-          <Card className="border-dashed overflow-hidden">
-            <CardContent className="flex flex-col items-center justify-center py-16 text-center relative">
-              <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent opacity-50" />
-              <motion.div
-                animate={{ y: [0, -10, 0] }}
-                transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-                className="relative"
-              >
-                <div className="p-4 rounded-full bg-primary/10 mb-4">
-                  <FileText className="h-10 w-10 text-primary/60" />
-                </div>
-              </motion.div>
-              <p className="text-muted-foreground text-lg font-medium">No articles yet</p>
-              <p className="text-muted-foreground/60 text-sm mt-1">Upload your first paper to get started.</p>
-              <Link href="/upload" className="mt-4">
-                <Button variant="outline" size="sm" className="gap-1">
-                  Upload your first article <ArrowRight className="h-3.5 w-3.5" />
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
-        </FadeIn>
-      ) : (
-        <StaggerContainer className="space-y-2">
-          {recent.map((a) => (
-            <StaggerItem key={a.id}>
-              <Link href={`/articles/${a.id}`}>
-                <HoverCard>
-                  <Card className="hover:bg-accent/50 transition-colors cursor-pointer">
-                    <CardContent className="flex items-center justify-between py-4">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">{a.title}</p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {a.original_filename} · {new Date(a.created_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <Badge variant={statusVariant(a.status)} className="ml-3 shrink-0">
-                        {a.status === "processing" || !["completed", "failed"].includes(a.status) ? (
-                          <span className="flex items-center gap-1.5">
-                            <span className="animate-pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-current" />
-                            {a.status}
-                          </span>
-                        ) : (
-                          a.status
-                        )}
-                      </Badge>
-                    </CardContent>
-                  </Card>
-                </HoverCard>
-              </Link>
-            </StaggerItem>
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            { step: "01", title: "Upload", desc: "Drag-and-drop any PDF, HTML, or Markdown file. We handle ZIP archives too." },
+            { step: "02", title: "Parse & Chunk", desc: "Automatic parsing with the best available engine. Smart chunking for RAG." },
+            { step: "03", title: "AI Extraction", desc: "LLMs extract structured data: authors, methods, claims, entities, and relationships." },
+            { step: "04", title: "Explore", desc: "Chat with citations, browse the knowledge graph, run AI skills, export results." },
+          ].map((item, i) => (
+            <motion.div
+              key={item.step}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.3 + i * 0.1 }}
+              className="text-center"
+            >
+              <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-3">
+                <span className="text-xl font-bold text-primary">{item.step}</span>
+              </div>
+              <h3 className="font-semibold">{item.title}</h3>
+              <p className="text-sm text-muted-foreground mt-1">{item.desc}</p>
+            </motion.div>
           ))}
-        </StaggerContainer>
-      )}
+        </div>
+      </FadeIn>
+
+      {/* ── CTA ───────────────────────────────────────────────── */}
+      <FadeIn delay={0.3}>
+        <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-primary to-blue-600 p-8 md:p-10 text-primary-foreground text-center">
+          <motion.div
+            className="absolute inset-0 opacity-20"
+            animate={{ backgroundPosition: ["0% 0%", "100% 100%"] }}
+            transition={{ duration: 10, repeat: Infinity, repeatType: "reverse" }}
+            style={{ backgroundImage: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\"><circle cx=\"20\" cy=\"20\" r=\"2\" fill=\"white\"/><circle cx=\"80\" cy=\"40\" r=\"1.5\" fill=\"white\"/><circle cx=\"50\" cy=\"80\" r=\"2\" fill=\"white\"/><circle cx=\"90\" cy=\"90\" r=\"1\" fill=\"white\"/></svg>')", backgroundSize: "200px 200px" }}
+          />
+          <div className="relative z-10">
+            <h2 className="text-2xl md:text-3xl font-bold">Ready to process your research?</h2>
+            <p className="mt-2 opacity-90 max-w-md mx-auto">
+              Start uploading papers and unlock AI-powered insights in minutes.
+            </p>
+            <Link href="/upload" className="inline-block mt-5">
+              <Button size="lg" variant="secondary" className="gap-2">
+                Get Started <ArrowRight className="h-4 w-4" />
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </FadeIn>
+
+      {/* ── Footer note ──────────────────────────────────────── */}
+      <p className="text-center text-xs text-muted-foreground pb-4">
+        Built with FastAPI + Next.js · Open source · Supports OpenAI, Anthropic, DeepSeek, and more.
+      </p>
     </div>
   );
 }

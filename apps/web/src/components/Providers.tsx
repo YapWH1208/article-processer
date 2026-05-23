@@ -8,7 +8,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Toaster } from "sonner";
 import {
   FileText, Upload, Settings, LogIn, LogOut, Menu, X,
-  Sun, Moon, Home, ChevronDown, BookOpen,
+  Sun, Moon, Home, ChevronDown, BookOpen, BarChart3, GitBranch,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -65,9 +65,11 @@ function ThemeToggle() {
 // ── Nav links ─────────────────────────────────────────────────────────────
 
 const links = [
-  { href: "/", label: "Dashboard", icon: Home },
+  { href: "/", label: "Home", icon: Home },
   { href: "/articles", label: "Articles", icon: BookOpen },
   { href: "/upload", label: "Upload", icon: Upload },
+  { href: "/graph", label: "Graph", icon: GitBranch },
+  { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
