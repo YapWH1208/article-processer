@@ -4,6 +4,32 @@ All notable changes to the Article Processor project.
 
 ---
 
+## [0.2.8] — 2025-07-22
+
+### Added
+
+- **MinerU PDF parser** — state-of-the-art PDF-to-Markdown with layout preservation, image/figure extraction, table detection, and formula recognition. Auto-detected and preferred over Docling/pypdf when installed (`pip install magic-pdf`). Extracted images persisted to `storage/images/` and served via `/storage/images`.
+- **Progress bar for processing** — live step-by-step pipeline progress bar with animated step indicators (Queued → Parsing → Chunking → AI Extraction → Embeddings → Graph → Done). Polls job status every 2s; auto-reloads article data when processing completes.
+- **PDF original view toggle** — Reader tab now has a Markdown/PDF toggle button group (PDF source types only). The PDF view embeds the original file inline via `GET /articles/{id}/file`.
+- **Skills management (CRUD)** — create, edit, delete, import, and export AI skills from the Settings → Skills tab. File-persisted to `data/skills.json`; built-in defaults preserved as fallbacks. New endpoints: `POST /skills`, `PUT /skills/{name}`, `DELETE /skills/{name}`, `GET /skills/export`, `POST /skills/import`.
+- **6 new LLM providers** — DeepSeek (deepseek-chat, deepseek-coder, deepseek-reasoner), OpenRouter (200+ models), GLM/Zhipu (GLM-4 Plus/Flash/Long/Air), MiniMax (MiniMax-Text-01, abab6.5s), Mimo/MiniMax-M1, Kimi/Moonshot (v1-8k/32k/128k). All with preset base URLs, model dropdowns, optional coding/reasoning model fields, and connection test support. Full settings UI with radio cards and conditional fields.
+- **Article batch export/import** — `POST /articles/export` exports selected articles as JSON (markdown + extraction + graph); `POST /imports/articles` recreates full articles from exported JSON. Export/Import buttons in the articles list page with file download/upload.
+
+### Fixed
+
+- **AI extraction toggle bug** — Upload page `useCallback` closure captured `runAI` at initial `true` value due to empty dependency array `[]`. Changed to `[runAI]` so the toggle state is respected. Backend hardened with explicit string-to-bool parsing for the `run_ai` form field.
+- **PDF inline display** — `GET /articles/{id}/file` removed `filename` param from `FileResponse` to prevent `Content-Disposition: attachment`, allowing PDFs to render inline in the iframe instead of downloading.
+- **Chat panel alignment** — Chat sidebar now starts below the tabs row (added `pt-10`) so it aligns vertically with the tab content area.
+- **Pipeline skip path** — When `run_ai=False`, the article status no longer passes through `EXTRACTING`; the job records `parse_complete` instead of `extracting` for the skipped step; `completed_at` timestamp properly set.
+
+### Changed
+
+- **Skill management moved** — Skill CRUD UI moved from article detail Skills tab to Settings → Skills tab.
+- **Parser priority default** — Changed from `docling_first` to `mineru_first` (MinerU → Docling → pypdf fallback chain).
+- **Settings page tabs** — Added 5th tab: Skills (alongside LLM, Embeddings, General, Parsers).
+
+---
+
 ## [0.2.7] — 2025-07-22
 
 ### UX Enhancements
