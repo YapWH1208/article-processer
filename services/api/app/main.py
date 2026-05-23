@@ -3,6 +3,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 from app.core.logging import setup_logging
@@ -21,6 +22,7 @@ async def lifespan(app: FastAPI):
     settings.uploads_path.mkdir(parents=True, exist_ok=True)
     settings.markdown_path.mkdir(parents=True, exist_ok=True)
     settings.exports_path.mkdir(parents=True, exist_ok=True)
+    (settings.project_root / "storage" / "images").mkdir(parents=True, exist_ok=True)
     yield
 
 
@@ -59,3 +61,8 @@ app.include_router(imports.router, prefix="/imports", tags=["imports"])
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(settings_page.router, prefix="/settings", tags=["settings"])
 app.include_router(skills_router.router, prefix="/skills", tags=["skills"])
+
+# Mount storage/images for extracted figure serving
+_images_dir = settings.project_root / "storage" / "images"
+_images_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/storage/images", StaticFiles(directory=str(_images_dir)), name="storage_images")
