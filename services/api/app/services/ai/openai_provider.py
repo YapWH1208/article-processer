@@ -256,11 +256,29 @@ class CustomOpenAIProvider(OpenAIProvider):
         effective_key = api_key or settings.llm_custom_api_key or "not-needed"
         effective_model = model or settings.llm_custom_model
 
+        normalized = _normalize_openai_base_url(effective_url) if effective_url else "http://localhost:11434/v1"
         self.client = AsyncOpenAI(
             api_key=effective_key,
-            base_url=effective_url.rstrip("/") if effective_url else "http://localhost:11434/v1",
+            base_url=normalized,
         )
         self.model = effective_model
+
+
+def _normalize_openai_base_url(raw: str) -> str:
+    """Ensure the base URL has a ``/v1`` path segment.
+
+    OpenAI-compatible servers (LM Studio, Ollama, vLLM, etc.) expect requests
+    at ``{base}/v1/embeddings``, but users often set the base to just
+    ``http://localhost:1234``.  This auto-appends ``/v1`` when missing.
+    """
+    url = raw.rstrip("/")
+    if not url:
+        return url  # caller should handle empty
+    # Already ends with /v1 — nothing to do
+    if url.endswith("/v1"):
+        return url
+    # Append /v1
+    return url + "/v1"
 
 
 class CustomEmbeddingProvider(BaseEmbeddingProvider):
@@ -268,12 +286,18 @@ class CustomEmbeddingProvider(BaseEmbeddingProvider):
 
     Uses ``embedding_custom_base_url``, ``embedding_custom_api_key``,
     ``embedding_custom_model``.
+
+    The base URL is auto-normalised: ``http://localhost:1234`` becomes
+    ``http://localhost:1234/v1`` so it works out-of-the-box with
+    LM Studio, Ollama, vLLM, and any other OpenAI-compatible server.
     """
 
     def __init__(self):
+        raw_url = settings.embedding_custom_base_url
+        normalized = _normalize_openai_base_url(raw_url) if raw_url else ""
         self.client = AsyncOpenAI(
             api_key=settings.embedding_custom_api_key or "not-needed",
-            base_url=settings.embedding_custom_base_url.rstrip("/"),
+            base_url=normalized,
         )
         self.model = settings.embedding_custom_model or "text-embedding-3-small"
 
