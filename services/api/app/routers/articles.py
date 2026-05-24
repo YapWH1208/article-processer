@@ -325,8 +325,22 @@ def get_article_jobs(article_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{article_id}/reprocess", response_model=ReprocessResponse)
-def reprocess_article(article_id: int, full_pipeline: bool = True, db: Session = Depends(get_db)):
-    """Re-run the processing pipeline for an article. Set full_pipeline=false for parse-only."""
+def reprocess_article(
+    article_id: int,
+    mode: str = "full",
+    db: Session = Depends(get_db),
+):
+    """Re-run processing for an article.
+
+    mode:
+      - "full"        — parse + chunk + extract + graph
+      - "parse_only"  — parse + chunk only (no AI)
+      - "extract_only" — skip parse/chunk, start at AI extraction (needs existing markdown)
+    """
+    valid_modes = {"full", "parse_only", "extract_only"}
+    if mode not in valid_modes:
+        raise HTTPException(status_code=422, detail=f"Invalid mode '{mode}'. Valid: {', '.join(sorted(valid_modes))}")
+
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
@@ -341,7 +355,7 @@ def reprocess_article(article_id: int, full_pipeline: bool = True, db: Session =
             {
                 "step": "reprocess_queued",
                 "timestamp": datetime.datetime.utcnow().isoformat(),
-                "message": "Reprocessing queued",
+                "message": f"Reprocessing queued (mode={mode})",
             }
         ]),
     )
@@ -350,7 +364,13 @@ def reprocess_article(article_id: int, full_pipeline: bool = True, db: Session =
     db.refresh(job)
 
     from app.services.pipeline.processor import run_pipeline_background
-    run_pipeline_background(article.id, run_ai=full_pipeline)
+
+    if mode == "parse_only":
+        run_pipeline_background(article.id, run_ai=False, start_step="parse")
+    elif mode == "extract_only":
+        run_pipeline_background(article.id, run_ai=True, start_step="extract")
+    else:
+        run_pipeline_background(article.id, run_ai=True, start_step="parse")
 
     return ReprocessResponse(
         article_id=article.id,

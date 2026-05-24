@@ -109,10 +109,9 @@ export async function getArticleActiveJob(id: number) {
   );
 }
 
-export async function reprocessArticle(id: number, fullPipeline = true) {
-  const qs = fullPipeline ? "" : "?full_pipeline=false";
+export async function reprocessArticle(id: number, mode: "full" | "parse_only" | "extract_only" = "full") {
   return apiFetch<{ article_id: number; job_id: number; status: string }>(
-    `/articles/${id}/reprocess${qs}`,
+    `/articles/${id}/reprocess?mode=${mode}`,
     { method: "POST" }
   );
 }

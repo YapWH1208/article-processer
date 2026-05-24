@@ -186,11 +186,11 @@ export default function ArticleDetailPage() {
     setChatOpen(true);
   };
 
-  const handleReprocess = async (fullPipeline = true) => {
+  const handleReprocess = async (mode: "full" | "extract_only" = "extract_only") => {
     setReprocessing(true);
     try {
-      await reprocessArticle(articleId, fullPipeline);
-      toast.success(fullPipeline ? "Full reprocessing started" : "Parse-only reprocessing started");
+      await reprocessArticle(articleId, mode);
+      toast.success(mode === "extract_only" ? "AI extraction started" : "Full reprocessing started");
     }
     catch { toast.error("Reprocess failed"); }
     finally { setReprocessing(false); }
@@ -315,7 +315,7 @@ export default function ArticleDetailPage() {
             </div>
           </div>
           <div className="flex gap-2 shrink-0 flex-wrap">
-            <Button variant="outline" size="sm" onClick={() => handleReprocess(true)} disabled={reprocessing} className="gap-1">
+            <Button variant="outline" size="sm" onClick={() => handleReprocess("extract_only")} disabled={reprocessing} className="gap-1">
               <RotateCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`}/> Re-extract
             </Button>
             <Button variant="outline" size="sm" onClick={handleArchive} disabled={archiving} className="gap-1">

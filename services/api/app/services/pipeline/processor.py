@@ -78,16 +78,17 @@ def _get_parsers():
     }
 
 
-async def run_pipeline(article_id: int, run_ai: bool = True) -> None:
+async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "parse") -> None:
     """Run the processing pipeline for an article.
 
-    If run_ai=False, stops after Markdown normalization (parse-only mode).
+    run_ai=False: stops after chunking (parse-only mode).
+    start_step="extract": skips parse + chunk, starts at AI extraction (requires existing markdown_text).
 
     Steps:
     1. Parse document to Markdown
     2. Normalize Markdown
     3. Chunk
-    4. AI extraction (skipped if run_ai=False)
+    4. AI extraction
     5. Graph building
     """
     db = SessionLocal()
@@ -132,60 +133,84 @@ async def run_pipeline(article_id: int, run_ai: bool = True) -> None:
                 job.error = message
             db.commit()
 
-        # ── Step 1: Parse ──────────────────────────────────────────────
-        add_log("parsing", "Starting document parsing...")
-        article.status = ArticleStatus.PARSING.value
-        db.commit()
+        # ── Steps 1-2: Parse + Chunk (skipped in extraction-only mode) ─
+        if start_step == "extract":
+            # Use existing markdown — must already be parsed
+            markdown = article.markdown_text
+            if not markdown:
+                raise ValueError("Cannot run extraction-only: article has no markdown_text. Run full pipeline first.")
+            add_log("parsing", "Skipped — using existing markdown")
+            add_log("chunking", "Skipped — using existing chunks (or re-chunking below)")
+            # Re-chunk from existing markdown to ensure fresh chunks
+            chunks = chunk_markdown(markdown)
+            db.query(ArticleChunk).filter(ArticleChunk.article_id == article_id).delete()
+            for c in chunks:
+                db.add(ArticleChunk(
+                    article_id=article_id,
+                    chunk_index=c.chunk_index,
+                    section_title=c.section_title,
+                    page_start=c.page_start,
+                    page_end=c.page_end,
+                    text=c.text,
+                    token_count=c.token_count,
+                ))
+            db.commit()
+            add_log("chunking", f"Re-chunked: {len(chunks)} chunks from existing markdown")
+        else:
+            # ── Step 1: Parse ──────────────────────────────────────────
+            add_log("parsing", "Starting document parsing...")
+            article.status = ArticleStatus.PARSING.value
+            db.commit()
 
-        parser = _get_parsers().get(article.source_type)
-        if not parser:
-            raise ValueError(f"No parser for source type: {article.source_type}")
+            parser = _get_parsers().get(article.source_type)
+            if not parser:
+                raise ValueError(f"No parser for source type: {article.source_type}")
 
-        # Track which parser was used (human-readable name)
-        _PARSER_DISPLAY_NAMES = {
-            "MinerUAdapter": "MinerU (magic-pdf)",
-            "DoclingAdapter": "Docling",
-            "PdfParser": "pypdf",
-            "HtmlParser": "BeautifulSoup (HTML)",
-            "MarkdownParser": "Markdown passthrough",
-        }
-        cls_name = parser.__class__.__name__
-        article.parser_name = _PARSER_DISPLAY_NAMES.get(cls_name, cls_name)
+            # Track which parser was used (human-readable name)
+            _PARSER_DISPLAY_NAMES = {
+                "MinerUAdapter": "MinerU (magic-pdf)",
+                "DoclingAdapter": "Docling",
+                "PdfParser": "pypdf",
+                "HtmlParser": "BeautifulSoup (HTML)",
+                "MarkdownParser": "Markdown passthrough",
+            }
+            cls_name = parser.__class__.__name__
+            article.parser_name = _PARSER_DISPLAY_NAMES.get(cls_name, cls_name)
 
-        parse_result = await parser.parse(Path(article.storage_path))
-        markdown = normalize_markdown(parse_result.markdown)
-        # Title stays as the filename from upload (user can edit via PATCH /articles/{id})
-        article.markdown_text = markdown
+            parse_result = await parser.parse(Path(article.storage_path))
+            markdown = normalize_markdown(parse_result.markdown)
+            # Title stays as the filename from upload (user can edit via PATCH /articles/{id})
+            article.markdown_text = markdown
 
-        # Also save to disk
-        md_path = storage.save_markdown(article_id, markdown)
-        article.markdown_path = str(md_path)
+            # Also save to disk
+            md_path = storage.save_markdown(article_id, markdown)
+            article.markdown_path = str(md_path)
 
-        add_log("parsing", f"Parsing complete. Title: {article.title}")
-        db.commit()
+            add_log("parsing", f"Parsing complete. Title: {article.title}")
+            db.commit()
 
-        # ── Step 2: Chunking ───────────────────────────────────────────
-        add_log("chunking", "Chunking document...")
-        db.commit()
+            # ── Step 2: Chunking ───────────────────────────────────────
+            add_log("chunking", "Chunking document...")
+            db.commit()
 
-        chunks = chunk_markdown(markdown)
+            chunks = chunk_markdown(markdown)
 
-        # Delete old chunks
-        db.query(ArticleChunk).filter(ArticleChunk.article_id == article_id).delete()
+            # Delete old chunks
+            db.query(ArticleChunk).filter(ArticleChunk.article_id == article_id).delete()
 
-        for c in chunks:
-            db.add(ArticleChunk(
-                article_id=article_id,
-                chunk_index=c.chunk_index,
-                section_title=c.section_title,
-                page_start=c.page_start,
-                page_end=c.page_end,
-                text=c.text,
-                token_count=c.token_count,
-            ))
+            for c in chunks:
+                db.add(ArticleChunk(
+                    article_id=article_id,
+                    chunk_index=c.chunk_index,
+                    section_title=c.section_title,
+                    page_start=c.page_start,
+                    page_end=c.page_end,
+                    text=c.text,
+                    token_count=c.token_count,
+                ))
 
-        add_log("chunking", f"Created {len(chunks)} chunks")
-        db.commit()
+            add_log("chunking", f"Created {len(chunks)} chunks")
+            db.commit()
 
         # ── Step 3: AI Extraction ──────────────────────────────────────
         if not run_ai:
@@ -323,11 +348,10 @@ async def run_pipeline(article_id: int, run_ai: bool = True) -> None:
         db.close()
 
 
-def run_pipeline_background(article_id: int, run_ai: bool = True) -> None:
-    """Kick off pipeline in a background thread via FastAPI BackgroundTasks equivalent.
+def run_pipeline_background(article_id: int, run_ai: bool = True, start_step: str = "parse") -> None:
+    """Kick off pipeline in a background thread.
 
-    Since we can't use FastAPI's BackgroundTasks outside of a request context,
-    we use a simple thread-based approach for the MVP.
+    start_step: "parse" (full pipeline) or "extract" (skip parse+chunk, start at extraction).
     """
     import asyncio
     import threading
@@ -336,10 +360,10 @@ def run_pipeline_background(article_id: int, run_ai: bool = True) -> None:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(run_pipeline(article_id, run_ai=run_ai))
+            loop.run_until_complete(run_pipeline(article_id, run_ai=run_ai, start_step=start_step))
         finally:
             loop.close()
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
-    logger.info(f"Background pipeline started for article {article_id} (run_ai={run_ai})")
+    logger.info(f"Background pipeline started for article {article_id} (run_ai={run_ai}, start_step={start_step})")
