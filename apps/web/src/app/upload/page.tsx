@@ -24,6 +24,7 @@ export default function UploadPage() {
   const [showSparkle, setShowSparkle] = useState(false);
   const [modelInfo, setModelInfo] = useState<{
     llmProvider: string; llmModel: string; llmProtocol: string | null;
+    llmProviderName?: string;
     mock: boolean;
   } | null>(null);
 
@@ -35,6 +36,7 @@ export default function UploadPage() {
         llmProvider: d.llm_provider || "unknown",
         llmModel: d.llm_model || "unknown",
         llmProtocol: d.llm_custom_protocol || null,
+        llmProviderName: d.llm_provider_name,
         mock: d.mock_ai || false,
       }))
       .catch(() => {});
@@ -71,16 +73,20 @@ export default function UploadPage() {
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="gap-1.5 px-2.5 py-1 text-xs">
                 <Brain className="h-3 w-3 text-primary" />
-                <span className="text-muted-foreground">LLM:</span>
-                <span className="font-medium">{modelInfo.mock ? "Mock" : modelInfo.llmModel}</span>
-                {!modelInfo.mock && modelInfo.llmProvider === "custom" && modelInfo.llmProtocol && (
-                  <span className="text-muted-foreground">via {modelInfo.llmProtocol}</span>
-                )}
-                {!modelInfo.mock && modelInfo.llmProvider !== "openai" && modelInfo.llmProvider !== "custom" && (
-                  <span className="text-muted-foreground">@{modelInfo.llmProvider}</span>
+                {modelInfo.mock ? (
+                  <span className="font-medium">Mock AI</span>
+                ) : (
+                  <>
+                    <span className="text-muted-foreground">
+                      {modelInfo.llmProviderName || modelInfo.llmProvider}:
+                    </span>
+                    <span className="font-medium">{modelInfo.llmModel}</span>
+                    {modelInfo.llmProvider === "custom" && modelInfo.llmProtocol && (
+                      <span className="text-muted-foreground">via {modelInfo.llmProtocol}</span>
+                    )}
+                  </>
                 )}
               </Badge>
-
             </div>
           )}
         </div>

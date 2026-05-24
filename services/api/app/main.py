@@ -45,8 +45,21 @@ app.add_middleware(
 
 @app.get("/health")
 async def health_check():
-    llm_model = _resolve_model_name()
+    # Check dev_config for multi-provider active entry first (matches get_llm_provider priority)
+    _active_name, _active_model, _active_protocol, _active_type = _resolve_active_provider()
+    if _active_name:
+        return {
+            "status": "ok",
+            "version": "0.1.0",
+            "mock_ai": settings.use_mock_ai,
+            "llm_provider": _active_type or "custom",
+            "llm_model": _active_model or "unknown",
+            "llm_provider_name": _active_name,
+            "llm_custom_protocol": _active_protocol if _active_type == "custom" else None,
+        }
 
+    # Fall back to env-based settings
+    llm_model = _resolve_model_name()
     return {
         "status": "ok",
         "version": "0.1.0",
@@ -57,12 +70,34 @@ async def health_check():
     }
 
 
-def _resolve_model_name() -> str:
-    """Resolve the effective LLM model name from settings.
+def _resolve_active_provider() -> tuple[str | None, str | None, str | None, str | None]:
+    """Check dev_config.json for the active multi-provider entry.
 
-    Mirrors the logic in ``get_llm_provider()`` factory so the health
-    endpoint always reports the model that would actually be used,
-    including fallback annotations.
+    Returns (name, model, protocol, type) or (None, None, None, None).
+    """
+    import json
+    from pathlib import Path
+    dev_config_path = settings.project_root / "data" / "dev_config.json"
+    if not dev_config_path.exists():
+        return None, None, None, None
+    try:
+        with open(dev_config_path, "r") as f:
+            config = json.load(f)
+        providers = config.get("providers", [])
+        active_id = config.get("active_provider_id")
+        if providers and active_id:
+            for p in providers:
+                if p.get("id") == active_id:
+                    return p.get("name"), p.get("model"), p.get("protocol"), p.get("type")
+    except (json.JSONDecodeError, OSError):
+        pass
+    return None, None, None, None
+
+
+def _resolve_model_name() -> str:
+    """Resolve the effective LLM model name from env settings.
+
+    Mirrors the legacy fallback in ``get_llm_provider()``.
     """
     if settings.use_mock_ai:
         return "mock (no model)"
