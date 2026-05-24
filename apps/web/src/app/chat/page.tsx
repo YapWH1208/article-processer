@@ -105,7 +105,12 @@ function MessageBubble({ msg }: { msg: BubbleData }) {
         }`}
       >
         <div className="prose prose-sm dark:prose-invert max-w-none break-words">
-          <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{msg.content}</ReactMarkdown>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]}
+          >
+            {msg.content}
+          </ReactMarkdown>
         </div>
         {msg.citations && msg.citations.length > 0 && (
           <div className="mt-3 pt-3 border-t border-border/50">
