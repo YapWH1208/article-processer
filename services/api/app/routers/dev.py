@@ -164,6 +164,40 @@ class DevConfigResponse(BaseModel):
     presence_penalty: float
     system_messages: dict[str, SystemMessageItem]
     input_templates: dict[str, InputTemplateItem]
+    providers: list["ProviderResponse"] = []
+    active_provider_id: str | None = None
+
+
+class ProviderCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+    type: str = Field(..., min_length=1, max_length=32)  # openai, anthropic, custom, deepseek, etc.
+    api_key: str = Field(default="", max_length=512)
+    base_url: str = Field(default="", max_length=1024)
+    model: str = Field(default="", max_length=256)
+    protocol: str = Field(default="openai", max_length=16)  # openai or anthropic
+
+
+class ProviderResponse(BaseModel):
+    id: str
+    name: str
+    type: str
+    api_key: str = ""  # masked
+    base_url: str = ""
+    model: str = ""
+    protocol: str = "openai"
+
+
+class ProviderUpdate(BaseModel):
+    name: str | None = Field(default=None, max_length=64)
+    type: str | None = Field(default=None, max_length=32)
+    api_key: str | None = Field(default=None, max_length=512)
+    base_url: str | None = Field(default=None, max_length=1024)
+    model: str | None = Field(default=None, max_length=256)
+    protocol: str | None = Field(default=None, max_length=16)
+
+
+class ActiveProviderUpdate(BaseModel):
+    provider_id: str | None = None
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────
@@ -183,6 +217,19 @@ def get_dev_config():
         )
         for key, v in config.get("input_templates", {}).items()
     }
+    # Mask provider keys in response
+    providers_list = []
+    for p in config.get("providers", []):
+        providers_list.append(ProviderResponse(
+            id=p.get("id", ""),
+            name=p.get("name", ""),
+            type=p.get("type", ""),
+            api_key=_mask_api_key(p.get("api_key", "")),
+            base_url=p.get("base_url", ""),
+            model=p.get("model", ""),
+            protocol=p.get("protocol", "openai"),
+        ))
+
     return DevConfigResponse(
         temperature=config["temperature"],
         top_p=config["top_p"],
@@ -191,6 +238,8 @@ def get_dev_config():
         presence_penalty=config.get("presence_penalty", 0.0),
         system_messages=sm,
         input_templates=it,
+        providers=providers_list,
+        active_provider_id=config.get("active_provider_id"),
     )
 
 
@@ -294,3 +343,150 @@ def update_model_params(update: ModelParamsUpdate):
         frequency_penalty=config.get("frequency_penalty", 0.0),
         presence_penalty=config.get("presence_penalty", 0.0),
     )
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+
+def _mask_api_key(key: str) -> str:
+    if not key:
+        return ""
+    if len(key) <= 4:
+        return "*" * len(key)
+    return "*" * (len(key) - 4) + key[-4:]
+
+
+def _generate_provider_id(config: dict) -> str:
+    """Generate a short unique id for a new provider."""
+    existing = {p.get("id", "") for p in config.get("providers", [])}
+    for i in range(1, 100):
+        pid = f"provider-{i}"
+        if pid not in existing:
+            return pid
+    return f"provider-{len(config.get('providers', [])) + 1}"
+
+
+# ── Provider CRUD ──────────────────────────────────────────────────────────
+
+@router.get("/providers", response_model=list[ProviderResponse])
+def list_providers():
+    """List all configured LLM providers (keys masked)."""
+    config = _load_dev_config()
+    return [
+        ProviderResponse(
+            id=p.get("id", ""),
+            name=p.get("name", ""),
+            type=p.get("type", ""),
+            api_key=_mask_api_key(p.get("api_key", "")),
+            base_url=p.get("base_url", ""),
+            model=p.get("model", ""),
+            protocol=p.get("protocol", "openai"),
+        )
+        for p in config.get("providers", [])
+    ]
+
+
+@router.post("/providers", response_model=ProviderResponse)
+def create_provider(provider: ProviderCreate):
+    """Add a new LLM provider."""
+    config = _load_dev_config()
+    if "providers" not in config:
+        config["providers"] = []
+
+    pid = _generate_provider_id(config)
+    entry = {
+        "id": pid,
+        "name": provider.name,
+        "type": provider.type,
+        "api_key": provider.api_key,
+        "base_url": provider.base_url,
+        "model": provider.model,
+        "protocol": provider.protocol,
+    }
+    config["providers"].append(entry)
+
+    # Auto-set as active if it's the first one
+    if config.get("active_provider_id") is None:
+        config["active_provider_id"] = pid
+
+    _save_dev_config(config)
+    return ProviderResponse(
+        id=pid,
+        name=entry["name"],
+        type=entry["type"],
+        api_key=_mask_api_key(entry["api_key"]),
+        base_url=entry["base_url"],
+        model=entry["model"],
+        protocol=entry["protocol"],
+    )
+
+
+@router.put("/providers/{provider_id}", response_model=ProviderResponse)
+def update_provider(provider_id: str, update: ProviderUpdate):
+    """Update an existing provider. Only provided fields are changed."""
+    config = _load_dev_config()
+    providers = config.get("providers", [])
+    target = None
+    for p in providers:
+        if p.get("id") == provider_id:
+            target = p
+            break
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
+
+    if update.name is not None:
+        target["name"] = update.name
+    if update.type is not None:
+        target["type"] = update.type
+    if update.api_key is not None:
+        target["api_key"] = update.api_key
+    if update.base_url is not None:
+        target["base_url"] = update.base_url
+    if update.model is not None:
+        target["model"] = update.model
+    if update.protocol is not None:
+        target["protocol"] = update.protocol
+
+    _save_dev_config(config)
+    return ProviderResponse(
+        id=target["id"],
+        name=target["name"],
+        type=target["type"],
+        api_key=_mask_api_key(target.get("api_key", "")),
+        base_url=target.get("base_url", ""),
+        model=target.get("model", ""),
+        protocol=target.get("protocol", "openai"),
+    )
+
+
+@router.delete("/providers/{provider_id}")
+def delete_provider(provider_id: str):
+    """Delete a provider. Clears active_provider_id if it was active."""
+    config = _load_dev_config()
+    providers = config.get("providers", [])
+    original_len = len(providers)
+    config["providers"] = [p for p in providers if p.get("id") != provider_id]
+
+    if len(config["providers"]) == original_len:
+        raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
+
+    if config.get("active_provider_id") == provider_id:
+        config["active_provider_id"] = config["providers"][0].get("id") if config["providers"] else None
+
+    _save_dev_config(config)
+    return {"ok": True}
+
+
+@router.put("/providers/active", response_model=dict)
+def set_active_provider(update: ActiveProviderUpdate):
+    """Set the active LLM provider by id."""
+    config = _load_dev_config()
+    if update.provider_id is not None:
+        # Validate it exists
+        exists = any(p.get("id") == update.provider_id for p in config.get("providers", []))
+        if not exists:
+            raise HTTPException(status_code=404, detail=f"Provider '{update.provider_id}' not found")
+        config["active_provider_id"] = update.provider_id
+    else:
+        config["active_provider_id"] = None
+    _save_dev_config(config)
+    return {"active_provider_id": config["active_provider_id"]}
