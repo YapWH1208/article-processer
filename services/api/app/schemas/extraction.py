@@ -1,8 +1,8 @@
 """Pydantic schemas for AI extraction results."""
 
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel, Field
+from typing import Optional, Any
+from pydantic import BaseModel, Field, field_validator
 
 
 class Evidence(BaseModel):
@@ -72,6 +72,45 @@ class ExtractionResult(BaseModel):
     tags: list[str] = Field(default_factory=list)
     graph_entities: list[GraphEntityItem] = Field(default_factory=list)
     graph_relationships: list[GraphRelationshipItem] = Field(default_factory=list)
+
+    # ── Coercion validators ── tolerate the LLM returning dicts for string lists ─
+
+    @field_validator("authors", mode="before")
+    @classmethod
+    def _coerce_authors(cls, v: list[Any]) -> list[str]:
+        result: list[str] = []
+        for item in v or []:
+            if isinstance(item, str):
+                result.append(item)
+            elif isinstance(item, dict):
+                name = item.get("name") or item.get("full_name") or ""
+                if name:
+                    result.append(str(name))
+        return result
+
+    @field_validator("references", mode="before")
+    @classmethod
+    def _coerce_references(cls, v: list[Any]) -> list[dict]:
+        result: list[dict] = []
+        for item in v or []:
+            if isinstance(item, str):
+                result.append({"citation_text": item})
+            elif isinstance(item, dict):
+                result.append(item)
+        return result
+
+    @field_validator("datasets", "experiments", "metrics", "tags", mode="before")
+    @classmethod
+    def _coerce_string_lists(cls, v: list[Any]) -> list[str]:
+        result: list[str] = []
+        for item in v or []:
+            if isinstance(item, str):
+                result.append(item)
+            elif isinstance(item, dict):
+                name = item.get("name") or item.get("title") or ""
+                if name:
+                    result.append(str(name))
+        return result
 
 
 class ExtractionResponse(BaseModel):
