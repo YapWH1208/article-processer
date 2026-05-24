@@ -44,6 +44,10 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
+function formatTooltipTokens(value: unknown): string {
+  return typeof value === "number" ? formatTokens(value) : String(value ?? "");
+}
+
 function formatDuration(seconds: number): string {
   if (seconds < 60) return `${seconds.toFixed(1)}s`;
   if (seconds < 3600) return `${(seconds / 60).toFixed(1)}m`;
@@ -234,7 +238,7 @@ export default function DashboardPage() {
                         borderRadius: "8px",
                         fontSize: "12px",
                       }}
-                      formatter={(value: number) => formatTokens(value)}
+                      formatter={formatTooltipTokens}
                     />
                     <Legend />
                     <Bar dataKey="Prompt Tokens" stackId="a" fill="#3b82f6" />
