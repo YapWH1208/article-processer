@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Toaster } from "sonner";
 import {
   FileText, Sun, Moon, Home, FileUp, MessageCircle,
-  GitBranch, BarChart3, Code2, Settings2, Search, X,
+  GitBranch, BarChart3, Settings2, Search, X,
   PanelLeftClose, PanelLeftOpen, BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -70,7 +70,6 @@ const primaryLinks = [
 
 const secondaryLinks = [
   { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
-  { href: "/dev", label: "Dev", icon: Code2 },
   { href: "/settings", label: "Settings", icon: Settings2 },
 ];
 
