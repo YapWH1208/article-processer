@@ -4,6 +4,9 @@ import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import {
   Send, MessageCircle, Hash, FileText, X, Loader2,
   Plus, BookOpen, ArrowUp, Trash2, PanelLeftClose, PanelLeftOpen,
@@ -102,7 +105,7 @@ function MessageBubble({ msg }: { msg: BubbleData }) {
         }`}
       >
         <div className="prose prose-sm dark:prose-invert max-w-none break-words">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{msg.content}</ReactMarkdown>
         </div>
         {msg.citations && msg.citations.length > 0 && (
           <div className="mt-3 pt-3 border-t border-border/50">

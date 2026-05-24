@@ -6,6 +6,9 @@ import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import {
   FileText, MessageCircle, Info, ScrollText, Loader2, Send,
   RotateCw, Download, AlertCircle, CheckCircle2, Trash2, Archive, ArchiveRestore, Plus,
@@ -699,7 +702,7 @@ function MarkdownReader({ text, onSelect }: { text: string; onSelect: (t: string
     <div onMouseUp={handleMouseUp} className="relative">
       <div className="prose prose-sm dark:prose-invert max-w-none font-serif
         prose-headings:scroll-mt-20 prose-headings:font-sans prose-a:text-primary prose-code:bg-muted prose-code:px-1 prose-code:rounded prose-code:font-mono prose-pre:bg-muted prose-img:rounded-lg">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
           {text}
         </ReactMarkdown>
       </div>
