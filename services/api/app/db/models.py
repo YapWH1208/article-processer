@@ -204,11 +204,23 @@ class ProcessingJob(Base):
     article = relationship("Article", back_populates="jobs")
 
 
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String(256), default="New Chat")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
+
+
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    article_id = Column(Integer, ForeignKey("articles.id", ondelete="CASCADE"), nullable=False)
+    session_id = Column(Integer, ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=True)
+    article_id = Column(Integer, ForeignKey("articles.id", ondelete="CASCADE"), nullable=True)
     role = Column(String(32), nullable=False)  # user / assistant
     content = Column(Text, nullable=False)
     citations_json = Column(Text, nullable=True)  # JSON array of citation objects
@@ -217,6 +229,7 @@ class ChatMessage(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     article = relationship("Article", back_populates="messages")
+    session = relationship("ChatSession", back_populates="messages")
 
 
 class TokenUsage(Base):

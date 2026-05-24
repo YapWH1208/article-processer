@@ -185,6 +185,22 @@ export interface MultiArticleChatResponse {
   article_ids: number[];
 }
 
+export interface ChatSession {
+  id: number;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
+export interface SessionMessageResponse {
+  answer: string;
+  citations: Citation[];
+  prompt_tokens: number;
+  completion_tokens: number;
+  session_id: number;
+}
+
 // ── Job types ─────────────────────────────────────────────────────
 
 export interface JobResponse {

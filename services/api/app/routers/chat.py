@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.db.models import Article, ChatMessage, TokenUsage
+from app.db.models import Article, ChatMessage, ChatSession, TokenUsage
 from app.schemas.chat import (
     ChatRequest, ChatResponse, ChatHistoryResponse, ChatMessageResponse,
     Citation, MultiArticleChatRequest, MultiArticleChatResponse,
@@ -235,4 +235,216 @@ async def multi_article_chat(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         article_ids=request.article_ids,
+    )
+
+
+# ── Chat Sessions ─────────────────────────────────────────────────────────
+
+from pydantic import BaseModel as PydanticBaseModel
+
+
+class SessionResponse(PydanticBaseModel):
+    id: int
+    title: str
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    message_count: int = 0
+
+    model_config = {"from_attributes": True}
+
+
+class SessionListResponse(PydanticBaseModel):
+    sessions: list[SessionResponse]
+
+
+class SessionCreateRequest(PydanticBaseModel):
+    title: str = "New Chat"
+
+
+class SessionMessageRequest(PydanticBaseModel):
+    message: str
+    article_ids: list[int] = []
+
+
+class SessionMessageResponse(PydanticBaseModel):
+    answer: str
+    citations: list[dict] = []
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    session_id: int
+
+
+@router.get("/sessions", response_model=SessionListResponse)
+def list_sessions(db: Session = Depends(get_db)):
+    """List all chat sessions, newest first."""
+    sessions = (
+        db.query(ChatSession)
+        .order_by(ChatSession.updated_at.desc())
+        .all()
+    )
+    result = []
+    for s in sessions:
+        msg_count = db.query(ChatMessage).filter(ChatMessage.session_id == s.id).count()
+        result.append(SessionResponse(
+            id=s.id,
+            title=s.title,
+            created_at=s.created_at,
+            updated_at=s.updated_at,
+            message_count=msg_count,
+        ))
+    return SessionListResponse(sessions=result)
+
+
+@router.post("/sessions", response_model=SessionResponse)
+def create_session(request: SessionCreateRequest, db: Session = Depends(get_db)):
+    """Create a new chat session."""
+    session = ChatSession(title=request.title)
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return SessionResponse(
+        id=session.id,
+        title=session.title,
+        created_at=session.created_at,
+        updated_at=session.updated_at,
+        message_count=0,
+    )
+
+
+@router.delete("/sessions/{session_id}")
+def delete_session(session_id: int, db: Session = Depends(get_db)):
+    """Delete a chat session and all its messages."""
+    session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    db.delete(session)
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/sessions/{session_id}", response_model=ChatHistoryResponse)
+def get_session_messages(session_id: int, db: Session = Depends(get_db)):
+    """Get all messages in a chat session."""
+    session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    messages = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at)
+        .all()
+    )
+
+    chat_messages = []
+    for m in messages:
+        citations = None
+        if m.citations_json:
+            try:
+                citations = json.loads(m.citations_json)
+            except json.JSONDecodeError:
+                pass
+        chat_messages.append(ChatMessageResponse(
+            id=m.id, role=m.role, content=m.content,
+            citations=citations,
+            prompt_tokens=m.prompt_tokens or 0,
+            completion_tokens=m.completion_tokens or 0,
+            created_at=m.created_at,
+        ))
+
+    return ChatHistoryResponse(article_id=0, messages=chat_messages)
+
+
+@router.post("/sessions/{session_id}/messages", response_model=SessionMessageResponse)
+async def send_session_message(
+    session_id: int,
+    request: SessionMessageRequest,
+    db: Session = Depends(get_db),
+):
+    """Send a message in a chat session. Uses multi-article or library-wide context."""
+    session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    llm = get_llm_provider()
+
+    if request.article_ids:
+        # Tagged articles — send full text
+        articles = db.query(Article).filter(Article.id.in_(request.article_ids)).all()
+        if not articles:
+            raise HTTPException(status_code=404, detail="No articles found")
+
+        combined_parts = []
+        for a in articles:
+            if a.markdown_text:
+                title = a.title or a.original_filename
+                combined_parts.append(f"### {title} (ID: {a.id})\n\n{a.markdown_text}")
+
+        if not combined_parts:
+            raise HTTPException(status_code=400, detail="No processed articles found")
+
+        article_text = "\n\n---\n\n".join(combined_parts)
+        primary_title = articles[0].title or articles[0].original_filename
+        context_title = f"{len(articles)} articles including '{primary_title}'"
+    else:
+        # No tags — send all article summaries
+        articles = db.query(Article).filter(
+            Article.markdown_text.isnot(None), Article.markdown_text != ""
+        ).all()
+
+        if not articles:
+            raise HTTPException(status_code=400, detail="No processed articles available")
+
+        summaries = []
+        for a in articles:
+            title = a.title or a.original_filename
+            preview = (a.markdown_text or "")[:800]
+            summaries.append(f"## {title} (ID: {a.id})\n{preview}...\n")
+
+        article_text = (
+            f"The user is asking about articles in the library. Below are summaries "
+            f"of {len(articles)} available articles. Use these to answer; cite which "
+            f"article(s) your answer draws from.\n\n" + "\n---\n".join(summaries)
+        )
+        context_title = f"Library ({len(articles)} articles)"
+        request.article_ids = [a.id for a in articles]
+
+    answer, citations = await llm.answer_question(
+        question=request.message,
+        article_title=context_title,
+        article_text=article_text,
+    )
+
+    if llm.last_usage and llm.last_usage.total_tokens > 0:
+        prompt_tokens = llm.last_usage.prompt_tokens
+        completion_tokens = llm.last_usage.completion_tokens
+    else:
+        prompt_tokens = max(1, len(request.message) // 4)
+        completion_tokens = max(1, len(answer) // 4)
+
+    # Save messages
+    citations_json = json.dumps(citations)
+    user_msg = ChatMessage(
+        session_id=session_id, role="user", content=request.message,
+        prompt_tokens=prompt_tokens, completion_tokens=0,
+    )
+    assistant_msg = ChatMessage(
+        session_id=session_id, role="assistant", content=answer,
+        citations_json=citations_json, prompt_tokens=0, completion_tokens=completion_tokens,
+    )
+    db.add(user_msg)
+    db.add(assistant_msg)
+    session.updated_at = datetime.datetime.utcnow()
+
+    # Auto-title: use first user message as title
+    msg_count = db.query(ChatMessage).filter(ChatMessage.session_id == session_id, ChatMessage.role == "user").count()
+    if msg_count <= 1:
+        session.title = request.message[:80] + ("..." if len(request.message) > 80 else "")
+
+    db.commit()
+
+    return SessionMessageResponse(
+        answer=answer, citations=citations,
+        prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+        session_id=session_id,
     )

@@ -147,6 +147,41 @@ export async function sendMultiArticleChatMessage(articleIds: number[], message:
   );
 }
 
+// ── Chat Sessions ─────────────────────────────────────────────────
+
+export async function listSessions() {
+  return apiFetch<{ sessions: import("./types").ChatSession[] }>("/articles/sessions");
+}
+
+export async function createSession(title?: string) {
+  return apiFetch<import("./types").ChatSession>("/articles/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: title || "New Chat" }),
+  });
+}
+
+export async function deleteSession(sessionId: number) {
+  return apiFetch<{ ok: boolean }>(`/articles/sessions/${sessionId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getSessionMessages(sessionId: number) {
+  return apiFetch<import("./types").ChatHistoryResponse>(`/articles/sessions/${sessionId}`);
+}
+
+export async function sendSessionMessage(sessionId: number, message: string, articleIds: number[] = []) {
+  return apiFetch<import("./types").SessionMessageResponse>(
+    `/articles/sessions/${sessionId}/messages`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, article_ids: articleIds }),
+    }
+  );
+}
+
 // ── Export ────────────────────────────────────────────────────────
 
 export function getExportJsonUrl(articleId: number): string {
