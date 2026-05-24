@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getGlobalGraph } from "@/lib/api";
 import type { GlobalGraphData } from "@/lib/types";
 import { FadeIn } from "@/components/ui/animated";
+import { createGraphViewportState } from "./graphCanvasState.mjs";
 
 // ── Entity type colors ─────────────────────────────────────────────
 const TYPE_COLORS: Record<string, string> = {
@@ -132,33 +133,44 @@ function GraphCanvas({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
-  const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
+  const viewportRef = useRef<ReturnType<typeof createGraphViewportState> | null>(null);
+  const hoveredNodeRef = useRef<GraphNode | null>(null);
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
   const dragRef = useRef<{ x: number; y: number; node: GraphNode | null; pan: boolean }>({
     x: 0, y: 0, node: null, pan: false,
   });
+
+  if (!viewportRef.current) {
+    viewportRef.current = createGraphViewportState(transform);
+  }
 
   // Run simulation on mount
   useEffect(() => {
     simulate(nodes, edges, width, height, 150);
     render();
     return () => cancelAnimationFrame(animRef.current);
-  }, [nodes.length, width, height]);
+  }, [nodes, edges, width, height]);
 
   const worldToScreen = useCallback(
-    (wx: number, wy: number) => ({
-      x: wx * transform.scale + transform.x,
-      y: wy * transform.scale + transform.y,
-    }),
-    [transform]
+    (wx: number, wy: number) => {
+      const currentTransform = viewportRef.current!.getTransform();
+      return {
+        x: wx * currentTransform.scale + currentTransform.x,
+        y: wy * currentTransform.scale + currentTransform.y,
+      };
+    },
+    []
   );
 
   const screenToWorld = useCallback(
-    (sx: number, sy: number) => ({
-      x: (sx - transform.x) / transform.scale,
-      y: (sy - transform.y) / transform.scale,
-    }),
-    [transform]
+    (sx: number, sy: number) => {
+      const currentTransform = viewportRef.current!.getTransform();
+      return {
+        x: (sx - currentTransform.x) / currentTransform.scale,
+        y: (sy - currentTransform.y) / currentTransform.scale,
+      };
+    },
+    []
   );
 
   const render = useCallback(() => {
@@ -173,27 +185,44 @@ function GraphCanvas({
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, width, height);
 
+    const currentTransform = viewportRef.current!.getTransform();
+    const currentHoveredNode = hoveredNodeRef.current;
+    const activeNodeId = currentHoveredNode?.id ?? null;
+
     ctx.save();
-    ctx.translate(transform.x, transform.y);
-    ctx.scale(transform.scale, transform.scale);
+    ctx.translate(currentTransform.x, currentTransform.y);
+    ctx.scale(currentTransform.scale, currentTransform.scale);
 
     // Edges
-    ctx.strokeStyle = "hsl(var(--border))";
-    ctx.lineWidth = 0.8 / transform.scale;
     for (const edge of edges) {
       const s = nodes.find((n) => n.id === edge.source);
       const t = nodes.find((n) => n.id === edge.target);
       if (!s || !t) continue;
+      const activeEdge = activeNodeId != null && (edge.source === activeNodeId || edge.target === activeNodeId);
+      ctx.globalAlpha = activeNodeId == null ? 0.6 : activeEdge ? 0.9 : 0.12;
+      ctx.strokeStyle = activeEdge ? "hsl(var(--foreground))" : "hsl(var(--border))";
+      ctx.lineWidth = (activeEdge ? 1.6 : 0.8) / currentTransform.scale;
       ctx.beginPath();
       ctx.moveTo(s.x, s.y);
       ctx.lineTo(t.x, t.y);
       ctx.stroke();
     }
+    ctx.globalAlpha = 1;
 
     // Nodes
     for (const node of nodes) {
       const color = TYPE_COLORS[node.type] || DEFAULT_COLOR;
-      const isHovered = hoveredNode?.id === node.id;
+      const isHovered = currentHoveredNode?.id === node.id;
+      const isRelated =
+        activeNodeId == null ||
+        node.id === activeNodeId ||
+        edges.some(
+          (edge) =>
+            (edge.source === activeNodeId && edge.target === node.id) ||
+            (edge.target === activeNodeId && edge.source === node.id)
+        );
+
+      ctx.globalAlpha = activeNodeId != null && !isRelated ? 0.22 : 1;
 
       // Glow for hovered
       if (isHovered) {
@@ -209,26 +238,27 @@ function GraphCanvas({
       ctx.fillStyle = color;
       ctx.fill();
       ctx.strokeStyle = isHovered ? "#fff" : "hsl(var(--background))";
-      ctx.lineWidth = isHovered ? 2 / transform.scale : 1.5 / transform.scale;
+      ctx.lineWidth = isHovered ? 2 / currentTransform.scale : 1.5 / currentTransform.scale;
       ctx.stroke();
 
       // Label (only when zoomed in enough)
-      if (transform.scale > 0.5 || isHovered) {
-        const fontSize = Math.max(9, 11 / transform.scale);
+      if (currentTransform.scale > 0.5 || isHovered) {
+        const fontSize = Math.max(9, 11 / currentTransform.scale);
         ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
         ctx.fillStyle = "hsl(var(--foreground))";
         ctx.textAlign = "center";
         const label = node.label.length > 20 ? node.label.slice(0, 20) + "…" : node.label;
         ctx.fillText(label, node.x, node.y - node.radius - 4);
       }
+      ctx.globalAlpha = 1;
     }
 
     ctx.restore();
 
     // Hover tooltip (screen space)
-    if (hoveredNode) {
-      const { x, y } = worldToScreen(hoveredNode.x, hoveredNode.y);
-      const tooltipText = `${hoveredNode.label}\n${hoveredNode.type} · ${hoveredNode.articleTitle}`;
+    if (currentHoveredNode) {
+      const { x, y } = worldToScreen(currentHoveredNode.x, currentHoveredNode.y);
+      const tooltipText = `${currentHoveredNode.label}\n${currentHoveredNode.type} · ${currentHoveredNode.articleTitle}`;
       const lines = tooltipText.split("\n");
       const fontSize = 11;
       ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
@@ -236,7 +266,7 @@ function GraphCanvas({
       const tooltipW = maxWidth + 16;
       const tooltipH = lines.length * 16 + 12;
       const tx = Math.min(width - tooltipW, Math.max(0, x - tooltipW / 2));
-      const ty = y - hoveredNode.radius - tooltipH - 10;
+      const ty = y - currentHoveredNode.radius - tooltipH - 10;
 
       ctx.fillStyle = "hsl(var(--card))";
       ctx.strokeStyle = "hsl(var(--border))";
@@ -253,8 +283,12 @@ function GraphCanvas({
       });
     }
 
+  }, [nodes, edges, width, height, worldToScreen]);
+
+  const requestRender = useCallback(() => {
+    cancelAnimationFrame(animRef.current);
     animRef.current = requestAnimationFrame(render);
-  }, [nodes, edges, hoveredNode, transform, width, height, worldToScreen]);
+  }, [render]);
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -264,11 +298,9 @@ function GraphCanvas({
       const sy = e.clientY - rect.top;
 
       if (dragRef.current.pan) {
-        setTransform((t) => ({
-          ...t,
-          x: t.x + (sx - dragRef.current.x),
-          y: t.y + (sy - dragRef.current.y),
-        }));
+        const nextTransform = viewportRef.current!.panBy(sx - dragRef.current.x, sy - dragRef.current.y);
+        setTransform(nextTransform);
+        requestRender();
         dragRef.current.x = sx;
         dragRef.current.y = sy;
         return;
@@ -282,6 +314,7 @@ function GraphCanvas({
           node.y = y;
           node.vx = 0;
           node.vy = 0;
+          requestRender();
         }
         return;
       }
@@ -297,12 +330,13 @@ function GraphCanvas({
           break;
         }
       }
-      setHoveredNode(found);
+      hoveredNodeRef.current = found;
+      requestRender();
       if (canvasRef.current) {
         canvasRef.current.style.cursor = found ? "pointer" : dragRef.current.pan ? "grabbing" : "grab";
       }
     },
-    [nodes, screenToWorld]
+    [nodes, screenToWorld, requestRender]
   );
 
   const handleMouseDown = useCallback(
@@ -353,37 +387,59 @@ function GraphCanvas({
     (e: React.WheelEvent<HTMLCanvasElement>) => {
       e.preventDefault();
       const delta = e.deltaY > 0 ? 0.9 : 1.1;
-      setTransform((t) => {
-        const newScale = Math.max(0.15, Math.min(4, t.scale * delta));
-        const rect = canvasRef.current?.getBoundingClientRect();
-        if (!rect) return t;
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
-        return {
-          x: mx - (mx - t.x) * (newScale / t.scale),
-          y: my - (my - t.y) * (newScale / t.scale),
-          scale: newScale,
-        };
-      });
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const currentTransform = viewportRef.current!.getTransform();
+      const nextTransform = viewportRef.current!.zoomAt({ x: mx, y: my }, currentTransform.scale * delta);
+      setTransform(nextTransform);
+      requestRender();
     },
-    []
+    [requestRender]
   );
 
-  const zoomIn = () => setTransform((t) => ({ ...t, scale: Math.min(4, t.scale * 1.3) }));
-  const zoomOut = () => setTransform((t) => ({ ...t, scale: Math.max(0.15, t.scale * 0.7) }));
-  const resetView = () => setTransform({ x: 0, y: 0, scale: 1 });
+  const zoomIn = () => {
+    const currentTransform = viewportRef.current!.getTransform();
+    const nextTransform = viewportRef.current!.zoomAt(
+      { x: width / 2, y: height / 2 },
+      currentTransform.scale * 1.3
+    );
+    setTransform(nextTransform);
+    requestRender();
+  };
+  const zoomOut = () => {
+    const currentTransform = viewportRef.current!.getTransform();
+    const nextTransform = viewportRef.current!.zoomAt(
+      { x: width / 2, y: height / 2 },
+      currentTransform.scale * 0.7
+    );
+    setTransform(nextTransform);
+    requestRender();
+  };
+  const resetView = () => {
+    setTransform(viewportRef.current!.reset());
+    requestRender();
+  };
 
   return (
     <div className="relative">
       <canvas
         ref={canvasRef}
+        data-testid="knowledge-graph-canvas"
+        data-scale={transform.scale.toFixed(3)}
+        data-offset-x={Math.round(transform.x)}
+        data-offset-y={Math.round(transform.y)}
         width={width}
         height={height}
         style={{ width, height, cursor: "grab" }}
         onMouseMove={handleMouseMove}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
-        onMouseLeave={() => setHoveredNode(null)}
+        onMouseLeave={() => {
+          hoveredNodeRef.current = null;
+          requestRender();
+        }}
         onWheel={handleWheel}
       />
       {/* Zoom controls */}
