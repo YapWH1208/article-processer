@@ -183,6 +183,30 @@ def get_article_file(article_id: int, db: Session = Depends(get_db)):
     )
 
 
+def _rewrite_markdown_image_urls(markdown: str) -> str:
+    """Rewrite relative image URLs to absolute API URLs so the frontend can load them.
+
+    MinerU/draft parsers may produce relative paths like `storage/images/ts/hash.jpg`
+    which the browser resolves against the current frontend page URL (e.g. /articles/1/).
+    We rewrite these to absolute `http://localhost:8000/storage/images/...` URLs.
+    """
+    import re
+    from app.core.config import settings as _s
+
+    api_base = getattr(_s, "api_base_url", None) or "http://localhost:8000"
+
+    def _abs_url(match: re.Match) -> str:
+        alt = match.group(1) or ""
+        src = match.group(2)
+        if src.startswith(("http://", "https://", "data:")):
+            return match.group(0)
+        if src.startswith("/"):
+            return f"![{alt}]({api_base.rstrip('/')}{src})"
+        return f"![{alt}]({api_base.rstrip('/')}/{src})"
+
+    return re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', _abs_url, markdown)
+
+
 @router.get("/{article_id}/markdown")
 def get_article_markdown(article_id: int, db: Session = Depends(get_db)):
     """Get the processed Markdown for an article."""
@@ -191,12 +215,12 @@ def get_article_markdown(article_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Article not found")
 
     if article.markdown_text:
-        return {"markdown": article.markdown_text}
+        return {"markdown": _rewrite_markdown_image_urls(article.markdown_text)}
 
     if article.markdown_path:
         try:
             with open(article.markdown_path, "r", encoding="utf-8") as f:
-                return {"markdown": f.read()}
+                return {"markdown": _rewrite_markdown_image_urls(f.read())}
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="Markdown file not found on disk")
 
