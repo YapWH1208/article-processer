@@ -430,6 +430,22 @@ def create_provider(provider: ProviderCreate):
     )
 
 
+@router.put("/providers/active", response_model=dict)
+def set_active_provider(update: ActiveProviderUpdate):
+    """Set the active LLM provider by id. Must be defined before /providers/{provider_id} to avoid route conflict."""
+    config = _load_dev_config()
+    if update.provider_id is not None:
+        # Validate it exists
+        exists = any(p.get("id") == update.provider_id for p in config.get("providers", []))
+        if not exists:
+            raise HTTPException(status_code=404, detail=f"Provider '{update.provider_id}' not found")
+        config["active_provider_id"] = update.provider_id
+    else:
+        config["active_provider_id"] = None
+    _save_dev_config(config)
+    return {"active_provider_id": config["active_provider_id"]}
+
+
 @router.put("/providers/{provider_id}", response_model=ProviderResponse)
 def update_provider(provider_id: str, update: ProviderUpdate):
     """Update an existing provider. Only provided fields are changed."""
@@ -484,19 +500,3 @@ def delete_provider(provider_id: str):
 
     _save_dev_config(config)
     return {"ok": True}
-
-
-@router.put("/providers/active", response_model=dict)
-def set_active_provider(update: ActiveProviderUpdate):
-    """Set the active LLM provider by id."""
-    config = _load_dev_config()
-    if update.provider_id is not None:
-        # Validate it exists
-        exists = any(p.get("id") == update.provider_id for p in config.get("providers", []))
-        if not exists:
-            raise HTTPException(status_code=404, detail=f"Provider '{update.provider_id}' not found")
-        config["active_provider_id"] = update.provider_id
-    else:
-        config["active_provider_id"] = None
-    _save_dev_config(config)
-    return {"active_provider_id": config["active_provider_id"]}
