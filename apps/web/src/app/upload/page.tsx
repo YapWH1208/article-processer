@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileText, CheckCircle2, AlertCircle, Inbox, Sparkles, Brain, Layers } from "lucide-react";
+import { Upload, FileText, CheckCircle2, AlertCircle, Inbox, Sparkles, Brain } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +24,6 @@ export default function UploadPage() {
   const [showSparkle, setShowSparkle] = useState(false);
   const [modelInfo, setModelInfo] = useState<{
     llmProvider: string; llmModel: string; llmProtocol: string | null;
-    embProvider: string; embModel: string; embProtocol: string | null;
     mock: boolean;
   } | null>(null);
 
@@ -36,9 +35,6 @@ export default function UploadPage() {
         llmProvider: d.llm_provider || "unknown",
         llmModel: d.llm_model || "unknown",
         llmProtocol: d.llm_custom_protocol || null,
-        embProvider: d.embedding_provider || "unknown",
-        embModel: d.embedding_model || "unknown",
-        embProtocol: d.embedding_custom_protocol || null,
         mock: d.mock_ai || false,
       }))
       .catch(() => {});
@@ -84,19 +80,7 @@ export default function UploadPage() {
                   <span className="text-muted-foreground">@{modelInfo.llmProvider}</span>
                 )}
               </Badge>
-              <Badge variant="outline" className="gap-1.5 px-2.5 py-1 text-xs">
-                <Layers className="h-3 w-3 text-primary" />
-                <span className="text-muted-foreground">Emb:</span>
-                <span className="font-medium">{modelInfo.mock ? "Mock" : modelInfo.embModel}</span>
-                {!modelInfo.mock && modelInfo.embProvider === "custom" && modelInfo.embProtocol && (
-                  <span className="text-muted-foreground text-[10px] truncate max-w-[100px]" title={modelInfo.embProtocol}>
-                    via {new URL(modelInfo.embProtocol).hostname}
-                  </span>
-                )}
-                {!modelInfo.mock && modelInfo.embProvider !== "openai" && modelInfo.embProvider !== "custom" && (
-                  <span className="text-muted-foreground">@{modelInfo.embProvider}</span>
-                )}
-              </Badge>
+
             </div>
           )}
         </div>

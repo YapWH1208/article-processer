@@ -1,18 +1,17 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Toaster } from "sonner";
 import {
   FileText, Sun, Moon, Home, FileUp, MessageCircle,
-  GitBranch, BarChart3, Settings2, Search, X,
+  GitBranch, BarChart3, Settings2, X,
   PanelLeftClose, PanelLeftOpen, BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Input } from "@/components/ui/input";
 
 // ── Theme toggle ──────────────────────────────────────────────────────────
 
@@ -72,83 +71,6 @@ const secondaryLinks = [
   { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings2 },
 ];
-
-// ── Search command palette (simplified) ───────────────────────────────────
-
-function SearchBar() {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setOpen((prev) => !prev);
-      }
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, []);
-
-  useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
-
-  const allLinks = [...primaryLinks, ...secondaryLinks];
-
-  const filtered = query
-    ? allLinks.filter((l) => l.label.toLowerCase().includes(query.toLowerCase()))
-    : allLinks;
-
-  return (
-    <>
-      <Button variant="outline" size="sm" className="gap-6 px-3 text-muted-foreground font-normal"
-        onClick={() => setOpen(true)}>
-        <span className="flex items-center gap-2"><Search className="h-3.5 w-3.5" /> Search pages...</span>
-        <kbd className="hidden sm:inline text-[10px] bg-muted px-1.5 py-0.5 rounded border font-mono">⌘K</kbd>
-      </Button>
-
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center pt-[20vh]"
-            onClick={() => setOpen(false)}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 8 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 8 }}
-              className="w-full max-w-md bg-card border rounded-xl shadow-2xl overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center border-b px-3">
-                <Search className="h-4 w-4 text-muted-foreground mr-2" />
-                <Input ref={inputRef} value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Find a page..." className="border-0 shadow-none flex-1 h-12 focus-visible:ring-0 px-0" />
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setOpen(false)}>
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="p-1.5 max-h-64 overflow-y-auto">
-                {filtered.map((l) => (
-                  <Link key={l.href} href={l.href} onClick={() => setOpen(false)}
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-accent transition-colors">
-                    <l.icon className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">{l.label}</span>
-                  </Link>
-                ))}
-                {filtered.length === 0 && (
-                  <div className="px-3 py-4 text-sm text-muted-foreground text-center">No pages found</div>
-                )}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </>
-  );
-}
 
 // ── Sidebar ────────────────────────────────────────────────────────────────
 
@@ -289,7 +211,11 @@ function NavBar() {
 
         {/* Right */}
         <div className="flex items-center gap-2">
-          <div className="hidden md:block"><SearchBar /></div>
+          <Link href="/settings">
+            <Button variant="ghost" size="icon" className="h-9 w-9" title="Settings">
+              <Settings2 className="h-5 w-5" />
+            </Button>
+          </Link>
           <ThemeToggle />
         </div>
       </div>
