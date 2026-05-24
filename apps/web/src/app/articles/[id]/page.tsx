@@ -6,11 +6,14 @@ import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import {
-  FileText, MessageCircle, BarChart3, Info, ScrollText, Loader2, Send,
-  RotateCw, Download, AlertCircle, Trash2, Archive, ArchiveRestore, Plus,
+  FileText, MessageCircle, Info, ScrollText, Loader2, Send,
+  RotateCw, Download, AlertCircle, CheckCircle2, Trash2, Archive, ArchiveRestore, Plus,
   PanelRightClose, PanelRightOpen, X, Wand2, ArrowLeft, ChevronRight,
-  Calendar,
+  Calendar, Activity,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -41,9 +44,15 @@ interface SkillDef {
   input_schema: Record<string, unknown>; output_schema: Record<string, unknown>;
 }
 
-interface ChatMessage { role: string; content: string; citations_json?: string; }
+interface ChatMessage { role: string; content: string; citations_json?: string; prompt_tokens?: number; completion_tokens?: number; }
 interface Citation { chunk_id: number; section_title: string; snippet: string; page_start?: number; }
 interface JobInfo { id: number; status: string; current_step: string | null; logs: Record<string, unknown>[] | null; error: string | null; created_at: string; completed_at: string | null; }
+
+const TERMINAL_ARTICLE_STATUSES = new Set(["completed", "failed", "needs_review"]);
+
+function isTerminalArticleStatus(status: string | null | undefined) {
+  return !!status && TERMINAL_ARTICLE_STATUSES.has(status);
+}
 
 export default function ArticleDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -53,6 +62,7 @@ export default function ArticleDetailPage() {
   const [article, setArticle] = useState<Article | null>(null);
   const [markdown, setMarkdown] = useState("");
   const [extraction, setExtraction] = useState<ExtractionResult | null>(null);
+  const [extractionErrors, setExtractionErrors] = useState<string[]>([]);
   const [graph, setGraph] = useState<{ entities: unknown[]; relationships: unknown[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("reader");
@@ -97,13 +107,16 @@ export default function ArticleDetailPage() {
       setArticle(art as Article);
       setMarkdown(mdResp.markdown || "");
       setExtraction(extResp?.extraction || null);
+      setExtractionErrors(extResp?.validation_errors || []);
       setGraph(gr);
       // Hydrate chat history from server
       if (histResp?.messages?.length) {
-        setMessages(histResp.messages.map((m: { role: string; content: string; citations: unknown[] | null }) => ({
+        setMessages(histResp.messages.map((m: { role: string; content: string; citations: unknown[] | null; prompt_tokens?: number; completion_tokens?: number }) => ({
           role: m.role,
           content: m.content,
           citations_json: m.citations ? JSON.stringify(m.citations) : undefined,
+          prompt_tokens: m.prompt_tokens || 0,
+          completion_tokens: m.completion_tokens || 0,
         })));
       }
       // Load available skills
@@ -119,11 +132,11 @@ export default function ArticleDetailPage() {
   // ── Polling for active job (progress bar) ──────────────────────
   useEffect(() => {
     if (!article) return;
-    const isProcessing = !["completed", "failed"].includes(article.status);
+    const isProcessing = !isTerminalArticleStatus(article.status);
     if (!isProcessing) {
       setActiveJob(null);
       // Detect transition to completed — soft reload
-      if (prevStatus && !["completed", "failed"].includes(prevStatus) && article.status === "completed") {
+      if (prevStatus && !isTerminalArticleStatus(prevStatus) && isTerminalArticleStatus(article.status)) {
         loadData();
       }
       setPrevStatus(article.status);
@@ -136,7 +149,7 @@ export default function ArticleDetailPage() {
         const res = await getArticleActiveJob(articleId);
         setActiveJob(res.job);
         // If job completed, reload article data
-        if (res.article_status === "completed" || res.article_status === "failed") {
+        if (isTerminalArticleStatus(res.article_status)) {
           loadData();
         }
       } catch { /* ignore poll errors */ }
@@ -160,7 +173,11 @@ export default function ArticleDetailPage() {
     setContextText("");
     try {
       const res = await sendChatMessage(articleId, userMsg.content);
-      setMessages((prev) => [...prev, { role: "assistant", content: res.answer, citations_json: JSON.stringify(res.citations) }]);
+      setMessages((prev) => [
+        ...prev.slice(0, -1),
+        { ...prev[prev.length - 1], prompt_tokens: res.prompt_tokens || 0 },
+        { role: "assistant", content: res.answer, citations_json: JSON.stringify(res.citations), prompt_tokens: 0, completion_tokens: res.completion_tokens || 0 },
+      ]);
     } catch (e: unknown) {
       setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${e instanceof Error ? e.message : "Chat failed"}` }]);
     } finally { setChatting(false); }
@@ -180,11 +197,13 @@ export default function ArticleDetailPage() {
     setChatOpen(true);
   };
 
-  const handleReprocess = async (fullPipeline = true) => {
+  const handleReprocess = async (mode: "full" | "extract_only" = "extract_only") => {
     setReprocessing(true);
     try {
-      await reprocessArticle(articleId, fullPipeline);
-      toast.success(fullPipeline ? "Full reprocessing started" : "Parse-only reprocessing started");
+      await reprocessArticle(articleId, mode);
+      setArticle((prev) => prev ? { ...prev, status: "extracting", processing_error: null } : prev);
+      setExtractionErrors([]);
+      toast.success(mode === "extract_only" ? "AI extraction started" : "Full reprocessing started");
     }
     catch { toast.error("Reprocess failed"); }
     finally { setReprocessing(false); }
@@ -221,7 +240,7 @@ export default function ArticleDetailPage() {
     }
   };
 
-  const isProcessing = article && !["completed", "failed"].includes(article.status);
+  const isProcessing = article && !isTerminalArticleStatus(article.status);
   const citations = (msg: ChatMessage): Citation[] => {
     try { return msg.citations_json ? JSON.parse(msg.citations_json) : []; }
     catch { return []; }
@@ -269,6 +288,16 @@ export default function ArticleDetailPage() {
             </div>
           </motion.div>
         )}
+        {article.status === "needs_review" && extractionErrors.length > 0 && (
+          <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
+            className="flex items-start gap-2 p-3 rounded-md bg-amber-500/10 border border-amber-500/20 text-sm text-amber-700 dark:text-amber-300 mb-3">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5"/>
+            <div>
+              <p className="font-medium">Extraction needs review</p>
+              <p className="text-xs opacity-80 mt-0.5">{extractionErrors.join("; ")}</p>
+            </div>
+          </motion.div>
+        )}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             {editingTitle ? (
@@ -309,11 +338,8 @@ export default function ArticleDetailPage() {
             </div>
           </div>
           <div className="flex gap-2 shrink-0 flex-wrap">
-            <Button variant="outline" size="sm" onClick={() => handleReprocess(true)} disabled={reprocessing} className="gap-1">
-              <RotateCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`}/> Full Pipeline
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => handleReprocess(false)} disabled={reprocessing} className="gap-1 text-muted-foreground">
-              <FileText className="h-3.5 w-3.5"/> Parse Only
+            <Button variant="outline" size="sm" onClick={() => handleReprocess("extract_only")} disabled={reprocessing} className="gap-1">
+              <RotateCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`}/> Re-extract
             </Button>
             <Button variant="outline" size="sm" onClick={handleArchive} disabled={archiving} className="gap-1">
               {article.is_archived ? <><ArchiveRestore className="h-3.5 w-3.5"/> Restore</> : <><Archive className="h-3.5 w-3.5"/> Archive</>}
@@ -368,7 +394,6 @@ export default function ArticleDetailPage() {
               <TabsList>
                 <TabsTrigger value="reader" className="gap-1.5"><ScrollText className="h-4 w-4"/>Reader</TabsTrigger>
                 <TabsTrigger value="summary" className="gap-1.5"><FileText className="h-4 w-4"/>Summary</TabsTrigger>
-                <TabsTrigger value="graph" className="gap-1.5"><BarChart3 className="h-4 w-4"/>Graph</TabsTrigger>
                 <TabsTrigger value="skills" className="gap-1.5"><Wand2 className="h-4 w-4"/>Skills</TabsTrigger>
                 <TabsTrigger value="metadata" className="gap-1.5"><Info className="h-4 w-4"/>Metadata</TabsTrigger>
               </TabsList>
@@ -434,33 +459,20 @@ export default function ArticleDetailPage() {
                       <CardContent className="flex-1 min-h-0 p-4">
                         {extraction ? (
                           <ScrollArea className="h-full"><SummaryContent extraction={extraction} onAsk={askAbout} onAdd={addToChat}/></ScrollArea>
+                        ) : extractionErrors.length > 0 ? (
+                          <div className="flex flex-col items-center py-12 text-muted-foreground gap-3 text-center">
+                            <AlertCircle className="h-10 w-10 text-amber-500"/>
+                            <div>
+                              <p className="font-medium text-foreground">AI extraction returned no summary</p>
+                              <p className="text-xs mt-1 max-w-md">{extractionErrors.join("; ")}</p>
+                            </div>
+                            <Button variant="outline" size="sm" onClick={() => handleReprocess("extract_only")} disabled={reprocessing} className="gap-1">
+                              <RotateCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`}/> Re-extract
+                            </Button>
+                          </div>
                         ) : (
                           <div className="flex flex-col items-center py-12 text-muted-foreground"><FileText className="h-10 w-10 opacity-30"/><p>No extraction yet.</p></div>
                         )}
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-                </motion.div>
-              )}
-
-              {/* Graph */}
-              {tab === "graph" && (
-                <motion.div key="graph" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 min-h-0">
-                  <TabsContent value="graph" forceMount className="h-full m-0">
-                    <Card className="h-full flex flex-col">
-                      <CardHeader className="shrink-0"><CardTitle className="text-lg">Knowledge Graph</CardTitle><CardDescription>{graph ? `${(graph.entities as any[]).length} entities · ${(graph.relationships as any[]).length} relationships` : ""}</CardDescription></CardHeader>
-                      <CardContent className="flex-1 min-h-0 p-4">
-                        {graph ? (
-                          <ScrollArea className="h-full">
-                            <div className="space-y-5">
-                              {/* Entities grouped by type */}
-                              <GraphEntities entities={graph.entities as any[]} />
-                              <Separator />
-                              {/* Relationships as cards */}
-                              <GraphRelationships relationships={graph.relationships as any[]} />
-                            </div>
-                          </ScrollArea>
-                        ) : <div className="flex flex-col items-center py-12 text-muted-foreground"><BarChart3 className="h-10 w-10 opacity-30"/><p>No graph data.</p></div>}
                       </CardContent>
                     </Card>
                   </TabsContent>
@@ -536,7 +548,7 @@ export default function ArticleDetailPage() {
                                 ["Filename", article.original_filename, <FileText key="fn" className="h-3.5 w-3.5 opacity-60" />],
                                 ["Source", article.source_type.toUpperCase(), <ScrollText key="src" className="h-3.5 w-3.5 opacity-60" />],
                                 ["Parser", article.parser_name || article.source_type?.toUpperCase(), <Wand2 key="pr" className="h-3.5 w-3.5 opacity-60" />],
-                                ["Status", article.status, <BarChart3 key="st" className="h-3.5 w-3.5 opacity-60" />],
+                                ["Status", article.status, <Activity key="st" className="h-3.5 w-3.5 opacity-60" />],
                                 ["Archived", article.is_archived ? "Yes" : "No", <Archive key="ar" className="h-3.5 w-3.5 opacity-60" />],
                                 ["Created", new Date(article.created_at).toLocaleString(), <Calendar key="cr" className="h-3.5 w-3.5 opacity-60" />],
                                 ["Updated", new Date(article.updated_at).toLocaleString(), <Calendar key="up" className="h-3.5 w-3.5 opacity-60" />],
@@ -603,6 +615,11 @@ export default function ArticleDetailPage() {
                 <CardHeader className="pb-2 shrink-0 flex flex-row items-center justify-between">
                   <CardTitle className="text-base flex items-center gap-2">
                     <MessageCircle className="h-4 w-4"/> Chat
+                    {messages.length > 0 && (
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">
+                        {messages.reduce((sum, m) => sum + (m.prompt_tokens || 0) + (m.completion_tokens || 0), 0).toLocaleString()} tokens
+                      </Badge>
+                    )}
                   </CardTitle>
                   <div className="flex gap-1">
                     <Button variant="ghost" size="icon" className="h-7 w-7 md:hidden" onClick={() => setChatOpen(false)}>
@@ -641,14 +658,21 @@ export default function ArticleDetailPage() {
                             className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                             <div className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
                               <p className="whitespace-pre-wrap text-xs">{msg.content.slice(0, 600)}{msg.content.length > 600 ? "..." : ""}</p>
-                              {msg.role === "assistant" && citations(msg).length > 0 && (
-                                <div className="mt-1.5 pt-1.5 border-t border-border/50">
-                                  <p className="text-[10px] font-medium mb-0.5">Sources:</p>
-                                  {citations(msg).slice(0, 3).map((c, ci) => (
-                                    <div key={ci} className="text-[10px] opacity-70 mt-0.5">§{c.section_title} {c.page_start ? `p.${c.page_start}` : ""}</div>
-                                  ))}
-                                </div>
-                              )}
+                              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                {msg.role === "assistant" && citations(msg).length > 0 && (
+                                  <div className="mt-1.5 pt-1.5 border-t border-border/50 w-full">
+                                    <p className="text-[10px] font-medium mb-0.5">Sources:</p>
+                                    {citations(msg).slice(0, 3).map((c, ci) => (
+                                      <div key={ci} className="text-[10px] opacity-70 mt-0.5">§{c.section_title} {c.page_start ? `p.${c.page_start}` : ""}</div>
+                                    ))}
+                                  </div>
+                                )}
+                                {(msg.prompt_tokens || msg.completion_tokens) ? (
+                                  <span className="text-[9px] opacity-50 mt-0.5">
+                                    ~{(msg.prompt_tokens || 0) + (msg.completion_tokens || 0)} tokens
+                                  </span>
+                                ) : null}
+                              </div>
                             </div>
                           </motion.div>
                         ))}
@@ -709,7 +733,10 @@ function MarkdownReader({ text, onSelect }: { text: string; onSelect: (t: string
     <div onMouseUp={handleMouseUp} className="relative">
       <div className="prose prose-sm dark:prose-invert max-w-none font-serif
         prose-headings:scroll-mt-20 prose-headings:font-sans prose-a:text-primary prose-code:bg-muted prose-code:px-1 prose-code:rounded prose-code:font-mono prose-pre:bg-muted prose-img:rounded-lg">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkMath]}
+          rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]}
+        >
           {text}
         </ReactMarkdown>
       </div>
@@ -768,63 +795,6 @@ function SectionWithAsk({ title, text, onAsk, onAdd }: { title: string; text: st
   );
 }
 
-// ── Graph sub-components ──────────────────────────────────────────────────
-
-const ENTITY_COLORS: Record<string, string> = {
-  Author: "bg-blue-500/10 text-blue-600 border-blue-500/20",
-  Method: "bg-purple-500/10 text-purple-600 border-purple-500/20",
-  Dataset: "bg-green-500/10 text-green-600 border-green-500/20",
-  Metric: "bg-amber-500/10 text-amber-600 border-amber-500/20",
-  Model: "bg-rose-500/10 text-rose-600 border-rose-500/20",
-  Tool: "bg-cyan-500/10 text-cyan-600 border-cyan-500/20",
-  Concept: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20",
-  Paper: "bg-teal-500/10 text-teal-600 border-teal-500/20",
-};
-
-function entityColor(type: string): string {
-  return ENTITY_COLORS[type] || "bg-muted text-muted-foreground border-border";
-}
-
-function GraphEntities({ entities }: { entities: any[] }) {
-  const grouped = entities.reduce<Record<string, any[]>>((acc, e) => {
-    (acc[e.type || "Other"] ??= []).push(e);
-    return acc;
-  }, {});
-
-  return (
-    <div>
-      <h4 className="font-semibold text-sm mb-3">Entities ({entities.length})</h4>
-      <div className="space-y-3">
-        {Object.entries(grouped).map(([type, items]) => (
-          <div key={type}>
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className={`text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded border ${entityColor(type)}`}>{type}</span>
-              <span className="text-xs text-muted-foreground">{items.length}</span>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {items.map((e: any, i: number) => (
-                <Badge key={i} variant="outline" className={`text-xs ${entityColor(type)}`}>
-                  {e.name}
-                </Badge>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-const REL_COLORS: Record<string, string> = {
-  USES_METHOD: "border-l-purple-500",
-  CITES: "border-l-blue-500",
-  PRODUCES: "border-l-green-500",
-  EVALUATED_BY: "border-l-amber-500",
-  RELATED_TO: "border-l-rose-500",
-  AUTHORS: "border-l-cyan-500",
-  USES_DATASET: "border-l-teal-500",
-};
-
 function SkillResultView({ result }: { result: unknown }) {
   if (!result || typeof result !== "object") {
     return <p className="text-muted-foreground">{String(result)}</p>;
@@ -848,83 +818,45 @@ function SkillResultView({ result }: { result: unknown }) {
   );
 }
 
-function GraphRelationships({ relationships }: { relationships: any[] }) {
-  return (
-    <div>
-      <h4 className="font-semibold text-sm mb-3">Relationships ({relationships.length})</h4>
-      <div className="space-y-2">
-        {relationships.map((r: any, i: number) => (
-          <div key={i}
-            className={`flex items-center gap-2 p-2.5 rounded-md border border-l-[3px] bg-muted/30 text-sm ${REL_COLORS[r.type] || "border-l-muted-foreground"}`}>
-            <span className="font-medium truncate max-w-[120px]">{r.source_name || r.source}</span>
-            <span className="shrink-0 flex items-center gap-1 text-muted-foreground">
-              <span className="w-4 border-t border-muted-foreground/50" />
-              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{r.type?.replace(/_/g, " ")}</Badge>
-              <ChevronRight className="h-3 w-3" />
-            </span>
-            <span className="font-medium truncate max-w-[120px]">{r.target_name || r.target}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ── Pipeline Progress Bar ──────────────────────────────────────────────
 
-const PIPELINE_STEPS = [
-  { key: "started", label: "Queued", icon: "○" },
-  { key: "parsing", label: "Parsing", icon: "📄" },
-  { key: "chunking", label: "Chunking", icon: "✂️" },
-  { key: "extracting", label: "AI Extraction", icon: "🧠" },
-  { key: "indexing", label: "Embeddings", icon: "🔢" },
-  { key: "graph", label: "Graph", icon: "🔗" },
-  { key: "completed", label: "Done", icon: "✅" },
-  { key: "parse_complete", label: "Done", icon: "✅" },
-];
+// ── AI Extraction Progress Bar ───────────────────────────────────────
 
 function PipelineProgress({ job }: { job: JobInfo }) {
   const logs = job.logs || [];
   const completedSteps = new Set(logs.filter((l: any) => !l.error).map((l: any) => l.step));
-  const stepKeys = PIPELINE_STEPS.map(s => s.key);
-  const currentIdx = stepKeys.indexOf(job.current_step || "");
-  const effectiveCompleted = new Set(completedSteps);
-  if (currentIdx > 0) {
-    for (let i = 0; i < currentIdx; i++) effectiveCompleted.add(stepKeys[i]);
-  }
   const isFailed = job.status === "failed";
-  const totalSteps = PIPELINE_STEPS.filter(s => s.key !== "completed" && s.key !== "parse_complete").length;
-  const doneCount = PIPELINE_STEPS.filter(s => {
-    if (s.key === "completed" || s.key === "parse_complete") return false;
-    return effectiveCompleted.has(s.key);
-  }).length;
-  const progressPct = Math.min(Math.round((doneCount / totalSteps) * 100), 100);
+
+  // Count completed extract-relevant steps
+  const extractSteps = ["started", "parsing", "chunking", "extracting"];
+  const doneCount = extractSteps.filter(s => completedSteps.has(s)).length;
+  const isExtracting = job.current_step === "extracting";
+  const progressPct = isFailed ? 100 : Math.min(Math.round((doneCount / extractSteps.length) * 100), 100);
+
+  const statusLabel = isFailed
+    ? "Extraction failed"
+    : isExtracting
+      ? "AI extracting..."
+      : job.current_step === "graph" || completedSteps.has("extracting")
+        ? "AI extraction complete"
+        : "Preparing for extraction...";
 
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between text-sm">
         <span className="font-medium flex items-center gap-2">
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-          Processing
+          {!isFailed && !completedSteps.has("extracting") && (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+          )}
+          {!isFailed && completedSteps.has("extracting") && (
+            <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+          )}
+          {isFailed && <AlertCircle className="h-3.5 w-3.5 text-destructive" />}
+          AI Extraction
         </span>
-        <span className="text-muted-foreground text-xs">{progressPct}%</span>
+        <span className="text-muted-foreground text-xs">{statusLabel}</span>
       </div>
-      <Progress value={progressPct} className="h-2" />
-      <div className="flex items-center gap-1.5 flex-wrap text-xs text-muted-foreground">
-        {PIPELINE_STEPS.filter(s => s.key !== "completed" && s.key !== "parse_complete").map((step, i) => {
-          const done = effectiveCompleted.has(step.key);
-          const active = job.current_step === step.key && !isFailed;
-          return (
-            <div key={step.key} className="flex items-center gap-1">
-              {i > 0 && <ChevronRight className="h-3 w-3 opacity-40" />}
-              <span className={`flex items-center gap-1 ${done ? "text-primary font-medium" : active ? "text-amber-500 font-medium" : "opacity-50"}`}>
-                <span className="text-[10px]">{step.icon}</span>
-                <span className="hidden sm:inline">{step.label}</span>
-              </span>
-            </div>
-          );
-        })}
-      </div>
+      <Progress value={progressPct} className={`h-2 ${isFailed ? "[&>div]:bg-destructive" : ""}`} />
       {isFailed && job.error && (
         <p className="text-xs text-destructive mt-1">Error: {job.error.slice(0, 200)}</p>
       )}

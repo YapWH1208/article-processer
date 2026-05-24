@@ -1,22 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { AuthProvider, useAuth } from "@/lib/auth";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Toaster } from "sonner";
 import {
-  FileText, Upload, Settings, LogIn, LogOut, Menu, X,
-  Sun, Moon, Home, ChevronDown, BookOpen,
+  FileText, Sun, Moon, Home, FileUp, MessageCircle,
+  GitBranch, BarChart3, Settings2, BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuSeparator, DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
 
 // ── Theme toggle ──────────────────────────────────────────────────────────
 
@@ -62,139 +55,67 @@ function ThemeToggle() {
   );
 }
 
-// ── Nav links ─────────────────────────────────────────────────────────────
+// ── Nav link groups ───────────────────────────────────────────────────────
 
-const links = [
-  { href: "/", label: "Dashboard", icon: Home },
-  { href: "/articles", label: "Articles", icon: BookOpen },
-  { href: "/upload", label: "Upload", icon: Upload },
-  { href: "/settings", label: "Settings", icon: Settings },
+const navLinks = [
+  { href: "/", label: "Home", icon: Home },
+  { href: "/articles", label: "Library", icon: BookOpen },
+  { href: "/upload", label: "Upload", icon: FileUp },
+  { href: "/chat", label: "Chat", icon: MessageCircle },
+  { href: "/graph", label: "Graph", icon: GitBranch },
+  { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
 ];
-
-function NavLinks({ mobile, onClick }: { mobile?: boolean; onClick?: () => void }) {
-  const pathname = usePathname();
-  const isActive = (href: string) => {
-    if (href === "/") return pathname === "/";
-    return pathname.startsWith(href);
-  };
-  return (
-    <>
-      {links.map(({ href, label, icon: Icon }) => (
-        <Link key={href} href={href} onClick={onClick}>
-          <Button
-            variant={isActive(href) ? "secondary" : "ghost"}
-            size={mobile ? "default" : "sm"}
-            className={cn("gap-2 relative", mobile && "w-full justify-start")}
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-            {isActive(href) && (
-              <motion.div
-                layoutId="nav-active"
-                className="absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 w-6 bg-primary rounded-full"
-                transition={{ type: "spring", stiffness: 500, damping: 30 }}
-              />
-            )}
-          </Button>
-        </Link>
-      ))}
-    </>
-  );
-}
-
-// ── User menu ─────────────────────────────────────────────────────────────
-
-function UserMenu() {
-  const { user, logout } = useAuth();
-  if (!user) {
-    return (
-      <Link href="/login">
-        <Button variant="outline" size="sm" className="gap-2">
-          <LogIn className="h-4 w-4" />
-          Sign In
-        </Button>
-      </Link>
-    );
-  }
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="gap-2">
-          <Avatar className="h-7 w-7">
-            <AvatarFallback className="text-xs">
-              {(user.display_name || user.email).charAt(0).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
-          <span className="hidden sm:inline max-w-[120px] truncate">
-            {user.display_name || user.email}
-          </span>
-          <ChevronDown className="h-3 w-3 opacity-50" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48">
-        <div className="px-2 py-1.5 text-xs text-muted-foreground truncate">{user.email}</div>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={logout} className="gap-2 text-destructive cursor-pointer">
-          <LogOut className="h-4 w-4" /> Sign Out
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-// ── Mobile menu ────────────────────────────────────────────────────────────
-
-function MobileMenu() {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="md:hidden">
-      <Button variant="ghost" size="icon" onClick={() => setOpen(!open)}>
-        {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-      </Button>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2 }}
-            className="absolute top-16 left-0 right-0 bg-background border-b shadow-lg p-4 flex flex-col gap-1 z-50 overflow-hidden"
-          >
-            <NavLinks mobile onClick={() => setOpen(false)} />
-            <div className="mt-2 pt-2 border-t"><UserMenu /></div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
 
 // ── Navbar ─────────────────────────────────────────────────────────────────
 
 function NavBar() {
+  const pathname = usePathname();
+
+  const isActive = (href: string) => {
+    if (href === "/") return pathname === "/";
+    return pathname.startsWith(href);
+  };
+
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container mx-auto flex h-16 items-center justify-between px-4">
-        <div className="flex items-center gap-1">
-          <Link href="/" className="flex items-center gap-2 mr-4 group">
-            <motion.div
-              whileHover={{ rotate: 15, scale: 1.15 }}
-              transition={{ type: "spring", stiffness: 400 }}
-            >
-              <FileText className="h-6 w-6 text-primary" />
-            </motion.div>
-            <span className="text-lg font-bold tracking-tight hidden sm:inline">
-              Article Processor
-            </span>
+      <div className="flex h-16 items-center justify-between px-4">
+        {/* Logo */}
+        <Link href="/" className="flex items-center gap-2.5 group flex-shrink-0">
+          <motion.div
+            whileHover={{ rotate: 15, scale: 1.15 }}
+            transition={{ type: "spring", stiffness: 400 }}
+          >
+            <FileText className="h-6 w-6 text-primary" />
+          </motion.div>
+          <span className="text-lg font-bold tracking-tight hidden sm:inline">
+            Article Processor
+          </span>
+        </Link>
+
+        {/* Center: nav links */}
+        <nav className="flex items-center gap-1 mx-4 overflow-x-auto">
+          {navLinks.map(({ href, label, icon: Icon }) => (
+            <Link key={href} href={href}>
+              <Button
+                variant={isActive(href) ? "secondary" : "ghost"}
+                size="sm"
+                className="gap-2 h-9"
+              >
+                <Icon className="h-4 w-4" />
+                <span className="hidden sm:inline">{label}</span>
+              </Button>
+            </Link>
+          ))}
+        </nav>
+
+        {/* Right */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Link href="/settings">
+            <Button variant="ghost" size="icon" className="h-9 w-9" title="Settings">
+              <Settings2 className="h-5 w-5" />
+            </Button>
           </Link>
-          <nav className="hidden md:flex items-center gap-1">
-            <NavLinks />
-          </nav>
-        </div>
-        <div className="flex items-center gap-2">
           <ThemeToggle />
-          <div className="hidden md:block"><UserMenu /></div>
-          <MobileMenu />
         </div>
       </div>
     </header>
@@ -224,7 +145,7 @@ function PageTransition({ children }: { children: React.ReactNode }) {
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <AuthProvider>
+    <>
       <NavBar />
       <main className="container mx-auto px-4 py-6">
         <PageTransition>{children}</PageTransition>
@@ -239,6 +160,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
           },
         }}
       />
-    </AuthProvider>
+    </>
   );
 }

@@ -17,6 +17,7 @@ from app.db.models import (
     GraphEntity,
     GraphRelationship,
     ProcessingJob,
+    TokenUsage,
     JobStatus,
 )
 from app.schemas.article import (
@@ -94,6 +95,63 @@ def list_articles(
     )
 
 
+@router.get("/graph/global")
+def get_global_graph(
+    limit: int = 200,
+    include_archived: bool = False,
+    db: Session = Depends(get_db),
+):
+    """Return all graph entities and relationships across articles for global graph view."""
+    entity_q = db.query(GraphEntity)
+    rel_q = db.query(GraphRelationship)
+
+    if not include_archived:
+        entity_q = entity_q.join(Article).filter(Article.is_archived == 0)
+        rel_q = rel_q.join(Article).filter(Article.is_archived == 0)
+
+    entities = entity_q.limit(limit).all()
+    relationships = rel_q.limit(limit).all()
+
+    # Enrich entities with article title
+    article_ids: set[int] = set()
+    for e in entities:
+        article_ids.add(e.article_id)
+    for r in relationships:
+        article_ids.add(r.article_id)
+
+    articles_map: dict[int, str] = {}
+    if article_ids:
+        arts = db.query(Article).filter(Article.id.in_(article_ids)).all()
+        articles_map = {a.id: a.title or a.original_filename for a in arts}
+
+    return {
+        "entities": [
+            {
+                "id": e.id,
+                "article_id": e.article_id,
+                "article_title": articles_map.get(e.article_id, f"Article #{e.article_id}"),
+                "type": e.type,
+                "name": e.name,
+                "canonical_name": e.canonical_name,
+                "confidence": e.confidence,
+            }
+            for e in entities
+        ],
+        "relationships": [
+            {
+                "id": r.id,
+                "article_id": r.article_id,
+                "article_title": articles_map.get(r.article_id, f"Article #{r.article_id}"),
+                "source_entity_id": r.source_entity_id,
+                "target_entity_id": r.target_entity_id,
+                "type": r.type,
+                "confidence": r.confidence,
+            }
+            for r in relationships
+        ],
+    }
+
+
 @router.get("/{article_id}", response_model=ArticleDetail)
 def get_article(article_id: int, db: Session = Depends(get_db)):
     """Get article detail."""
@@ -125,6 +183,30 @@ def get_article_file(article_id: int, db: Session = Depends(get_db)):
     )
 
 
+def _rewrite_markdown_image_urls(markdown: str) -> str:
+    """Rewrite relative image URLs to absolute API URLs.
+
+    Preserves the full relative path (including any timestamped subdirectory)
+    and makes it absolute so the browser loads from the API server, not the
+    frontend page URL.
+    """
+    import re
+    from app.core.config import settings as _s
+
+    api_base = getattr(_s, "api_base_url", None) or "http://localhost:8000"
+
+    def _abs_url(match: re.Match) -> str:
+        alt = match.group(1) or ""
+        src = match.group(2).strip()
+        if src.startswith(("http://", "https://", "data:")):
+            return match.group(0)
+        # Normalise: strip leading slash, ensure it's under the storage mount
+        norm = src.lstrip("/")
+        return f"![{alt}]({api_base.rstrip('/')}/{norm})"
+
+    return re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', _abs_url, markdown)
+
+
 @router.get("/{article_id}/markdown")
 def get_article_markdown(article_id: int, db: Session = Depends(get_db)):
     """Get the processed Markdown for an article."""
@@ -133,12 +215,14 @@ def get_article_markdown(article_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Article not found")
 
     if article.markdown_text:
-        return {"markdown": article.markdown_text}
+        from app.services.pipeline.markdown_normalizer import normalize_markdown
+        cleaned = normalize_markdown(article.markdown_text)
+        return {"markdown": _rewrite_markdown_image_urls(cleaned)}
 
     if article.markdown_path:
         try:
             with open(article.markdown_path, "r", encoding="utf-8") as f:
-                return {"markdown": f.read()}
+                return {"markdown": _rewrite_markdown_image_urls(f.read())}
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="Markdown file not found on disk")
 
@@ -267,8 +351,22 @@ def get_article_jobs(article_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{article_id}/reprocess", response_model=ReprocessResponse)
-def reprocess_article(article_id: int, full_pipeline: bool = True, db: Session = Depends(get_db)):
-    """Re-run the processing pipeline for an article. Set full_pipeline=false for parse-only."""
+def reprocess_article(
+    article_id: int,
+    mode: str = "full",
+    db: Session = Depends(get_db),
+):
+    """Re-run processing for an article.
+
+    mode:
+      - "full"        — parse + chunk + extract + graph
+      - "parse_only"  — parse + chunk only (no AI)
+      - "extract_only" — skip parse/chunk, start at AI extraction (needs existing markdown)
+    """
+    valid_modes = {"full", "parse_only", "extract_only"}
+    if mode not in valid_modes:
+        raise HTTPException(status_code=422, detail=f"Invalid mode '{mode}'. Valid: {', '.join(sorted(valid_modes))}")
+
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
@@ -283,7 +381,7 @@ def reprocess_article(article_id: int, full_pipeline: bool = True, db: Session =
             {
                 "step": "reprocess_queued",
                 "timestamp": datetime.datetime.utcnow().isoformat(),
-                "message": "Reprocessing queued",
+                "message": f"Reprocessing queued (mode={mode})",
             }
         ]),
     )
@@ -292,7 +390,13 @@ def reprocess_article(article_id: int, full_pipeline: bool = True, db: Session =
     db.refresh(job)
 
     from app.services.pipeline.processor import run_pipeline_background
-    run_pipeline_background(article.id, run_ai=full_pipeline)
+
+    if mode == "parse_only":
+        run_pipeline_background(article.id, run_ai=False, start_step="parse")
+    elif mode == "extract_only":
+        run_pipeline_background(article.id, run_ai=True, start_step="extract")
+    else:
+        run_pipeline_background(article.id, run_ai=True, start_step="parse")
 
     return ReprocessResponse(
         article_id=article.id,
@@ -370,3 +474,56 @@ def delete_article(article_id: int, db: Session = Depends(get_db)):
             logger.warning(f"Failed to remove {path}: {e}")
 
     return {"article_id": article_id, "deleted": True}
+
+
+@router.get("/{article_id}/logs")
+def get_article_logs(article_id: int, db: Session = Depends(get_db)):
+    """Return processing logs and token usage for an article."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    jobs = (
+        db.query(ProcessingJob)
+        .filter(ProcessingJob.article_id == article_id)
+        .order_by(ProcessingJob.created_at.asc())
+        .all()
+    )
+
+    token_rows = (
+        db.query(TokenUsage)
+        .filter(TokenUsage.article_id == article_id)
+        .order_by(TokenUsage.created_at.asc())
+        .all()
+    )
+
+    return {
+        "article_id": article_id,
+        "title": article.title,
+        "status": article.status.value if hasattr(article.status, 'value') else article.status,
+        "jobs": [
+            {
+                "id": j.id,
+                "status": j.status,
+                "current_step": j.current_step,
+                "logs": json.loads(j.logs_json) if j.logs_json else [],
+                "error": j.error,
+                "created_at": j.created_at.isoformat() if j.created_at else None,
+                "completed_at": j.completed_at.isoformat() if j.completed_at else None,
+            }
+            for j in jobs
+        ],
+        "token_usage": [
+            {
+                "id": t.id,
+                "step": t.step,
+                "model": t.model,
+                "provider": t.provider,
+                "prompt_tokens": t.prompt_tokens,
+                "completion_tokens": t.completion_tokens,
+                "total_tokens": t.total_tokens,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+            }
+            for t in token_rows
+        ],
+    }

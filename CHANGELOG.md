@@ -4,6 +4,60 @@ All notable changes to the Article Processor project.
 
 ---
 
+## [0.4.0] — 2026-05-24
+
+### Changed (breaking)
+
+- **RAG removed — full-context chat instead** — Embedding generation, vector search, and chunk retrieval have been removed. The chat feature now sends complete article text directly to the LLM. This eliminates the embedding pipeline step and simplifies the architecture. All embedding-related env vars (`EMBEDDING_PROVIDER`, `EMBEDDING_CUSTOM_*`, `OPENAI_EMBEDDING_MODEL`) are deprecated.
+- **System messages & input templates split** — The old monolithic `prompts` block in `dev_config.json` has been split into `system_messages` (behavioral persona prompts) and `input_templates` (pure data-injection wrappers with `{document}`, `{question}`, `{title}` placeholders). The Developer page lets you edit both independently.
+- **Developer page merged into Settings** — `/dev` now redirects to `/settings`. All configuration lives in one place: Providers, System Messages, Input Templates, Model Params, General (parsers, limits, mock AI), and Data import/export.
+- **Search command palette removed** — The ⌘K search bar in the navbar has been replaced with a Settings gear icon for quicker access.
+
+### Added
+
+- **Multi-provider configuration system** — Configure multiple LLM providers with independent API keys, base URLs, models, and protocols. Set an active provider from the Settings → Providers tab, or switch on-the-fly from the Chat page. Providers persist to `data/dev_config.json`.
+- **Provider CRUD API** — `GET/POST/PUT/DELETE /dev/providers`, `PUT /dev/providers/active`. Full management from the UI.
+- **Protocol selector for custom providers** — When adding a Custom Endpoint provider, choose between OpenAI-compatible (`/v1/chat/completions`) and Anthropic-compatible (`/v1/messages`) protocol.
+- **Chat model selector** — A dropdown in the chat page header shows the active provider/model and lets you switch between all configured providers in one click. Fetches from `GET /dev` and switches via `PUT /dev/providers/active`.
+- **Chat sessions** — Multi-turn conversations persist across page refreshes. Sessions are listed in a sidebar, can be created/deleted, and support @-mention article tagging for focused context. Backend: `chat_sessions` + `chat_messages.session_id` (Alembic migration).
+- **No-tag chat** — Chat works without tagging any articles. The AI searches your full library and answers with context from all available articles.
+- **Landing page redesign** — Fully immersive hero with particle canvas, floating orbs, typewriter headline, animated stats. Accurate 5-step pipeline diagram (Upload → Parse → Chunk → Extract → Graph) with hover pulse animations. Feature cards with hover-expand highlight tags. Quick-links grid. Integration stats strip.
+
+### Changed
+
+- **Landing page** — Pipeline now shows the actual 5-step workflow matching `processor.py`. Feature cards renamed ("Full-Context Chat" instead of "Contextual RAG Chat"). Immersive micro-interactions: 3D tilt, scroll reveals with cubic-bezier easing, hover pulse rings, highlight tags on cards.
+- **Upload page** — Embedding model badge removed. LLM provider badge simplified to show provider name, model, and protocol.
+- **Navbar** — Removed `/dev` link. Search bar replaced with Settings gear icon.
+- **Settings page** — Now contains 5 tabs: Providers, System Messages, Templates, Model Params, General (combining old /dev + /settings functionality). Parser listing and priority selector are in the General tab.
+
+### Fixed
+
+- **`chat_messages.article_id` nullable** — SQLite silently ignored Alembic's `ALTER COLUMN ... NULLABLE`. Fixed with a manual table rebuild and safety-net migration (`b1d2e3f4a5b6`) using `recreate='always'`.
+- **`_load_dev_config` KeyError on `"prompts"`** — The deep-merge logic referenced the old `"prompts"` key, which was renamed to `system_messages` and `input_templates`. Now deep-merges both independently from defaults.
+
+---
+
+## [0.3.0] — 2026-05-23
+
+### Added
+
+- **Metrics dashboard** (`/dashboard`) — Professional analytics page with time-range filter (7d/30d/90d/1y/All), KPI cards (total articles, completed, tokens, graph entities, processing, failed, chat messages, avg process time), line chart for articles over time, stacked bar chart for token usage by model, donut chart for articles by status, and top articles table by chat token usage. Backend: `GET /dashboard/metrics` with configurable `?days=` param.
+- **Global knowledge graph** (`/graph`) — Lightweight canvas-based force-directed graph (Obsidian-style), with zoom/pan/drag, entity type color coding, toggleable type filter, hover tooltips, and click-to-navigate to article. Backend: `GET /articles/graph/global`.
+- **Model display on upload page** — Current LLM provider and model shown as a badge on the upload page, fetched from the enhanced `GET /health` endpoint.
+- **Token usage tracking in chat** — `ChatMessage` model now tracks `prompt_tokens` and `completion_tokens`. Chat UI shows per-message token counts and cumulative token usage in the chat header. Backend estimates tokens from text length (~4 chars/token).
+- **Enhanced health endpoint** — `GET /health` now returns `llm_provider`, `llm_model`, `embedding_provider`, and `embedding_model`.
+
+### Changed
+
+- **Home page redesign** — Dashboard page refactored into an attractive landing page at `/` with hero section, features grid, how-it-works steps, and CTA. NavBar link renamed from "Dashboard" to "Home".
+- **Graph tab removed from article detail** — Per-article graph view removed; knowledge graph is now a global page (`/graph`).
+
+### Fixed
+
+- **MinerU adapter updated for v3.x** — The package is now `mineru` (not `magic-pdf`). Adapter detects via CLI (`shutil.which`), Python module (`import mineru`), `do_parse` API, and legacy `magic_pdf` UNIPipe — with graceful fallback to pypdf. Install instruction updated to `pip install -U "mineru[all]"`.
+
+---
+
 ## [0.2.9] — 2025-07-22
 
 ### Changed (breaking)

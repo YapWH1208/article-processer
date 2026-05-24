@@ -45,9 +45,25 @@ class GraphBuilder:
             })
             return eid
 
+        # ── Helpers ────────────────────────────────────────────────────
+        def _to_str(value):
+            """Safely extract a string name from a value that could be a str, dict, or list."""
+            if isinstance(value, str):
+                return value
+            if isinstance(value, dict):
+                return str(value.get("name") or value.get("title") or list(value.values())[0] if value else "")
+            if isinstance(value, (list, tuple)):
+                for item in value:
+                    s = _to_str(item)
+                    if s:
+                        return s
+            return str(value) if value is not None else ""
+
         # ── Authors ────────────────────────────────────────────────────
-        for author_name in extraction.get("authors") or []:
-            get_or_create_entity("Author", author_name, confidence=0.9)
+        for author_entry in extraction.get("authors") or []:
+            author_name = _to_str(author_entry)
+            if author_name:
+                get_or_create_entity("Author", author_name, confidence=0.9)
 
         # ── Graph entities from AI extraction ──────────────────────────
         for ge in extraction.get("graph_entities") or []:
@@ -67,16 +83,22 @@ class GraphBuilder:
             get_or_create_entity("Method", method_name, confidence=0.7)
 
         # ── Datasets ───────────────────────────────────────────────────
-        for ds_name in extraction.get("datasets") or []:
-            get_or_create_entity("Dataset", ds_name, confidence=0.7)
+        for ds_entry in extraction.get("datasets") or []:
+            ds_name = _to_str(ds_entry)
+            if ds_name:
+                get_or_create_entity("Dataset", ds_name, confidence=0.7)
 
         # ── Metrics ────────────────────────────────────────────────────
-        for metric_name in extraction.get("metrics") or []:
-            get_or_create_entity("Metric", metric_name, confidence=0.7)
+        for metric_entry in extraction.get("metrics") or []:
+            metric_name = _to_str(metric_entry)
+            if metric_name:
+                get_or_create_entity("Metric", metric_name, confidence=0.7)
 
         # ── Tags as Keywords ───────────────────────────────────────────
-        for tag in extraction.get("tags") or []:
-            get_or_create_entity("Keyword", tag, confidence=0.8)
+        for tag_entry in extraction.get("tags") or []:
+            tag_name = _to_str(tag_entry)
+            if tag_name:
+                get_or_create_entity("Keyword", tag_name, confidence=0.8)
 
         # ── Venue ──────────────────────────────────────────────────────
         venue = extraction.get("venue")

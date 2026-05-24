@@ -1,141 +1,275 @@
-"""MinerU adapter — state-of-the-art PDF document parsing.
+"""MinerU adapter — high-quality PDF document parsing.
 
-MinerU (https://github.com/opendatalab/MinerU) provides high-quality
-PDF-to-Markdown conversion with:
-- Layout-preserving text extraction
-- Image/figure extraction and embedding
-- Table detection and export
-- Formula/equation recognition (LaTeX)
-- Reading-order recovery
+MinerU (https://github.com/opendatalab/MinerU) provides industry-leading
+PDF-to-Markdown conversion with layout preservation, image/figure extraction,
+table detection, and formula recognition (LaTeX).
 
-Installation:
-    pip install magic-pdf
+**Package note:** MinerU 3.x+ is installed as ``mineru`` (NOT ``magic-pdf``).
+The old ``magic_pdf`` package was the v0.x/v1.x predecessor and is no longer
+maintained.
 
-This adapter auto-detects whether mineru is installed and falls back
-gracefully if not.
+Installation (v3.x):
+    pip install -U "mineru[all]"
+
+This adapter detects MinerU via the ``mineru`` CLI or Python module and falls
+back gracefully to pypdf if unavailable.
 """
 
 import logging
 import os
-import tempfile
 import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from app.services.parsers.base import BaseParser, ParseResult
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Try importing mineru
+# ── Detection ──────────────────────────────────────────────────────────────
+
+def _detect_mineru_cli() -> bool:
+    """Check if the ``mineru`` CLI is available on PATH."""
+    return shutil.which("mineru") is not None
+
+
+def _detect_mineru_module() -> bool:
+    """Check if the ``mineru`` Python package is importable."""
+    try:
+        import mineru  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _detect_mineru_do_parse() -> bool:
+    """Check if the in-process ``do_parse`` API is available."""
+    try:
+        from mineru.cli.common import do_parse  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+HAS_MINERU_CLI = _detect_mineru_cli()
+HAS_MINERU_MODULE = _detect_mineru_module()
+HAS_MINERU_DO_PARSE = _detect_mineru_do_parse()
+
+# Legacy fallback — old magic_pdf package (v0.x/v1.x)
 try:
-    import magic_pdf.model as model_config
-    model_config.__use_inside__ = True  # enable offline mode
-    from magic_pdf.pipe.UNIPipe import UNIPipe
-    from magic_pdf.rw.DiskReaderWriter import DiskReaderWriter
-    HAS_MINERU = True
+    import magic_pdf.model as model_config  # noqa: F401
+    model_config.__use_inside__ = True
+    from magic_pdf.pipe.UNIPipe import UNIPipe  # noqa: F401
+    from magic_pdf.rw.DiskReaderWriter import DiskReaderWriter  # noqa: F401
+    HAS_LEGACY_MAGIC_PDF = True
 except ImportError:
-    HAS_MINERU = False
-    UNIPipe = None  # type: ignore
-    DiskReaderWriter = None  # type: ignore
+    HAS_LEGACY_MAGIC_PDF = False
 
 
 class MinerUAdapter(BaseParser):
-    """High-quality PDF parser using MinerU (magic-pdf).
+    """High-quality PDF parser using MinerU.
 
-    Features over pypdf/Docling:
-    - Best-in-class layout preservation
-    - Real image extraction with file output
-    - Formula/equation detection (LaTeX)
-    - Table structure preservation
-    - Automatic reading-order recovery
+    Detection order:
+    1. ``mineru`` CLI (subprocess) — most reliable, works with any v3.x install
+    2. ``mineru.cli.common.do_parse`` (in-process) — faster, no subprocess overhead
+    3. Legacy ``magic_pdf`` (UNIPipe) — for users still on v0.x/v1.x
+    4. Fallback to pypdf parser
     """
 
     def __init__(self):
-        self._available = HAS_MINERU
+        self._available = HAS_MINERU_CLI or HAS_MINERU_DO_PARSE or HAS_LEGACY_MAGIC_PDF
 
     async def parse(self, file_path: Path) -> ParseResult:
         """Convert PDF to Markdown using MinerU with full layout preservation."""
-        if not HAS_MINERU:
-            raise RuntimeError(
-                "MinerU is not installed. Install it with: pip install magic-pdf"
+
+        # ── Strategy 1: mineru CLI (subprocess) ───────────────────────
+        if HAS_MINERU_CLI:
+            return await self._parse_via_cli(file_path)
+
+        # ── Strategy 2: mineru.do_parse (in-process) ──────────────────
+        if HAS_MINERU_DO_PARSE:
+            return await self._parse_via_do_parse(file_path)
+
+        # ── Strategy 3: legacy magic_pdf UNIPipe ──────────────────────
+        if HAS_LEGACY_MAGIC_PDF:
+            return await self._parse_via_legacy(file_path)
+
+        # ── None available ────────────────────────────────────────────
+        raise RuntimeError(
+            "MinerU is not installed. Install with: pip install -U \"mineru[all]\"\n"
+            "See: https://github.com/opendatalab/MinerU"
+        )
+
+    # ── CLI strategy ─────────────────────────────────────────────────────
+
+    async def _parse_via_cli(self, file_path: Path) -> ParseResult:
+        """Use ``mineru`` CLI via subprocess."""
+        tmp_dir = tempfile.mkdtemp(prefix="mineru_cli_")
+        try:
+            cmd = [
+                "mineru",
+                "-p", str(file_path),
+                "-o", tmp_dir,
+                "-b", "pipeline",  # pipeline backend — works CPU/GPU
+            ]
+
+            logger.info(f"Running MinerU CLI: {' '.join(cmd)}")
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 min timeout for large PDFs
             )
 
+            if result.returncode != 0:
+                stderr = result.stderr[:500] if result.stderr else "unknown error"
+                logger.warning(f"MinerU CLI failed (rc={result.returncode}): {stderr}")
+                raise RuntimeError(f"MinerU CLI failed: {stderr}")
+
+            return self._collect_cli_output(tmp_dir, file_path)
+
+        except subprocess.TimeoutExpired:
+            logger.warning("MinerU CLI timed out after 300s — falling back")
+            raise RuntimeError("MinerU CLI timed out")
+        except FileNotFoundError:
+            logger.warning("mineru CLI not found at runtime — falling back")
+            raise RuntimeError("mineru CLI not found")
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def _collect_cli_output(self, output_dir: str, file_path: Path) -> ParseResult:
+        """Collect MinerU CLI output: find the generated .md file(s)."""
+        md_files: list[str] = []
+        for root, _dirs, files in os.walk(output_dir):
+            for f in files:
+                if f.endswith(".md"):
+                    md_files.append(os.path.join(root, f))
+
+        if not md_files:
+            raise RuntimeError("MinerU CLI produced no .md output")
+
+        # Use the first/largest .md file
+        md_path = max(md_files, key=lambda p: os.path.getsize(p))
+        md_content = Path(md_path).read_text(encoding="utf-8", errors="replace")
+
+        # Determine title
+        title = file_path.stem
+        for line in md_content.strip().split("\n")[:5]:
+            line = line.strip()
+            if line.startswith("# ") and not line.startswith("## "):
+                title = line[2:].strip()
+                break
+
+        page_count = self._estimate_page_count(md_content)
+
+        # Collect images from output dir
+        image_paths: list[str] = []
+        for root, _dirs, files in os.walk(output_dir):
+            for f in files:
+                if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
+                    image_paths.append(os.path.join(root, f))
+
+        stored_image_dir = ""
+        if image_paths:
+            stored_image_dir = self._store_images(image_paths)
+        if stored_image_dir:
+            md_content = self._rewrite_image_paths(md_content, output_dir, stored_image_dir)
+
+        return ParseResult(
+            markdown=md_content.strip(),
+            title=title,
+            page_count=page_count,
+            metadata={
+                "parser": "mineru",
+                "image_dir": stored_image_dir,
+                "image_count": len(image_paths),
+            },
+        )
+
+    # ── do_parse strategy ────────────────────────────────────────────────
+
+    async def _parse_via_do_parse(self, file_path: Path) -> ParseResult:
+        """Use mineru.cli.common.do_parse in-process."""
+        from mineru.cli.common import do_parse
+
+        tmp_dir = tempfile.mkdtemp(prefix="mineru_dp_")
         try:
             pdf_bytes = file_path.read_bytes()
-
-            # Create temp directory for image output
-            tmp_dir = tempfile.mkdtemp(prefix="mineru_")
-            image_dir = os.path.join(tmp_dir, "images")
-            os.makedirs(image_dir, exist_ok=True)
-
-            try:
-                image_writer = DiskReaderWriter(image_dir)
-
-                # Parse with MinerU pipeline
-                jso_data = {"pdf_info": {}}
-                pipe = UNIPipe(pdf_bytes, jso_data, image_writer)
-                pipe.pipe_classify()
-                pipe.pipe_parse()
-
-                # Generate markdown with embedded image references
-                md_content = pipe.pipe_mk_markdown(image_dir)
-
-                # Determine title from first heading or filename
-                title = file_path.stem
-                lines = md_content.strip().split("\n")
-                for line in lines[:5]:
-                    line = line.strip()
-                    if line.startswith("# ") and not line.startswith("## "):
-                        title = line[2:].strip()
-                        break
-
-                # Collect extracted image paths for potential storage
-                image_paths: list[str] = []
-                if os.path.isdir(image_dir):
-                    for f in sorted(os.listdir(image_dir)):
-                        img_path = os.path.join(image_dir, f)
-                        if os.path.isfile(img_path):
-                            image_paths.append(img_path)
-
-                # Persist images to project storage if any were extracted
-                stored_image_dir = ""
-                if image_paths and md_content:
-                    stored_image_dir = self._store_images(image_paths)
-
-                # Rewrite image paths in markdown if we stored them
-                if stored_image_dir:
-                    md_content = self._rewrite_image_paths(
-                        md_content, image_dir, stored_image_dir
-                    )
-
-                page_count = self._estimate_page_count(md_content)
-
-                return ParseResult(
-                    markdown=md_content.strip(),
-                    title=title,
-                    page_count=page_count,
-                    metadata={
-                        "parser": "mineru",
-                        "image_dir": stored_image_dir,
-                        "image_count": len(image_paths),
-                    },
-                )
-
-            finally:
-                # Clean up temp directory
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-
+            do_parse(
+                output_dir=tmp_dir,
+                pdf_file_names=[file_path.stem],
+                pdf_bytes_list=[pdf_bytes],
+                p_lang_list=["en"],
+                backend="pipeline",
+            )
+            return self._collect_cli_output(tmp_dir, file_path)
         except Exception as e:
-            logger.error(f"MinerU parsing failed for {file_path}: {e}")
-            logger.info("Falling back to pypdf parser...")
-            from app.services.parsers.pdf import PdfParser
-            fallback = PdfParser()
-            return await fallback.parse(file_path)
+            logger.warning(f"MinerU do_parse failed: {e}")
+            raise RuntimeError(f"MinerU do_parse failed: {e}")
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # ── Legacy magic_pdf strategy ────────────────────────────────────────
+
+    async def _parse_via_legacy(self, file_path: Path) -> ParseResult:
+        """Use legacy magic_pdf.UNIPipe (v0.x/v1.x compatibility)."""
+        import magic_pdf.model as model_config  # noqa: F811
+        model_config.__use_inside__ = True
+        from magic_pdf.pipe.UNIPipe import UNIPipe  # noqa: F811
+        from magic_pdf.rw.DiskReaderWriter import DiskReaderWriter  # noqa: F811
+
+        pdf_bytes = file_path.read_bytes()
+        tmp_dir = tempfile.mkdtemp(prefix="mineru_legacy_")
+        image_dir = os.path.join(tmp_dir, "images")
+        os.makedirs(image_dir, exist_ok=True)
+
+        try:
+            image_writer = DiskReaderWriter(image_dir)
+            jso_data = {"pdf_info": {}}
+            pipe = UNIPipe(pdf_bytes, jso_data, image_writer)
+            pipe.pipe_classify()
+            pipe.pipe_parse()
+            md_content = pipe.pipe_mk_markdown(image_dir)
+
+            title = file_path.stem
+            for line in md_content.strip().split("\n")[:5]:
+                line = line.strip()
+                if line.startswith("# ") and not line.startswith("## "):
+                    title = line[2:].strip()
+                    break
+
+            image_paths: list[str] = []
+            if os.path.isdir(image_dir):
+                for f in sorted(os.listdir(image_dir)):
+                    img_path = os.path.join(image_dir, f)
+                    if os.path.isfile(img_path):
+                        image_paths.append(img_path)
+
+            stored_image_dir = ""
+            if image_paths and md_content:
+                stored_image_dir = self._store_images(image_paths)
+            if stored_image_dir:
+                md_content = self._rewrite_image_paths(md_content, image_dir, stored_image_dir)
+
+            return ParseResult(
+                markdown=md_content.strip(),
+                title=title,
+                page_count=self._estimate_page_count(md_content),
+                metadata={
+                    "parser": "mineru",
+                    "image_dir": stored_image_dir,
+                    "image_count": len(image_paths),
+                },
+            )
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # ── Shared helpers ───────────────────────────────────────────────────
 
     def _store_images(self, image_paths: list[str]) -> str:
-        """Copy extracted images to project storage under storage/images/."""
+        """Copy extracted images to project storage under storage/images/<ts>/."""
         try:
             images_root = settings.project_root / "storage" / "images"
-            # Use a subdirectory based on timestamp to avoid collisions
             import datetime
             ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
             dest_dir = images_root / ts
@@ -143,39 +277,49 @@ class MinerUAdapter(BaseParser):
 
             for img_path in image_paths:
                 fname = os.path.basename(img_path)
-                shutil.copy2(img_path, dest_dir / fname)
+                dest = dest_dir / fname
+                if not dest.exists():
+                    shutil.copy2(img_path, dest)
 
             return str(dest_dir.relative_to(settings.project_root))
         except Exception as e:
             logger.warning(f"Failed to store images: {e}")
             return ""
 
-    def _rewrite_image_paths(
-        self, markdown: str, old_dir: str, new_dir: str
-    ) -> str:
+    def _rewrite_image_paths(self, markdown: str, old_dir: str, new_dir: str) -> str:
         """Rewrite image references from temp dir to persisted storage path.
 
-        MinerU outputs paths like ``images/abc.jpg`` — we replace them
-        with the persisted path so they survive beyond the temp dir.
+        Replaces the old temp directory with the storage path, then makes all
+        remaining relative image URLs absolute so they load from the API server.
         """
-        # Replace absolute old_dir paths
+        import re
+
+        api_base = getattr(settings, "api_base_url", None) or "http://localhost:8000"
+
+        # Replace old temp dir paths with the new persisted storage path
         markdown = markdown.replace(old_dir, new_dir)
-        # Replace relative "images/" references with the stored path
-        old_basename = os.path.basename(old_dir.rstrip("/"))
+        old_basename = os.path.basename(old_dir.rstrip("/").rstrip("\\"))
         if old_basename:
-            markdown = markdown.replace(
-                f"{old_basename}/", f"{new_dir}/"
-            )
+            markdown = markdown.replace(f"{old_basename}/", f"{new_dir}/")
+
+        # Make any remaining relative image URLs absolute
+        def _abs_url(match: re.Match) -> str:
+            alt = match.group(1) or ""
+            src = match.group(2).strip()
+            if src.startswith(("http://", "https://", "data:")):
+                return match.group(0)
+            norm = src.lstrip("/")
+            return f"![{alt}]({api_base.rstrip('/')}/{norm})"
+
+        markdown = re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', _abs_url, markdown)
         return markdown
 
     def _estimate_page_count(self, markdown: str) -> int:
-        """Estimate page count from markdown page markers."""
+        """Estimate page count from markdown."""
         import re
-        # MinerU may embed page markers like <!-- page N -->
         pages = re.findall(r'<!--\s*page\s+(\d+)', markdown, re.IGNORECASE)
         if pages:
             return max(int(p) for p in pages)
-        # Rough estimate: ~3000 chars per page
         return max(1, len(markdown) // 3000)
 
     def supports(self, source_type: str) -> bool:
@@ -183,5 +327,5 @@ class MinerUAdapter(BaseParser):
 
     @property
     def is_available(self) -> bool:
-        """Check if MinerU is installed and usable."""
-        return HAS_MINERU
+        """Check if any MinerU variant is installed and usable."""
+        return self._available
