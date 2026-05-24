@@ -1,7 +1,9 @@
 """FastAPI application entry point."""
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from pathlib import Path as _Path
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -141,7 +143,40 @@ app.include_router(skills_router.router, prefix="/skills", tags=["skills"])
 app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 app.include_router(dev.router, prefix="/dev", tags=["dev"])
 
-# Mount storage/images for extracted figure serving
+# ── Extracted image serving ─────────────────────────────────────────────────
+
 _images_dir = settings.project_root / "storage" / "images"
 _images_dir.mkdir(parents=True, exist_ok=True)
+
+
+def _find_image_path(filename: str) -> _Path | None:
+    """Walk storage/images/ to find a file by name (handles timestamped subdirs)."""
+    import os as _os
+    for dirpath, _dirnames, filenames in _os.walk(str(_images_dir)):
+        if filename in filenames:
+            return _Path(dirpath) / filename
+    return None
+
+
+@app.get("/images/{filename:path}")
+async def serve_extracted_image(filename: str):
+    """Serve an extracted image by filename, searching storage/images/ tree.
+
+    This handles the case where images are stored in timestamped subdirectories
+    (storage/images/ts/hash.jpg) but referenced as /images/hash.jpg in markdown.
+    """
+    # Sanity check: only serve image file extensions
+    allowed = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".bmp"}
+    ext = _Path(filename).suffix.lower()
+    if ext not in allowed:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    file_path = _find_image_path(_Path(filename).name)
+    if file_path is None:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    return FileResponse(str(file_path))
+
+
+# Mount storage/images for direct subdirectory access
 app.mount("/storage/images", StaticFiles(directory=str(_images_dir)), name="storage_images")

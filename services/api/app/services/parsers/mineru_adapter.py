@@ -267,22 +267,21 @@ class MinerUAdapter(BaseParser):
     # ── Shared helpers ───────────────────────────────────────────────────
 
     def _store_images(self, image_paths: list[str]) -> str:
-        """Copy extracted images to project storage under storage/images/.
-
-        Images are stored flat (no timestamp subdirectory) so URLs like
-        /storage/images/hash.jpg are predictable and stable across reprocesses.
-        """
+        """Copy extracted images to project storage under storage/images/<ts>/."""
         try:
             images_root = settings.project_root / "storage" / "images"
-            images_root.mkdir(parents=True, exist_ok=True)
+            import datetime
+            ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+            dest_dir = images_root / ts
+            dest_dir.mkdir(parents=True, exist_ok=True)
 
             for img_path in image_paths:
                 fname = os.path.basename(img_path)
-                dest = images_root / fname
+                dest = dest_dir / fname
                 if not dest.exists():
                     shutil.copy2(img_path, dest)
 
-            return "storage/images"  # flat dir, relative to project root
+            return str(dest_dir.relative_to(settings.project_root))
         except Exception as e:
             logger.warning(f"Failed to store images: {e}")
             return ""
@@ -290,29 +289,27 @@ class MinerUAdapter(BaseParser):
     def _rewrite_image_paths(self, markdown: str, old_dir: str, new_dir: str) -> str:
         """Rewrite image references from temp dir to persisted storage path.
 
-        Images are stored flat under storage/images/. All image references
-        are rewritten to absolute API URLs pointing at /storage/images/filename.ext.
+        Replaces the old temp directory with the storage path, then makes all
+        remaining relative image URLs absolute so they load from the API server.
         """
         import re
 
         api_base = getattr(settings, "api_base_url", None) or "http://localhost:8000"
 
-        # Replace old temp dir paths with the new persisted storage directory
+        # Replace old temp dir paths with the new persisted storage path
         markdown = markdown.replace(old_dir, new_dir)
         old_basename = os.path.basename(old_dir.rstrip("/").rstrip("\\"))
         if old_basename:
             markdown = markdown.replace(f"{old_basename}/", f"{new_dir}/")
 
-        # Rewrite all image references to absolute /storage/images/ URLs
+        # Make any remaining relative image URLs absolute
         def _abs_url(match: re.Match) -> str:
             alt = match.group(1) or ""
             src = match.group(2).strip()
-            # Already absolute
             if src.startswith(("http://", "https://", "data:")):
                 return match.group(0)
-            # Extract just the filename and point to storage mount
-            fname = src.rsplit("/", 1)[-1]
-            return f"![{alt}]({api_base.rstrip('/')}/storage/images/{fname})"
+            norm = src.lstrip("/")
+            return f"![{alt}]({api_base.rstrip('/')}/{norm})"
 
         markdown = re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', _abs_url, markdown)
         return markdown

@@ -184,10 +184,11 @@ def get_article_file(article_id: int, db: Session = Depends(get_db)):
 
 
 def _rewrite_markdown_image_urls(markdown: str) -> str:
-    """Rewrite relative image URLs to absolute API /storage/images/ URLs.
+    """Rewrite relative image URLs to absolute API URLs.
 
-    Extracts just the filename from any relative path and points it at the
-    /storage/images mount which serves files from storage/images/ flat.
+    Preserves the full relative path (including any timestamped subdirectory)
+    and makes it absolute so the browser loads from the API server, not the
+    frontend page URL.
     """
     import re
     from app.core.config import settings as _s
@@ -199,8 +200,9 @@ def _rewrite_markdown_image_urls(markdown: str) -> str:
         src = match.group(2).strip()
         if src.startswith(("http://", "https://", "data:")):
             return match.group(0)
-        fname = src.rsplit("/", 1)[-1]  # just the filename
-        return f"![{alt}]({api_base.rstrip('/')}/storage/images/{fname})"
+        # Normalise: strip leading slash, ensure it's under the storage mount
+        norm = src.lstrip("/")
+        return f"![{alt}]({api_base.rstrip('/')}/{norm})"
 
     return re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', _abs_url, markdown)
 
