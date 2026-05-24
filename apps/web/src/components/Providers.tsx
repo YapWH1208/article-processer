@@ -1,21 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { AuthProvider, useAuth } from "@/lib/auth";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Toaster } from "sonner";
 import {
-  FileText, Upload, Settings, LogIn, LogOut, Menu, X,
-  Sun, Moon, Home, ChevronDown, BookOpen, BarChart3, GitBranch,
+  FileText, Upload, Settings, Menu, X,
+  Sun, Moon, Home, BookOpen, BarChart3, GitBranch,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuSeparator, DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 // ── Theme toggle ──────────────────────────────────────────────────────────
@@ -104,46 +98,6 @@ function NavLinks({ mobile, onClick }: { mobile?: boolean; onClick?: () => void 
   );
 }
 
-// ── User menu ─────────────────────────────────────────────────────────────
-
-function UserMenu() {
-  const { user, logout } = useAuth();
-  if (!user) {
-    return (
-      <Link href="/login">
-        <Button variant="outline" size="sm" className="gap-2">
-          <LogIn className="h-4 w-4" />
-          Sign In
-        </Button>
-      </Link>
-    );
-  }
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="gap-2">
-          <Avatar className="h-7 w-7">
-            <AvatarFallback className="text-xs">
-              {(user.display_name || user.email).charAt(0).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
-          <span className="hidden sm:inline max-w-[120px] truncate">
-            {user.display_name || user.email}
-          </span>
-          <ChevronDown className="h-3 w-3 opacity-50" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48">
-        <div className="px-2 py-1.5 text-xs text-muted-foreground truncate">{user.email}</div>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={logout} className="gap-2 text-destructive cursor-pointer">
-          <LogOut className="h-4 w-4" /> Sign Out
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 // ── Mobile menu ────────────────────────────────────────────────────────────
 
 function MobileMenu() {
@@ -163,7 +117,6 @@ function MobileMenu() {
             className="absolute top-16 left-0 right-0 bg-background border-b shadow-lg p-4 flex flex-col gap-1 z-50 overflow-hidden"
           >
             <NavLinks mobile onClick={() => setOpen(false)} />
-            <div className="mt-2 pt-2 border-t"><UserMenu /></div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -195,7 +148,6 @@ function NavBar() {
         </div>
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <div className="hidden md:block"><UserMenu /></div>
           <MobileMenu />
         </div>
       </div>
@@ -226,7 +178,7 @@ function PageTransition({ children }: { children: React.ReactNode }) {
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <AuthProvider>
+    <>
       <NavBar />
       <main className="container mx-auto px-4 py-6">
         <PageTransition>{children}</PageTransition>
@@ -241,6 +193,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
           },
         }}
       />
-    </AuthProvider>
+    </>
   );
 }
