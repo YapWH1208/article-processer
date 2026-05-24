@@ -27,6 +27,17 @@ class Reference(BaseModel):
     url: Optional[str] = None
     citation_text: Optional[str] = None
 
+    @field_validator("authors", mode="before")
+    @classmethod
+    def _coerce_authors(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            return v
+        if isinstance(v, list):
+            return ", ".join(str(item) for item in v if item is not None)
+        return str(v)
+
 
 class GraphEntityItem(BaseModel):
     type: str  # EntityType

@@ -6,10 +6,43 @@ Provides deterministic, realistic-enough extraction results without API calls.
 import json
 import logging
 import re
+import hashlib
+import math
 from typing import Any
 from app.services.ai.base import BaseLLMProvider
 
 logger = logging.getLogger(__name__)
+
+
+class MockEmbeddingProvider:
+    """Deterministic mock embedding provider for local tests and offline mode."""
+
+    def __init__(self, dim: int = 384) -> None:
+        self.dim = dim
+
+    async def embed(self, text: str) -> list[float]:
+        """Return a deterministic, approximately unit-normalized vector."""
+        values: list[float] = []
+        seed = hashlib.sha256(text.encode("utf-8")).digest()
+        counter = 0
+
+        while len(values) < self.dim:
+            digest = hashlib.sha256(seed + counter.to_bytes(4, "big")).digest()
+            for i in range(0, len(digest), 4):
+                if len(values) >= self.dim:
+                    break
+                number = int.from_bytes(digest[i:i + 4], "big")
+                values.append((number / 0xFFFFFFFF) * 2.0 - 1.0)
+            counter += 1
+
+        norm = math.sqrt(sum(value * value for value in values))
+        if norm == 0:
+            return values
+        return [value / norm for value in values]
+
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Return deterministic embeddings for each input text."""
+        return [await self.embed(text) for text in texts]
 
 
 class MockLLMProvider(BaseLLMProvider):
@@ -90,7 +123,8 @@ class MockLLMProvider(BaseLLMProvider):
         self,
         question: str,
         article_title: str,
-        article_text: str,
+        article_text: str | None = None,
+        chunks: list[Any] | None = None,
     ) -> tuple[str, list[dict]]:
         """Mock Q&A — returns a response based on keyword matching in article text."""
         question_lower = question.lower()
@@ -103,17 +137,41 @@ class MockLLMProvider(BaseLLMProvider):
                     if len(w.strip('?.!,;:()[]{}')) >= 3
                     and w.strip('?.!,;:()[]{}') not in stop_words]
 
-        # Search sentences in the full article text
+        if chunks:
+            searchable_items = []
+            for chunk in chunks:
+                searchable_items.append((
+                    getattr(chunk, "text", ""),
+                    {
+                        "chunk_id": getattr(chunk, "chunk_index", None),
+                        "section_title": getattr(chunk, "section_title", None),
+                        "page_start": getattr(chunk, "page_start", None),
+                        "page_end": getattr(chunk, "page_end", None),
+                    },
+                ))
+        else:
+            searchable_items = [
+                (
+                    article_text or "",
+                    {
+                        "chunk_id": 0,
+                        "section_title": None,
+                        "page_start": None,
+                        "page_end": None,
+                    },
+                )
+            ]
+
+        # Search sentences in the full article text or supplied chunks.
         relevant_sentences: list[tuple[str, dict]] = []
-        for sentence in article_text.split('. '):
-            if any(kw in sentence.lower() for kw in keywords):
-                relevant_sentences.append((sentence.strip(), {
-                    "chunk_id": 0,
-                    "section_title": None,
-                    "page_start": None,
-                    "page_end": None,
-                    "snippet": sentence[:200].strip(),
-                }))
+        for text, base_citation in searchable_items:
+            for sentence in text.split('. '):
+                if any(kw in sentence.lower() for kw in keywords):
+                    citation = {
+                        **base_citation,
+                        "snippet": sentence[:200].strip(),
+                    }
+                    relevant_sentences.append((sentence.strip(), citation))
 
         if not relevant_sentences:
             return (

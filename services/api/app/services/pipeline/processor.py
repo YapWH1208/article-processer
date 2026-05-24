@@ -247,12 +247,6 @@ async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "
         )
         db.add(extraction)
 
-        if validation_errors:
-            add_log("extracting", f"Extraction complete with {len(validation_errors)} validation errors")
-            article.needs_review = 1
-        else:
-            add_log("extracting", f"Extraction complete. Confidence: {confidence:.2f}")
-
         # Record extraction token usage
         if llm.last_usage and llm.last_usage.total_tokens > 0:
             db.add(TokenUsage(
@@ -264,6 +258,23 @@ async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "
                 completion_tokens=llm.last_usage.completion_tokens,
                 total_tokens=llm.last_usage.total_tokens,
             ))
+
+        if extraction_result is None:
+            failure_message = "; ".join(validation_errors or ["AI extraction returned no result"])
+            article.needs_review = 1
+            article.status = ArticleStatus.FAILED.value
+            article.processing_error = failure_message
+            job.status = JobStatus.FAILED.value
+            job.completed_at = datetime.datetime.utcnow()
+            add_log("extracting", failure_message, error=True)
+            logger.warning(f"Pipeline extraction failed for article {article_id}: {failure_message}")
+            return
+
+        if validation_errors:
+            add_log("extracting", f"Extraction complete with {len(validation_errors)} validation errors")
+            article.needs_review = 1
+        else:
+            add_log("extracting", f"Extraction complete. Confidence: {confidence:.2f}")
 
         db.commit()
 

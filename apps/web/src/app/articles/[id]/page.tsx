@@ -48,6 +48,12 @@ interface ChatMessage { role: string; content: string; citations_json?: string; 
 interface Citation { chunk_id: number; section_title: string; snippet: string; page_start?: number; }
 interface JobInfo { id: number; status: string; current_step: string | null; logs: Record<string, unknown>[] | null; error: string | null; created_at: string; completed_at: string | null; }
 
+const TERMINAL_ARTICLE_STATUSES = new Set(["completed", "failed", "needs_review"]);
+
+function isTerminalArticleStatus(status: string | null | undefined) {
+  return !!status && TERMINAL_ARTICLE_STATUSES.has(status);
+}
+
 export default function ArticleDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -56,6 +62,7 @@ export default function ArticleDetailPage() {
   const [article, setArticle] = useState<Article | null>(null);
   const [markdown, setMarkdown] = useState("");
   const [extraction, setExtraction] = useState<ExtractionResult | null>(null);
+  const [extractionErrors, setExtractionErrors] = useState<string[]>([]);
   const [graph, setGraph] = useState<{ entities: unknown[]; relationships: unknown[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("reader");
@@ -100,6 +107,7 @@ export default function ArticleDetailPage() {
       setArticle(art as Article);
       setMarkdown(mdResp.markdown || "");
       setExtraction(extResp?.extraction || null);
+      setExtractionErrors(extResp?.validation_errors || []);
       setGraph(gr);
       // Hydrate chat history from server
       if (histResp?.messages?.length) {
@@ -124,11 +132,11 @@ export default function ArticleDetailPage() {
   // ── Polling for active job (progress bar) ──────────────────────
   useEffect(() => {
     if (!article) return;
-    const isProcessing = !["completed", "failed"].includes(article.status);
+    const isProcessing = !isTerminalArticleStatus(article.status);
     if (!isProcessing) {
       setActiveJob(null);
       // Detect transition to completed — soft reload
-      if (prevStatus && !["completed", "failed"].includes(prevStatus) && article.status === "completed") {
+      if (prevStatus && !isTerminalArticleStatus(prevStatus) && isTerminalArticleStatus(article.status)) {
         loadData();
       }
       setPrevStatus(article.status);
@@ -141,7 +149,7 @@ export default function ArticleDetailPage() {
         const res = await getArticleActiveJob(articleId);
         setActiveJob(res.job);
         // If job completed, reload article data
-        if (res.article_status === "completed" || res.article_status === "failed") {
+        if (isTerminalArticleStatus(res.article_status)) {
           loadData();
         }
       } catch { /* ignore poll errors */ }
@@ -193,6 +201,8 @@ export default function ArticleDetailPage() {
     setReprocessing(true);
     try {
       await reprocessArticle(articleId, mode);
+      setArticle((prev) => prev ? { ...prev, status: "extracting", processing_error: null } : prev);
+      setExtractionErrors([]);
       toast.success(mode === "extract_only" ? "AI extraction started" : "Full reprocessing started");
     }
     catch { toast.error("Reprocess failed"); }
@@ -230,7 +240,7 @@ export default function ArticleDetailPage() {
     }
   };
 
-  const isProcessing = article && !["completed", "failed"].includes(article.status);
+  const isProcessing = article && !isTerminalArticleStatus(article.status);
   const citations = (msg: ChatMessage): Citation[] => {
     try { return msg.citations_json ? JSON.parse(msg.citations_json) : []; }
     catch { return []; }
@@ -275,6 +285,16 @@ export default function ArticleDetailPage() {
             <div>
               <p className="font-medium">Processing failed</p>
               <p className="text-xs opacity-80 mt-0.5">{article.processing_error}</p>
+            </div>
+          </motion.div>
+        )}
+        {article.status === "needs_review" && extractionErrors.length > 0 && (
+          <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
+            className="flex items-start gap-2 p-3 rounded-md bg-amber-500/10 border border-amber-500/20 text-sm text-amber-700 dark:text-amber-300 mb-3">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5"/>
+            <div>
+              <p className="font-medium">Extraction needs review</p>
+              <p className="text-xs opacity-80 mt-0.5">{extractionErrors.join("; ")}</p>
             </div>
           </motion.div>
         )}
@@ -439,6 +459,17 @@ export default function ArticleDetailPage() {
                       <CardContent className="flex-1 min-h-0 p-4">
                         {extraction ? (
                           <ScrollArea className="h-full"><SummaryContent extraction={extraction} onAsk={askAbout} onAdd={addToChat}/></ScrollArea>
+                        ) : extractionErrors.length > 0 ? (
+                          <div className="flex flex-col items-center py-12 text-muted-foreground gap-3 text-center">
+                            <AlertCircle className="h-10 w-10 text-amber-500"/>
+                            <div>
+                              <p className="font-medium text-foreground">AI extraction returned no summary</p>
+                              <p className="text-xs mt-1 max-w-md">{extractionErrors.join("; ")}</p>
+                            </div>
+                            <Button variant="outline" size="sm" onClick={() => handleReprocess("extract_only")} disabled={reprocessing} className="gap-1">
+                              <RotateCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`}/> Re-extract
+                            </Button>
+                          </div>
                         ) : (
                           <div className="flex flex-col items-center py-12 text-muted-foreground"><FileText className="h-10 w-10 opacity-30"/><p>No extraction yet.</p></div>
                         )}

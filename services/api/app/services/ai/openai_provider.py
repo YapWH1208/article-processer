@@ -18,6 +18,8 @@ from app.core.security import protect_prompt_from_injection
 
 logger = logging.getLogger(__name__)
 
+_EMPTY_RESPONSE_SENTINEL = "empty_response"
+
 
 def _repair_json(raw: str) -> dict:
     """Attempt to repair common JSON malformations from LLM output.
@@ -148,6 +150,14 @@ class OpenAIProvider(BaseLLMProvider):
             logger.info("Model rejected response_format — retrying without JSON mode")
             result, errors = await self._extract_with(messages, use_json_mode=False)
 
+        # DeepSeek documents occasional empty content from JSON Output. Retry
+        # once without response_format before surfacing the provider failure.
+        if result is None and errors == [_EMPTY_RESPONSE_SENTINEL]:
+            logger.info("Model returned empty JSON-mode extraction response; retrying without JSON mode")
+            result, errors = await self._extract_with(messages, use_json_mode=False)
+            if result is None and errors == [_EMPTY_RESPONSE_SENTINEL]:
+                errors = ["model returned empty response"]
+
         confidence = 0.85 if not errors else (0.6 if result else 0.0)
         return result, errors, confidence
 
@@ -176,9 +186,11 @@ class OpenAIProvider(BaseLLMProvider):
         # Capture usage from first call
         self._capture_usage(response)
 
-        raw = response.choices[0].message.content or ""
+        choice = response.choices[0]
+        raw = choice.message.content or ""
         if not raw.strip():
-            return None, ["model returned empty response"]
+            self._log_empty_response(response, use_json_mode)
+            return None, [_EMPTY_RESPONSE_SENTINEL]
 
         # Parse (with repair) + validate
         try:
@@ -213,6 +225,24 @@ class OpenAIProvider(BaseLLMProvider):
             logger.error(f"Extraction correction retry failed: {e}")
 
         return result, errors
+
+    def _log_empty_response(self, response: Any, use_json_mode: bool) -> None:
+        """Log non-sensitive diagnostics for empty provider responses."""
+        choice = response.choices[0] if getattr(response, "choices", None) else None
+        finish_reason = getattr(choice, "finish_reason", None)
+        response_model = getattr(response, "model", self.model)
+        usage = getattr(response, "usage", None)
+        prompt_tokens = getattr(usage, "prompt_tokens", None) if usage else None
+        completion_tokens = getattr(usage, "completion_tokens", None) if usage else None
+        logger.warning(
+            "Extraction response was empty: model=%s json_mode=%s finish_reason=%s "
+            "prompt_tokens=%s completion_tokens=%s",
+            response_model,
+            use_json_mode,
+            finish_reason,
+            prompt_tokens,
+            completion_tokens,
+        )
 
     def _capture_usage(self, response: Any) -> None:
         """Accumulate token usage from an OpenAI chat completion response."""
@@ -419,6 +449,3 @@ def _normalize_openai_base_url(raw: str) -> str:
         return url
     # Append /v1
     return url + "/v1"
-
-
-

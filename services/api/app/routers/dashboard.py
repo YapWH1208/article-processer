@@ -30,7 +30,7 @@ def get_dashboard_metrics(
     total_completed = time_q.filter(Article.status == "completed").count()
     total_failed = time_q.filter(Article.status == "failed").count()
     total_processing = time_q.filter(
-        ~Article.status.in_(["completed", "failed"])
+        ~Article.status.in_(["completed", "failed", "needs_review"])
     ).count()
 
     # ── Articles by day (time series) ─────────────────────────────────

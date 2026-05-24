@@ -1,6 +1,7 @@
 """Tests for extraction schema validation."""
 
 import pytest
+from app.schemas.extraction import ExtractionResponse
 from app.services.ai.extraction import ExtractionService
 
 
@@ -285,3 +286,25 @@ class TestExtractionEdgeCases:
         }
         errors = ExtractionService.validate_schema(extraction)
         assert len(errors) == 0, f"Expected no errors for minimal valid extraction, got: {errors}"
+
+    def test_extraction_response_accepts_reference_author_arrays(self):
+        """LLM reference authors may arrive as arrays and should not break the API."""
+        extraction = make_valid_extraction()
+        extraction["references"] = [
+            {
+                "title": "Self-Determination Theory",
+                "authors": ["Ryan, R. M.", "Deci, E. L."],
+                "year": 2000,
+            }
+        ]
+
+        response = ExtractionResponse(
+            article_id=1,
+            schema_version="1.0",
+            extraction=extraction,
+            validation_errors=None,
+            confidence=0.8,
+        )
+
+        assert response.extraction is not None
+        assert response.extraction.references[0].authors == "Ryan, R. M., Deci, E. L."
