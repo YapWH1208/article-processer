@@ -215,7 +215,9 @@ def get_article_markdown(article_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Article not found")
 
     if article.markdown_text:
-        return {"markdown": _rewrite_markdown_image_urls(article.markdown_text)}
+        from app.services.pipeline.markdown_normalizer import normalize_markdown
+        cleaned = normalize_markdown(article.markdown_text)
+        return {"markdown": _rewrite_markdown_image_urls(cleaned)}
 
     if article.markdown_path:
         try:

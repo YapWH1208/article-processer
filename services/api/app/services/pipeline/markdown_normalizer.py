@@ -26,6 +26,32 @@ def normalize_markdown(markdown: str) -> str:
     # Ensure space after # in headings
     markdown = re.sub(r'^(#{1,6})([^\s#])', r'\1 \2', markdown, flags=re.MULTILINE)
 
+    # ── LaTeX math block cleanup ──────────────────────────────────────────
+    # MinerU sometimes produces spurious empty $$ blocks that break math
+    # delimiters. Collapse consecutive $$...$$ (including empty) into one.
+
+    # Collapse: $$<blank>$$ → nothing (remove empty math blocks between real ones)
+    markdown = re.sub(r'\$\$\s*\$\$', '', markdown)
+
+    # Collapse: $$\n...\n$$\n$$\n... → $$\n...\n... (merge adjacent blocks)
+    markdown = re.sub(r'\$\$\s*\n\s*\$\$', '$$', markdown)
+
+    # Ensure \begin{...} / \end{...} environments are wrapped in $$
+    # Run in a loop to handle multiple consecutive environments
+    for _ in range(3):
+        markdown = re.sub(
+            r'(?<!\$)\s*(\\begin\{(?:array|align|aligned|matrix|pmatrix|bmatrix|cases|gather|split|equation|eqnarray)\}[^}]*\})',
+            r'\n$$\n\1',
+            markdown,
+        )
+        markdown = re.sub(
+            r'(\\end\{(?:array|align|aligned|matrix|pmatrix|bmatrix|cases|gather|split|equation|eqnarray)\})\s*(?!\$|\\end)',
+            r'\1\n$$\n',
+            markdown,
+        )
+        # Remove duplicate $$ markers introduced by the wrapping
+        markdown = re.sub(r'\$\$\s*\n\s*\$\$', '$$', markdown)
+
     # Strip leading/trailing whitespace but ensure single trailing newline
     markdown = markdown.strip() + "\n"
 
