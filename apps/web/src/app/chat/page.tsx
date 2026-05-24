@@ -7,7 +7,7 @@ import remarkGfm from "remark-gfm";
 import {
   Send, MessageCircle, Hash, FileText, X, Loader2,
   Plus, BookOpen, ArrowUp, Trash2, PanelLeftClose, PanelLeftOpen,
-  MessageSquare,
+  MessageSquare, Brain, ChevronDown, Check,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,8 +19,9 @@ import { toast } from "sonner";
 import {
   listArticles, listSessions, createSession, deleteSession,
   getSessionMessages, sendSessionMessage,
+  getDevConfig, setActiveProvider,
 } from "@/lib/api";
-import type { ArticleSummary, ChatSession, ChatMessageResponse, Citation } from "@/lib/types";
+import type { ArticleSummary, ChatSession, ChatMessageResponse, Citation, ProviderEntry } from "@/lib/types";
 import { TypingDots } from "@/components/ui/animated";
 
 // ── Mention Popover ──────────────────────────────────────────────────────
@@ -141,6 +142,11 @@ export default function ChatPage() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [taggedArticles, setTaggedArticles] = useState<ArticleSummary[]>([]);
 
+  // Provider / model selector
+  const [providers, setProviders] = useState<ProviderEntry[]>([]);
+  const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
+  const [providerMenuOpen, setProviderMenuOpen] = useState(false);
+
   // @ mention
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
@@ -154,7 +160,18 @@ export default function ChatPage() {
       .then((d) => setArticles(d.articles))
       .catch(() => toast.error("Failed to load articles"));
     loadSessions();
+    loadProviders();
   }, []);
+
+  const loadProviders = async () => {
+    try {
+      const d = await getDevConfig();
+      setProviders(d.providers);
+      setActiveProviderId(d.active_provider_id);
+    } catch { /* ok — non-critical */ }
+  };
+
+  const activeProvider = providers.find((p) => p.id === activeProviderId);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -380,6 +397,85 @@ export default function ChatPage() {
               </p>
             </div>
           </div>
+          {/* Model selector */}
+          <div className="relative flex-shrink-0">
+            <button
+              onClick={() => setProviderMenuOpen(!providerMenuOpen)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-card hover:bg-accent transition-colors text-sm"
+            >
+              <Brain className="h-3.5 w-3.5 text-primary flex-shrink-0" />
+              <span className="max-w-[140px] truncate font-medium">
+                {activeProvider
+                  ? `${activeProvider.name} · ${activeProvider.model || "default"}`
+                  : providers.length === 0
+                    ? "No provider"
+                    : "Select model"}
+              </span>
+              <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${providerMenuOpen ? "rotate-180" : ""}`} />
+            </button>
+
+            <AnimatePresence>
+              {providerMenuOpen && (
+                <>
+                  <motion.div
+                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-40" onClick={() => setProviderMenuOpen(false)}
+                  />
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95, y: 4 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: 4 }}
+                    className="absolute right-0 top-full mt-1 z-50 w-72 bg-card border rounded-xl shadow-xl overflow-hidden"
+                  >
+                    <div className="p-1.5">
+                      <div className="px-2 py-1.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                        Switch Model
+                      </div>
+                      {providers.length === 0 ? (
+                        <div className="px-2 py-4 text-sm text-muted-foreground text-center">
+                          No providers configured.<br />
+                          <a href="/settings" className="text-primary hover:underline">Add one in Settings →</a>
+                        </div>
+                      ) : (
+                        providers.map((p) => (
+                          <button
+                            key={p.id}
+                            onClick={async () => {
+                              try {
+                                await setActiveProvider(p.id);
+                                setActiveProviderId(p.id);
+                                toast.success(`Switched to ${p.name}`);
+                              } catch { toast.error("Failed to switch provider"); }
+                              setProviderMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent text-left transition-colors ${
+                              activeProviderId === p.id ? "bg-primary/5" : ""
+                            }`}
+                          >
+                            <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
+                              activeProviderId === p.id ? "bg-primary/20" : "bg-muted"
+                            }`}>
+                              <Brain className={`h-3.5 w-3.5 ${activeProviderId === p.id ? "text-primary" : "text-muted-foreground"}`} />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-medium truncate">{p.name}</div>
+                              <div className="text-[11px] text-muted-foreground truncate">
+                                {p.type}{p.protocol === "anthropic" ? " · Anthropic" : ""} — {p.model || "default model"}
+                              </div>
+                            </div>
+                            {activeProviderId === p.id && (
+                              <Check className="h-4 w-4 text-primary flex-shrink-0" />
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
+
           <Badge variant="secondary" className="gap-1.5 flex-shrink-0">
             <BookOpen className="h-3 w-3" /> {articles.length} articles
           </Badge>

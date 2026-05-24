@@ -228,7 +228,7 @@ export async function runSkill(skillName: string, articleId: number) {
 // ── Parsers ──────────────────────────────────────────────────────
 
 export async function listParsers() {
-  return apiFetch<{ key: string; name: string; installed: boolean; version: string | null; description: string; install_cmd: string | null }[]>("/settings/parsers");
+  return apiFetch<import("./types").ParserInfo[]>("/settings/parsers");
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────
@@ -253,6 +253,20 @@ export async function getArticleLogs(articleId: number) {
   return apiFetch<import("./types").ArticleLogs>(
     `/articles/${articleId}/logs`
   );
+}
+
+// ── Dev / Providers ──────────────────────────────────────────────
+
+export async function getDevConfig() {
+  return apiFetch<import("./types").DevConfig>("/dev");
+}
+
+export async function setActiveProvider(providerId: string) {
+  return apiFetch<{ active_provider_id: string }>("/dev/providers/active", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider_id: providerId }),
+  });
 }
 
 // ── Health ────────────────────────────────────────────────────────

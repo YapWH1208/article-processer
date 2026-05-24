@@ -320,3 +320,38 @@ export interface HealthInfo {
   llm_model: string;
   llm_custom_protocol?: string | null;
 }
+
+// ── Parsers ──────────────────────────────────────────────────
+
+export interface ParserInfo {
+  key: string;
+  name: string;
+  installed: boolean;
+  version?: string | null;
+  description: string;
+  install_cmd?: string | null;
+}
+
+// ── Providers ─────────────────────────────────────────────────
+
+export interface ProviderEntry {
+  id: string;
+  name: string;
+  type: string;
+  api_key: string;  // masked in responses
+  base_url: string;
+  model: string;
+  protocol: string;
+}
+
+export interface DevConfig {
+  temperature: number;
+  top_p: number;
+  max_tokens: number;
+  frequency_penalty: number;
+  presence_penalty: number;
+  system_messages: Record<string, { content: string }>;
+  input_templates: Record<string, { template: string; description: string }>;
+  providers: ProviderEntry[];
+  active_provider_id: string | null;
+}

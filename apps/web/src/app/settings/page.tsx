@@ -19,7 +19,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FadeIn } from "@/components/ui/animated";
-import { listParsers } from "@/lib/api";
+import { listParsers, getDevConfig } from "@/lib/api";
+import type { ParserInfo } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -45,11 +46,6 @@ interface DevConfig {
   system_messages: Record<string, SystemMessageItem>;
   input_templates: Record<string, InputTemplateItem>;
   providers?: ProviderEntry[]; active_provider_id?: string | null;
-}
-
-interface ParserInfo {
-  key: string; name: string; installed: boolean;
-  version?: string; description: string; install_cmd?: string;
 }
 
 const PROVIDER_TYPES = [
