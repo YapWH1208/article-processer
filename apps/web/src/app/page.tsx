@@ -449,10 +449,10 @@ export default function HomePage() {
       highlights: ["Entities", "Relationships", "Cross-article"],
     },
     {
-      icon: MessageCircle, title: "Contextual RAG Chat",
-      desc: "Ask questions with cited, source-linked answers. @-mention articles for focused context, or let AI search your entire library.",
+      icon: MessageCircle, title: "Full-Context Chat",
+      desc: "Ask questions with cited, source-linked answers drawn from complete article text. @-mention articles for focused context, or let AI search your entire library.",
       color: "text-green-400", bg: "bg-green-500/10", gradient: "from-green-500/5 to-green-600/5",
-      highlights: ["Citations", "Multi-article", "Sessions"],
+      highlights: ["Cited answers", "Multi-article", "Sessions"],
     },
     {
       icon: Zap, title: "Pluggable AI Skills",
