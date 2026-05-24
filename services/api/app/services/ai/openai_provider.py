@@ -1,4 +1,4 @@
-"""OpenAI LLM and embedding provider implementations."""
+"""OpenAI LLM provider implementation."""
 
 import json
 import logging
@@ -6,12 +6,13 @@ import re
 from typing import Any
 from openai import AsyncOpenAI
 from app.core.config import settings
-from app.services.ai.base import BaseLLMProvider, BaseEmbeddingProvider
+from app.services.ai.base import BaseLLMProvider
 from app.services.ai.prompts import (
     EXTRACTION_SYSTEM_PROMPT,
     EXTRACTION_CORRECTION_PROMPT,
     QA_SYSTEM_PROMPT,
     SKILL_SYSTEM_PROMPT,
+    get_input_template,
 )
 from app.core.security import protect_prompt_from_injection
 
@@ -226,26 +227,21 @@ class OpenAIProvider(BaseLLMProvider):
         self,
         question: str,
         article_title: str,
-        chunks: list[Any],
+        article_text: str,
     ) -> tuple[str, list[dict]]:
-        """Answer a question using retrieved chunks via OpenAI."""
-        # Build context from chunks
-        chunk_texts = []
-        for c in chunks:
-            chunk_text = c.text if hasattr(c, 'text') else str(c)
-            section = c.section_title if hasattr(c, 'section_title') else None
-            page = f"pp. {c.page_start}-{c.page_end}" if hasattr(c, 'page_start') and c.page_start else ""
-            chunk_idx = c.chunk_index if hasattr(c, 'chunk_index') else 0
-            chunk_texts.append(
-                f'[Chunk {chunk_idx}, Section: "{section or "N/A"}", {page}]\n{chunk_text}'
-            )
+        """Answer a question using the full article text via OpenAI."""
+        protected_text = protect_prompt_from_injection(article_text)
 
-        context = "\n\n---\n\n".join(chunk_texts)
-        protected_context = protect_prompt_from_injection(context)
+        input_template = get_input_template("chat")
+        user_content = input_template.format(
+            context_header=f"Article: {article_title}",
+            document=protected_text,
+            question=question,
+        )
 
         messages = [
             {"role": "system", "content": QA_SYSTEM_PROMPT},
-            {"role": "user", "content": f"Article: {article_title}\n\n{protected_context}\n\nQuestion: {question}"},
+            {"role": "user", "content": user_content},
         ]
 
         try:
@@ -258,8 +254,8 @@ class OpenAIProvider(BaseLLMProvider):
             self._capture_usage(response)
             answer = response.choices[0].message.content or ""
 
-            # Extract citations from chunk references in answer
-            citations = self._extract_citations(answer, chunks)
+            # Extract citations from section references in answer
+            citations = self._extract_citations(answer, [])
 
             return answer, citations
 
@@ -425,98 +421,4 @@ def _normalize_openai_base_url(raw: str) -> str:
     return url + "/v1"
 
 
-class CustomEmbeddingProvider(BaseEmbeddingProvider):
-    """Embedding provider pointed at a custom OpenAI-compatible endpoint.
 
-    Uses ``embedding_custom_base_url``, ``embedding_custom_api_key``,
-    ``embedding_custom_model``.
-
-    The base URL is auto-normalised: ``http://localhost:1234`` becomes
-    ``http://localhost:1234/v1`` so it works out-of-the-box with
-    LM Studio, Ollama, vLLM, and any other OpenAI-compatible server.
-    """
-
-    def __init__(self):
-        super().__init__()
-        raw_url = settings.embedding_custom_base_url
-        normalized = _normalize_openai_base_url(raw_url) if raw_url else ""
-        self.client = AsyncOpenAI(
-            api_key=settings.embedding_custom_api_key or "not-needed",
-            base_url=normalized,
-        )
-        self.model = settings.embedding_custom_model or "text-embedding-3-small"
-        self._provider_name = "custom"
-
-    async def embed(self, text: str) -> list[float]:
-        try:
-            response = await self.client.embeddings.create(
-                model=self.model, input=text[:8000],
-            )
-            self._capture_usage(response)
-            return response.data[0].embedding
-        except Exception as e:
-            logger.error(f"Custom embedding failed: {e}")
-            raise
-
-    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        try:
-            truncated = [t[:8000] for t in texts]
-            response = await self.client.embeddings.create(
-                model=self.model, input=truncated,
-            )
-            self._capture_usage(response)
-            return [d.embedding for d in response.data]
-        except Exception as e:
-            logger.error(f"Custom batch embedding failed: {e}")
-            raise
-
-    def _capture_usage(self, response: Any) -> None:
-        """Accumulate token usage from an OpenAI embeddings response."""
-        if hasattr(response, "usage") and response.usage:
-            self.last_usage.prompt_tokens += response.usage.prompt_tokens or 0
-            self.last_usage.total_tokens += response.usage.total_tokens or 0
-            self.last_usage.model = self.model
-            self.last_usage.provider = self._provider_name
-
-
-class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
-    """OpenAI embedding provider."""
-
-    def __init__(self):
-        super().__init__()
-        self.client = AsyncOpenAI(api_key=settings.openai_api_key)
-        self.model = settings.openai_embedding_model
-        self._provider_name = "openai"
-
-    async def embed(self, text: str) -> list[float]:
-        try:
-            response = await self.client.embeddings.create(
-                model=self.model,
-                input=text[:8000],  # Truncate to token limit
-            )
-            self._capture_usage(response)
-            return response.data[0].embedding
-        except Exception as e:
-            logger.error(f"OpenAI embedding failed: {e}")
-            raise
-
-    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        try:
-            truncated = [t[:8000] for t in texts]
-            response = await self.client.embeddings.create(
-                model=self.model,
-                input=truncated,
-            )
-            self._capture_usage(response)
-            return [d.embedding for d in response.data]
-        except Exception as e:
-            logger.error(f"OpenAI batch embedding failed: {e}")
-            raise
-
-    def _capture_usage(self, response: Any) -> None:
-        """Accumulate token usage from an OpenAI embeddings response."""
-        if hasattr(response, "usage") and response.usage:
-            self.last_usage.prompt_tokens += response.usage.prompt_tokens or 0
-            self.last_usage.total_tokens += response.usage.total_tokens or 0
-            self.last_usage.model = self.model
-            self.last_usage.provider = self._provider_name

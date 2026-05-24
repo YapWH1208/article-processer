@@ -27,7 +27,6 @@ from app.services.parsers.mineru_adapter import MinerUAdapter
 from app.services.pipeline.markdown_normalizer import normalize_markdown
 from app.services.pipeline.chunking import chunk_markdown, estimate_tokens
 from app.services.ai.base import get_llm_provider
-from app.services.ai.embeddings import get_embedding_provider
 from app.services.graph.builder import GraphBuilder
 from app.core.config import settings
 
@@ -89,8 +88,7 @@ async def run_pipeline(article_id: int, run_ai: bool = True) -> None:
     2. Normalize Markdown
     3. Chunk
     4. AI extraction (skipped if run_ai=False)
-    5. Embeddings (skipped if run_ai=False)
-    6. Graph building
+    5. Graph building
     """
     db = SessionLocal()
     job: ProcessingJob | None = None
@@ -191,7 +189,7 @@ async def run_pipeline(article_id: int, run_ai: bool = True) -> None:
 
         # ── Step 3: AI Extraction ──────────────────────────────────────
         if not run_ai:
-            add_log("parse_complete", "AI pipeline disabled — skipping extraction, embeddings, and graph. Article ready for reading.")
+            add_log("parse_complete", "AI pipeline disabled — skipping extraction and graph. Article ready for reading.")
             article.status = ArticleStatus.COMPLETED.value
             db.commit()
             job.status = JobStatus.COMPLETED.value
@@ -244,36 +242,7 @@ async def run_pipeline(article_id: int, run_ai: bool = True) -> None:
 
         db.commit()
 
-        # ── Step 4: Embeddings ─────────────────────────────────────────
-        add_log("indexing", "Generating embeddings...")
-        article.status = ArticleStatus.INDEXING.value
-        db.commit()
-
-        embedding_provider = get_embedding_provider()
-
-        for chunk in db.query(ArticleChunk).filter(
-            ArticleChunk.article_id == article_id
-        ).all():
-            embedding = await embedding_provider.embed(chunk.text)
-            chunk.embedding_json = json.dumps(embedding)
-
-        add_log("indexing", f"Embeddings generated for {len(chunks)} chunks")
-
-        # Record embedding token usage
-        if embedding_provider.last_usage and embedding_provider.last_usage.total_tokens > 0:
-            db.add(TokenUsage(
-                article_id=article_id,
-                step="embedding",
-                model=embedding_provider.last_usage.model,
-                provider=embedding_provider.last_usage.provider,
-                prompt_tokens=embedding_provider.last_usage.prompt_tokens,
-                completion_tokens=0,
-                total_tokens=embedding_provider.last_usage.total_tokens,
-            ))
-
-        db.commit()
-
-        # ── Step 5: Graph Building ─────────────────────────────────────
+        # ── Step 4: Graph Building ─────────────────────────────────────
         add_log("graph", "Building graph entities...")
         if extraction_result:
             builder = GraphBuilder()

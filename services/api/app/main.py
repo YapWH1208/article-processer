@@ -45,9 +45,7 @@ app.add_middleware(
 
 @app.get("/health")
 async def health_check():
-    # Resolve the effective model names based on provider config
     llm_model = _resolve_model_name()
-    emb_model = _resolve_embedding_model()
 
     return {
         "status": "ok",
@@ -56,9 +54,6 @@ async def health_check():
         "llm_provider": settings.llm_provider,
         "llm_model": llm_model,
         "llm_custom_protocol": settings.llm_custom_protocol if settings.llm_provider == "custom" else None,
-        "embedding_provider": settings.embedding_provider,
-        "embedding_model": emb_model,
-        "embedding_custom_protocol": settings.embedding_custom_base_url if settings.embedding_provider == "custom" else None,
     }
 
 
@@ -97,29 +92,6 @@ def _resolve_model_name() -> str:
         else:
             return "custom (no model configured)"
     return "unknown"
-
-
-def _resolve_embedding_model() -> str:
-    """Resolve the effective embedding model name from settings.
-
-    Mirrors the logic in ``get_embedding_provider()`` factory so the
-    health endpoint always reports the model that would actually be used.
-    """
-    if settings.use_mock_ai:
-        return "mock"
-    if settings.embedding_provider == "openai":
-        if settings.openai_api_key:
-            return settings.openai_embedding_model
-        else:
-            return f"{settings.openai_embedding_model} (no key — will fall back to mock)"
-    elif settings.embedding_provider == "custom":
-        if settings.embedding_custom_base_url and settings.embedding_custom_model:
-            return settings.embedding_custom_model
-        elif settings.embedding_custom_model:
-            return f"{settings.embedding_custom_model} (no endpoint — will fall back to mock)"
-        else:
-            return "custom (no model configured)"
-    return f"unknown provider: {settings.embedding_provider}"
 
 
 # Register routers

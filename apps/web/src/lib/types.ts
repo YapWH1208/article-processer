@@ -303,7 +303,4 @@ export interface HealthInfo {
   llm_provider: string;
   llm_model: string;
   llm_custom_protocol?: string | null;
-  embedding_provider: string;
-  embedding_model: string;
-  embedding_custom_protocol?: string | null;
 }

@@ -14,6 +14,7 @@ from app.services.ai.prompts import (
     EXTRACTION_SYSTEM_PROMPT,
     QA_SYSTEM_PROMPT,
     SKILL_SYSTEM_PROMPT,
+    get_input_template,
 )
 from app.core.security import protect_prompt_from_injection
 from app.services.ai.openai_provider import _repair_json
@@ -55,26 +56,20 @@ class AnthropicProvider(BaseLLMProvider):
         return await self._call_claude(prompt, "extraction", max_tokens=8000)
 
     async def answer_question(
-        self, question: str, article_title: str, chunks: list[Any],
+        self, question: str, article_title: str, article_text: str,
     ) -> tuple[str, list[dict]]:
-        chunk_texts = []
-        for c in chunks:
-            text = c.text if hasattr(c, 'text') else str(c)
-            section = c.section_title if hasattr(c, 'section_title') else None
-            page = f"pp. {c.page_start}-{c.page_end}" if hasattr(c, 'page_start') and c.page_start else ""
-            idx = c.chunk_index if hasattr(c, 'chunk_index') else 0
-            chunk_texts.append(f'[Chunk {idx}, Section: "{section or "N/A"}", {page}]\n{text}')
+        protected_text = protect_prompt_from_injection(article_text)
 
-        context = "\n\n---\n\n".join(chunk_texts)
-        protected_context = protect_prompt_from_injection(context)
-
-        prompt = (
-            f"{QA_SYSTEM_PROMPT}\n\n"
-            f"Article: {article_title}\n\n{protected_context}\n\n"
-            f"Question: {question}"
+        input_template = get_input_template("chat")
+        user_content = input_template.format(
+            context_header=f"Article: {article_title}",
+            document=protected_text,
+            question=question,
         )
+
+        prompt = f"{QA_SYSTEM_PROMPT}\n\n{user_content}"
         answer, _ = await self._call_claude(prompt, "qa")
-        citations = self._extract_citations(answer, chunks)
+        citations = self._extract_citations(answer, [])
         return answer, citations
 
     async def run_skill(self, skill: Any, article_markdown: str) -> dict:

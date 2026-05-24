@@ -34,30 +34,12 @@ class BaseLLMProvider(ABC):
 
     @abstractmethod
     async def answer_question(
-        self, question: str, article_title: str, chunks: list[Any],
+        self, question: str, article_title: str, article_text: str,
     ) -> tuple[str, list[dict]]:
         ...
 
     @abstractmethod
     async def run_skill(self, skill: Any, article_markdown: str) -> dict:
-        ...
-
-
-class BaseEmbeddingProvider(ABC):
-    """Abstract interface for embedding providers.
-
-    Subclasses should set ``self.last_usage`` after each API call.
-    """
-
-    def __init__(self) -> None:
-        self.last_usage = TokenUsage()
-
-    @abstractmethod
-    async def embed(self, text: str) -> list[float]:
-        ...
-
-    @abstractmethod
-    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         ...
 
 
@@ -167,29 +149,3 @@ def get_llm_provider() -> BaseLLMProvider:
     # Fallback
     from app.services.ai.mock_provider import MockLLMProvider
     return MockLLMProvider()
-
-
-# ── Embedding Factory ─────────────────────────────────────────────────────
-
-def get_embedding_provider() -> BaseEmbeddingProvider:
-    """Factory: return the configured embedding provider."""
-    if settings.use_mock_ai:
-        from app.services.ai.mock_provider import MockEmbeddingProvider
-        return MockEmbeddingProvider()
-
-    provider = settings.embedding_provider
-
-    if provider == "openai":
-        if settings.openai_api_key:
-            from app.services.ai.openai_provider import OpenAIEmbeddingProvider
-            return OpenAIEmbeddingProvider()
-
-    elif provider == "custom":
-        if settings.embedding_custom_base_url and settings.embedding_custom_model:
-            # Use OpenAIEmbeddingProvider pointed at custom endpoint
-            from app.services.ai.openai_provider import CustomEmbeddingProvider
-            return CustomEmbeddingProvider()
-
-    # Fallback to mock
-    from app.services.ai.mock_provider import MockEmbeddingProvider
-    return MockEmbeddingProvider()

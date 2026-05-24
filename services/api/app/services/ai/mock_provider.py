@@ -7,7 +7,7 @@ import json
 import logging
 import re
 from typing import Any
-from app.services.ai.base import BaseLLMProvider, BaseEmbeddingProvider
+from app.services.ai.base import BaseLLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -90,14 +90,11 @@ class MockLLMProvider(BaseLLMProvider):
         self,
         question: str,
         article_title: str,
-        chunks: list[Any],
+        article_text: str,
     ) -> tuple[str, list[dict]]:
-        """Mock Q&A — returns a response based on keyword matching in chunks."""
+        """Mock Q&A — returns a response based on keyword matching in article text."""
         question_lower = question.lower()
 
-        # Simple keyword-based retrieval of relevant sentences
-        relevant_sentences: list[tuple[str, dict]] = []
-        # Filter out common question words and short words
         stop_words = {'what', 'when', 'where', 'how', 'which', 'who', 'whom',
                       'the', 'and', 'for', 'are', 'was', 'were', 'does', 'did',
                       'can', 'could', 'would', 'should', 'will', 'shall', 'may',
@@ -106,36 +103,30 @@ class MockLLMProvider(BaseLLMProvider):
                     if len(w.strip('?.!,;:()[]{}')) >= 3
                     and w.strip('?.!,;:()[]{}') not in stop_words]
 
-        for chunk in chunks:
-            chunk_text = chunk.text if hasattr(chunk, 'text') else str(chunk)
-            for sentence in chunk_text.split('. '):
-                if any(kw in sentence.lower() for kw in keywords):
-                    citation = {
-                        "chunk_id": chunk.chunk_index if hasattr(chunk, 'chunk_index') else 0,
-                        "section_title": chunk.section_title if hasattr(chunk, 'section_title') else None,
-                        "page_start": chunk.page_start if hasattr(chunk, 'page_start') else None,
-                        "page_end": chunk.page_end if hasattr(chunk, 'page_end') else None,
-                        "snippet": sentence[:200].strip(),
-                    }
-                    relevant_sentences.append((sentence.strip(), citation))
+        # Search sentences in the full article text
+        relevant_sentences: list[tuple[str, dict]] = []
+        for sentence in article_text.split('. '):
+            if any(kw in sentence.lower() for kw in keywords):
+                relevant_sentences.append((sentence.strip(), {
+                    "chunk_id": 0,
+                    "section_title": None,
+                    "page_start": None,
+                    "page_end": None,
+                    "snippet": sentence[:200].strip(),
+                }))
 
         if not relevant_sentences:
             return (
-                "The provided document sections do not contain sufficient information to answer this question. "
+                "The provided document does not contain sufficient information to answer this question. "
                 "Try rephrasing your question or asking about a different aspect of the article.",
                 [],
             )
 
-        # Build answer from top 5 relevant sentences
         top = relevant_sentences[:5]
         citations = [c for _, c in top]
-        answer_parts = [
-            f"Based on the article \"{article_title}\", here's what I found:\n"
-        ]
+        answer_parts = [f"Based on the article \"{article_title}\", here's what I found:\n"]
         for sentence, citation in top:
-            chunk_id = citation["chunk_id"]
-            section = citation["section_title"] or "unknown section"
-            answer_parts.append(f"- {sentence.strip()} [Chunk {chunk_id}, Section: \"{section}\"]")
+            answer_parts.append(f"- {sentence.strip()}")
 
         return ("\n".join(answer_parts), citations)
 
@@ -318,36 +309,3 @@ class MockLLMProvider(BaseLLMProvider):
                 })
 
         return rels[:10]
-
-
-class MockEmbeddingProvider(BaseEmbeddingProvider):
-    """Mock embedding provider — returns simple hash-based vectors."""
-
-    def __init__(self, dim: int = 128):
-        self.dim = dim
-
-    async def embed(self, text: str) -> list[float]:
-        """Generate a deterministic mock embedding from text hash."""
-        import hashlib
-        h = hashlib.sha256(text.encode()).digest()
-        # Convert hash bytes to floats in [-1, 1]
-        vec = []
-        for i in range(min(self.dim, len(h) * 8)):
-            byte_idx = i // 8
-            bit_idx = i % 8
-            bit = (h[byte_idx] >> bit_idx) & 1
-            vec.append(float(bit) * 2.0 - 1.0)
-
-        # Pad if needed
-        while len(vec) < self.dim:
-            vec.append(0.0)
-
-        # Normalize to unit length
-        norm = sum(v * v for v in vec) ** 0.5
-        if norm > 0:
-            vec = [v / norm for v in vec]
-
-        return vec
-
-    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        return [await self.embed(t) for t in texts]

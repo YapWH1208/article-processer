@@ -20,7 +20,6 @@ LLM_PROVIDERS = [
     "deepseek", "openrouter", "glm", "minimax", "mimo", "kimi",
 ]
 LLM_CUSTOM_PROTOCOLS = ["openai", "anthropic"]
-EMBEDDING_PROVIDERS = ["openai", "custom"]
 PARSER_PRIORITIES = ["mineru_first", "docling", "pypdf", "ocr"]
 
 OPENAI_MODELS = ["gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "gpt-4-turbo"]
@@ -37,7 +36,6 @@ GLM_MODELS = ["glm-4-plus", "glm-4-flash", "glm-4-long", "glm-4-air"]
 MINIMAX_MODELS = ["MiniMax-Text-01", "abab6.5s-chat"]
 MIMO_MODELS = ["MiniMax-M1", "MiniMax-M1-8k"]
 KIMI_MODELS = ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"]
-EMBEDDING_MODELS = ["text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002"]
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────
@@ -72,12 +70,6 @@ class SettingsResponse(BaseModel):
     kimi_api_key: str = ""         # masked
     kimi_model: str = "moonshot-v1-8k"
     kimi_coding_model: str = ""
-    # Embedding
-    embedding_provider: str
-    embedding_custom_base_url: str
-    embedding_custom_api_key: str  # masked
-    embedding_custom_model: str
-    openai_embedding_model: str
     # Behaviour
     use_mock_ai: bool
     max_upload_mb: int
@@ -118,12 +110,6 @@ class SettingsUpdate(BaseModel):
     kimi_api_key: str | None = Field(default=None, max_length=256)
     kimi_model: str | None = None
     kimi_coding_model: str | None = None
-    # Embedding
-    embedding_provider: str | None = None
-    embedding_custom_base_url: str | None = Field(default=None, max_length=512)
-    embedding_custom_api_key: str | None = Field(default=None, max_length=256)
-    embedding_custom_model: str | None = Field(default=None, max_length=256)
-    openai_embedding_model: str | None = None
     # Behaviour
     use_mock_ai: bool | None = None
     max_upload_mb: int | None = Field(default=None, ge=1, le=500)
@@ -221,11 +207,6 @@ def _build_response(cfg: SettingsClass) -> SettingsResponse:
         kimi_api_key=_mask_key(cfg.kimi_api_key),
         kimi_model=cfg.kimi_model,
         kimi_coding_model=cfg.kimi_coding_model,
-        embedding_provider=cfg.embedding_provider,
-        embedding_custom_base_url=cfg.embedding_custom_base_url,
-        embedding_custom_api_key=_mask_key(cfg.embedding_custom_api_key),
-        embedding_custom_model=cfg.embedding_custom_model,
-        openai_embedding_model=cfg.openai_embedding_model,
         use_mock_ai=cfg.use_mock_ai,
         max_upload_mb=cfg.max_upload_mb,
         parser_priority=cfg.parser_priority,
@@ -319,24 +300,6 @@ def update_settings(update: SettingsUpdate):
     if update.kimi_coding_model is not None:
         env_vars["KIMI_CODING_MODEL"] = update.kimi_coding_model
 
-    # ── Embedding ─────────────────────────────────────────────────────
-    if update.embedding_provider is not None:
-        if update.embedding_provider not in EMBEDDING_PROVIDERS:
-            raise HTTPException(400, f"Unknown embedding provider: {update.embedding_provider}")
-        env_vars["EMBEDDING_PROVIDER"] = update.embedding_provider
-
-    if update.embedding_custom_base_url is not None:
-        env_vars["EMBEDDING_CUSTOM_BASE_URL"] = update.embedding_custom_base_url
-
-    if update.embedding_custom_api_key is not None and not all(c == "*" for c in update.embedding_custom_api_key):
-        env_vars["EMBEDDING_CUSTOM_API_KEY"] = update.embedding_custom_api_key
-
-    if update.embedding_custom_model is not None:
-        env_vars["EMBEDDING_CUSTOM_MODEL"] = update.embedding_custom_model
-
-    if update.openai_embedding_model is not None:
-        env_vars["OPENAI_EMBEDDING_MODEL"] = update.openai_embedding_model
-
     # ── Behaviour ─────────────────────────────────────────────────────
     if update.use_mock_ai is not None:
         env_vars["USE_MOCK_AI"] = str(update.use_mock_ai).lower()
@@ -369,7 +332,6 @@ class SettingsExportResponse(SettingsResponse):
     openai_api_key: str          # unmasked
     anthropic_api_key: str       # unmasked
     llm_custom_api_key: str      # unmasked
-    embedding_custom_api_key: str  # unmasked
     deepseek_api_key: str = ""   # unmasked
     openrouter_api_key: str = "" # unmasked
     glm_api_key: str = ""        # unmasked
@@ -413,11 +375,6 @@ def export_settings():
         kimi_api_key=cfg.kimi_api_key,
         kimi_model=cfg.kimi_model,
         kimi_coding_model=cfg.kimi_coding_model,
-        embedding_provider=cfg.embedding_provider,
-        embedding_custom_base_url=cfg.embedding_custom_base_url,
-        embedding_custom_api_key=cfg.embedding_custom_api_key,
-        embedding_custom_model=cfg.embedding_custom_model,
-        openai_embedding_model=cfg.openai_embedding_model,
         use_mock_ai=cfg.use_mock_ai,
         max_upload_mb=cfg.max_upload_mb,
         parser_priority=cfg.parser_priority,
@@ -592,11 +549,6 @@ class TestConnectionBody(BaseModel):
     mimo_model: str = "MiniMax-M1"
     kimi_api_key: str = ""
     kimi_model: str = "moonshot-v1-8k"
-    embedding_provider: str = "openai"
-    embedding_custom_base_url: str = ""
-    embedding_custom_api_key: str = ""
-    embedding_custom_model: str = ""
-    openai_embedding_model: str = "text-embedding-3-small"
     use_mock_ai: bool = True
 
 
@@ -735,39 +687,6 @@ async def test_connection(body: TestConnectionBody):
     except Exception as e:
         results["llm"] = {"ok": False, "message": str(e)}
 
-    # ── Embedding test ───────────────────────────────────────────────
-    try:
-        if body.use_mock_ai:
-            results["embedding"] = {"ok": True, "message": "Mock AI mode — no connection needed"}
-        elif body.embedding_provider == "openai":
-            key = body.openai_api_key or settings.openai_api_key
-            if not key:
-                results["embedding"] = {"ok": False, "message": "OpenAI API key is required"}
-            else:
-                from openai import AsyncOpenAI
-                client = AsyncOpenAI(api_key=key)
-                # Tiny embedding call
-                await client.embeddings.create(model=body.openai_embedding_model, input="test")
-                results["embedding"] = {"ok": True, "message": f"Embedding model OK ({body.openai_embedding_model})"}
-        elif body.embedding_provider == "custom":
-            if not body.embedding_custom_base_url:
-                results["embedding"] = {"ok": False, "message": "Custom base URL is required"}
-            else:
-                import httpx
-                async with httpx.AsyncClient() as client:
-                    resp = await client.post(
-                        f"{body.embedding_custom_base_url.rstrip('/')}/embeddings",
-                        json={"model": body.embedding_custom_model, "input": "test"},
-                        headers={"Authorization": f"Bearer {body.embedding_custom_api_key or 'not-needed'}"},
-                        timeout=15,
-                    )
-                    if resp.status_code < 500:
-                        results["embedding"] = {"ok": True, "message": f"Embedding endpoint OK ({body.embedding_custom_model})"}
-                    else:
-                        results["embedding"] = {"ok": False, "message": f"Server error {resp.status_code}: {resp.text[:200]}"}
-    except Exception as e:
-        results["embedding"] = {"ok": False, "message": str(e)}
-
     all_ok = all(v.get("ok") for v in results.values()) if results else False
     return {"all_ok": all_ok, "results": results}
 
@@ -799,11 +718,6 @@ async def import_settings(file: UploadFile = File(...)):
             openai_model=settings_data.get("openai_model"),
             anthropic_api_key=settings_data.get("anthropic_api_key"),
             anthropic_model=settings_data.get("anthropic_model"),
-            embedding_provider=settings_data.get("embedding_provider"),
-            embedding_custom_base_url=settings_data.get("embedding_custom_base_url"),
-            embedding_custom_api_key=settings_data.get("embedding_custom_api_key"),
-            embedding_custom_model=settings_data.get("embedding_custom_model"),
-            openai_embedding_model=settings_data.get("openai_embedding_model"),
             use_mock_ai=settings_data.get("use_mock_ai"),
             max_upload_mb=settings_data.get("max_upload_mb"),
             parser_priority=settings_data.get("parser_priority"),
