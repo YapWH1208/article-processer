@@ -41,3 +41,16 @@ class ChatMessageResponse(BaseModel):
 class ChatHistoryResponse(BaseModel):
     article_id: int
     messages: list[ChatMessageResponse]
+
+
+class MultiArticleChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    article_ids: list[int] = Field(default_factory=list, max_length=10)
+
+
+class MultiArticleChatResponse(BaseModel):
+    answer: str
+    citations: list[Citation] = Field(default_factory=list)
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    article_ids: list[int] = Field(default_factory=list)

@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Toaster } from "sonner";
 import {
   FileText, Upload, Settings, Menu, X,
-  Sun, Moon, Home, BookOpen, BarChart3, GitBranch,
+  Sun, Moon, Home, BookOpen, BarChart3, GitBranch, MessageCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -62,6 +62,7 @@ const links = [
   { href: "/", label: "Home", icon: Home },
   { href: "/articles", label: "Articles", icon: BookOpen },
   { href: "/upload", label: "Upload", icon: Upload },
+  { href: "/chat", label: "Chat", icon: MessageCircle },
   { href: "/graph", label: "Graph", icon: GitBranch },
   { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings },

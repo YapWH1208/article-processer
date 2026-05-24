@@ -177,6 +177,14 @@ export interface ChatHistoryResponse {
   messages: ChatMessageResponse[];
 }
 
+export interface MultiArticleChatResponse {
+  answer: string;
+  citations: Citation[];
+  prompt_tokens: number;
+  completion_tokens: number;
+  article_ids: number[];
+}
+
 // ── Job types ─────────────────────────────────────────────────────
 
 export interface JobResponse {

@@ -136,6 +136,17 @@ export async function getChatHistory(articleId: number) {
   );
 }
 
+export async function sendMultiArticleChatMessage(articleIds: number[], message: string) {
+  return apiFetch<import("./types").MultiArticleChatResponse>(
+    "/articles/chat",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ article_ids: articleIds, message }),
+    }
+  );
+}
+
 // ── Export ────────────────────────────────────────────────────────
 
 export function getExportJsonUrl(articleId: number): string {
