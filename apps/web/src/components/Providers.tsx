@@ -7,11 +7,9 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Toaster } from "sonner";
 import {
   FileText, Sun, Moon, Home, FileUp, MessageCircle,
-  GitBranch, BarChart3, Settings2, X,
-  PanelLeftClose, PanelLeftOpen, BookOpen,
+  GitBranch, BarChart3, Settings2, BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 // ── Theme toggle ──────────────────────────────────────────────────────────
 
@@ -59,110 +57,18 @@ function ThemeToggle() {
 
 // ── Nav link groups ───────────────────────────────────────────────────────
 
-const primaryLinks = [
+const navLinks = [
   { href: "/", label: "Home", icon: Home },
   { href: "/articles", label: "Library", icon: BookOpen },
   { href: "/upload", label: "Upload", icon: FileUp },
   { href: "/chat", label: "Chat", icon: MessageCircle },
   { href: "/graph", label: "Graph", icon: GitBranch },
-];
-
-const secondaryLinks = [
   { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
-  { href: "/settings", label: "Settings", icon: Settings2 },
 ];
-
-// ── Sidebar ────────────────────────────────────────────────────────────────
-
-function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const pathname = usePathname();
-
-  const isActive = (href: string) => {
-    if (href === "/") return pathname === "/";
-    return pathname.startsWith(href);
-  };
-
-  return (
-    <AnimatePresence>
-      {open && (
-        <>
-          {/* Mobile backdrop */}
-          <motion.div
-            className="fixed inset-0 z-40 bg-black/30 lg:hidden"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            onClick={onClose}
-          />
-
-          {/* Sidebar */}
-          <motion.aside
-            className="fixed left-0 top-16 bottom-0 z-40 w-60 bg-card border-r flex flex-col shadow-lg"
-            initial={{ x: -240 }} animate={{ x: 0 }} exit={{ x: -240 }}
-            transition={{ type: "spring", stiffness: 400, damping: 30 }}
-          >
-            {/* Mobile close */}
-            <div className="lg:hidden flex justify-end p-2">
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-
-            {/* Primary links */}
-            <nav className="flex-1 px-3 py-2 space-y-0.5">
-              <p className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Main
-              </p>
-              {primaryLinks.map(({ href, label, icon: Icon }) => (
-                <Link key={href} href={href} onClick={onClose}>
-                  <div
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
-                      isActive(href)
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                    )}
-                  >
-                    <Icon className={cn("h-4 w-4", isActive(href) && "text-primary")} />
-                    {label}
-                  </div>
-                </Link>
-              ))}
-
-              {/* Secondary links */}
-              <p className="px-3 pt-4 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Tools
-              </p>
-              {secondaryLinks.map(({ href, label, icon: Icon }) => (
-                <Link key={href} href={href} onClick={onClose}>
-                  <div
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
-                      isActive(href)
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                    )}
-                  >
-                    <Icon className={cn("h-4 w-4", isActive(href) && "text-primary")} />
-                    {label}
-                  </div>
-                </Link>
-              ))}
-            </nav>
-
-            {/* Footer */}
-            <div className="p-3 border-t text-[10px] text-muted-foreground text-center">
-              Article Processor
-            </div>
-          </motion.aside>
-        </>
-      )}
-    </AnimatePresence>
-  );
-}
 
 // ── Navbar ─────────────────────────────────────────────────────────────────
 
 function NavBar() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
 
   const isActive = (href: string) => {
@@ -173,29 +79,22 @@ function NavBar() {
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex h-16 items-center justify-between px-4">
-        {/* Left: toggle + logo */}
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="h-9 w-9"
-            onClick={() => setSidebarOpen(!sidebarOpen)}>
-            {sidebarOpen ? <PanelLeftClose className="h-5 w-5" /> : <PanelLeftOpen className="h-5 w-5" />}
-          </Button>
+        {/* Logo */}
+        <Link href="/" className="flex items-center gap-2.5 group flex-shrink-0">
+          <motion.div
+            whileHover={{ rotate: 15, scale: 1.15 }}
+            transition={{ type: "spring", stiffness: 400 }}
+          >
+            <FileText className="h-6 w-6 text-primary" />
+          </motion.div>
+          <span className="text-lg font-bold tracking-tight hidden sm:inline">
+            Article Processor
+          </span>
+        </Link>
 
-          <Link href="/" className="flex items-center gap-2.5 group flex-shrink-0">
-            <motion.div
-              whileHover={{ rotate: 15, scale: 1.15 }}
-              transition={{ type: "spring", stiffness: 400 }}
-            >
-              <FileText className="h-6 w-6 text-primary" />
-            </motion.div>
-            <span className="text-lg font-bold tracking-tight hidden sm:inline">
-              Article Processor
-            </span>
-          </Link>
-        </div>
-
-        {/* Center: quick nav (desktop) */}
-        <nav className="hidden lg:flex items-center gap-1 mx-4">
-          {primaryLinks.map(({ href, label, icon: Icon }) => (
+        {/* Center: nav links */}
+        <nav className="flex items-center gap-1 mx-4 overflow-x-auto">
+          {navLinks.map(({ href, label, icon: Icon }) => (
             <Link key={href} href={href}>
               <Button
                 variant={isActive(href) ? "secondary" : "ghost"}
@@ -203,14 +102,14 @@ function NavBar() {
                 className="gap-2 h-9"
               >
                 <Icon className="h-4 w-4" />
-                {label}
+                <span className="hidden sm:inline">{label}</span>
               </Button>
             </Link>
           ))}
         </nav>
 
         {/* Right */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <Link href="/settings">
             <Button variant="ghost" size="icon" className="h-9 w-9" title="Settings">
               <Settings2 className="h-5 w-5" />
@@ -219,8 +118,6 @@ function NavBar() {
           <ThemeToggle />
         </div>
       </div>
-
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
     </header>
   );
 }

@@ -8,7 +8,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   FileText, MessageCircle, Info, ScrollText, Loader2, Send,
-  RotateCw, Download, AlertCircle, Trash2, Archive, ArchiveRestore, Plus,
+  RotateCw, Download, AlertCircle, CheckCircle2, Trash2, Archive, ArchiveRestore, Plus,
   PanelRightClose, PanelRightOpen, X, Wand2, ArrowLeft, ChevronRight,
   Calendar, Activity,
 } from "lucide-react";
@@ -316,10 +316,7 @@ export default function ArticleDetailPage() {
           </div>
           <div className="flex gap-2 shrink-0 flex-wrap">
             <Button variant="outline" size="sm" onClick={() => handleReprocess(true)} disabled={reprocessing} className="gap-1">
-              <RotateCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`}/> Full Pipeline
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => handleReprocess(false)} disabled={reprocessing} className="gap-1 text-muted-foreground">
-              <FileText className="h-3.5 w-3.5"/> Parse Only
+              <RotateCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`}/> Re-extract
             </Button>
             <Button variant="outline" size="sm" onClick={handleArchive} disabled={archiving} className="gap-1">
               {article.is_archived ? <><ArchiveRestore className="h-3.5 w-3.5"/> Restore</> : <><Archive className="h-3.5 w-3.5"/> Archive</>}
@@ -786,59 +783,43 @@ function SkillResultView({ result }: { result: unknown }) {
 
 // ── Pipeline Progress Bar ──────────────────────────────────────────────
 
-const PIPELINE_STEPS = [
-  { key: "started", label: "Queued", icon: "○" },
-  { key: "parsing", label: "Parsing", icon: "📄" },
-  { key: "chunking", label: "Chunking", icon: "✂️" },
-  { key: "extracting", label: "AI Extraction", icon: "🧠" },
-  { key: "indexing", label: "Embeddings", icon: "🔢" },
-  { key: "graph", label: "Graph", icon: "🔗" },
-  { key: "completed", label: "Done", icon: "✅" },
-  { key: "parse_complete", label: "Done", icon: "✅" },
-];
+// ── AI Extraction Progress Bar ───────────────────────────────────────
 
 function PipelineProgress({ job }: { job: JobInfo }) {
   const logs = job.logs || [];
   const completedSteps = new Set(logs.filter((l: any) => !l.error).map((l: any) => l.step));
-  const stepKeys = PIPELINE_STEPS.map(s => s.key);
-  const currentIdx = stepKeys.indexOf(job.current_step || "");
-  const effectiveCompleted = new Set(completedSteps);
-  if (currentIdx > 0) {
-    for (let i = 0; i < currentIdx; i++) effectiveCompleted.add(stepKeys[i]);
-  }
   const isFailed = job.status === "failed";
-  const totalSteps = PIPELINE_STEPS.filter(s => s.key !== "completed" && s.key !== "parse_complete").length;
-  const doneCount = PIPELINE_STEPS.filter(s => {
-    if (s.key === "completed" || s.key === "parse_complete") return false;
-    return effectiveCompleted.has(s.key);
-  }).length;
-  const progressPct = Math.min(Math.round((doneCount / totalSteps) * 100), 100);
+
+  // Count completed extract-relevant steps
+  const extractSteps = ["started", "parsing", "chunking", "extracting"];
+  const doneCount = extractSteps.filter(s => completedSteps.has(s)).length;
+  const isExtracting = job.current_step === "extracting";
+  const progressPct = isFailed ? 100 : Math.min(Math.round((doneCount / extractSteps.length) * 100), 100);
+
+  const statusLabel = isFailed
+    ? "Extraction failed"
+    : isExtracting
+      ? "AI extracting..."
+      : job.current_step === "graph" || completedSteps.has("extracting")
+        ? "AI extraction complete"
+        : "Preparing for extraction...";
 
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between text-sm">
         <span className="font-medium flex items-center gap-2">
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-          Processing
+          {!isFailed && !completedSteps.has("extracting") && (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+          )}
+          {!isFailed && completedSteps.has("extracting") && (
+            <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+          )}
+          {isFailed && <AlertCircle className="h-3.5 w-3.5 text-destructive" />}
+          AI Extraction
         </span>
-        <span className="text-muted-foreground text-xs">{progressPct}%</span>
+        <span className="text-muted-foreground text-xs">{statusLabel}</span>
       </div>
-      <Progress value={progressPct} className="h-2" />
-      <div className="flex items-center gap-1.5 flex-wrap text-xs text-muted-foreground">
-        {PIPELINE_STEPS.filter(s => s.key !== "completed" && s.key !== "parse_complete").map((step, i) => {
-          const done = effectiveCompleted.has(step.key);
-          const active = job.current_step === step.key && !isFailed;
-          return (
-            <div key={step.key} className="flex items-center gap-1">
-              {i > 0 && <ChevronRight className="h-3 w-3 opacity-40" />}
-              <span className={`flex items-center gap-1 ${done ? "text-primary font-medium" : active ? "text-amber-500 font-medium" : "opacity-50"}`}>
-                <span className="text-[10px]">{step.icon}</span>
-                <span className="hidden sm:inline">{step.label}</span>
-              </span>
-            </div>
-          );
-        })}
-      </div>
+      <Progress value={progressPct} className={`h-2 ${isFailed ? "[&>div]:bg-destructive" : ""}`} />
       {isFailed && job.error && (
         <p className="text-xs text-destructive mt-1">Error: {job.error.slice(0, 200)}</p>
       )}
