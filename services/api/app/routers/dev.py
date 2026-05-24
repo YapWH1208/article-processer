@@ -94,11 +94,21 @@ def _load_dev_config() -> dict:
                 config = json.load(f)
             # Merge with defaults to fill any missing keys
             merged = {**DEFAULT_DEV_CONFIG, **config}
-            # Deep-merge prompts
-            if "prompts" in config and "prompts" in merged:
-                for key, val in DEFAULT_DEV_CONFIG["prompts"].items():
-                    if key not in merged["prompts"]:
-                        merged["prompts"][key] = val
+
+            # Deep-merge system_messages
+            if "system_messages" in merged:
+                defaults = DEFAULT_DEV_CONFIG.get("system_messages", {})
+                for key, val in defaults.items():
+                    if key not in merged["system_messages"]:
+                        merged["system_messages"][key] = val
+
+            # Deep-merge input_templates
+            if "input_templates" in merged:
+                defaults = DEFAULT_DEV_CONFIG.get("input_templates", {})
+                for key, val in defaults.items():
+                    if key not in merged["input_templates"]:
+                        merged["input_templates"][key] = val
+
             return merged
         except (json.JSONDecodeError, OSError) as e:
             logger.warning(f"Failed to load dev config, using defaults: {e}")
