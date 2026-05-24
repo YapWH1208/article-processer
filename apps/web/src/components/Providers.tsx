@@ -1,16 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Toaster } from "sonner";
 import {
-  FileText, Upload, Settings, Menu, X,
-  Sun, Moon, Home, BookOpen, BarChart3, GitBranch, MessageCircle, Code2,
+  FileText, Sun, Moon, Home, FileUp, MessageCircle,
+  GitBranch, BarChart3, Code2, Settings2, Search, X,
+  PanelLeftClose, PanelLeftOpen, BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
 
 // ── Theme toggle ──────────────────────────────────────────────────────────
 
@@ -56,84 +58,208 @@ function ThemeToggle() {
   );
 }
 
-// ── Nav links ─────────────────────────────────────────────────────────────
+// ── Nav link groups ───────────────────────────────────────────────────────
 
-const links = [
+const primaryLinks = [
   { href: "/", label: "Home", icon: Home },
-  { href: "/articles", label: "Articles", icon: BookOpen },
-  { href: "/upload", label: "Upload", icon: Upload },
+  { href: "/articles", label: "Library", icon: BookOpen },
+  { href: "/upload", label: "Upload", icon: FileUp },
   { href: "/chat", label: "Chat", icon: MessageCircle },
   { href: "/graph", label: "Graph", icon: GitBranch },
-  { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
-  { href: "/dev", label: "Dev", icon: Code2 },
-  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-function NavLinks({ mobile, onClick }: { mobile?: boolean; onClick?: () => void }) {
-  const pathname = usePathname();
-  const isActive = (href: string) => {
-    if (href === "/") return pathname === "/";
-    return pathname.startsWith(href);
-  };
+const secondaryLinks = [
+  { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
+  { href: "/dev", label: "Dev", icon: Code2 },
+  { href: "/settings", label: "Settings", icon: Settings2 },
+];
+
+// ── Search command palette (simplified) ───────────────────────────────────
+
+function SearchBar() {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setOpen((prev) => !prev);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
+
+  useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
+
+  const allLinks = [...primaryLinks, ...secondaryLinks];
+
+  const filtered = query
+    ? allLinks.filter((l) => l.label.toLowerCase().includes(query.toLowerCase()))
+    : allLinks;
+
   return (
     <>
-      {links.map(({ href, label, icon: Icon }) => (
-        <Link key={href} href={href} onClick={onClick}>
-          <Button
-            variant={isActive(href) ? "secondary" : "ghost"}
-            size={mobile ? "default" : "sm"}
-            className={cn("gap-2 relative", mobile && "w-full justify-start")}
+      <Button variant="outline" size="sm" className="gap-6 px-3 text-muted-foreground font-normal"
+        onClick={() => setOpen(true)}>
+        <span className="flex items-center gap-2"><Search className="h-3.5 w-3.5" /> Search pages...</span>
+        <kbd className="hidden sm:inline text-[10px] bg-muted px-1.5 py-0.5 rounded border font-mono">⌘K</kbd>
+      </Button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center pt-[20vh]"
+            onClick={() => setOpen(false)}
           >
-            <Icon className="h-4 w-4" />
-            {label}
-            {isActive(href) && (
-              <motion.div
-                layoutId="nav-active"
-                className="absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 w-6 bg-primary rounded-full"
-                transition={{ type: "spring", stiffness: 500, damping: 30 }}
-              />
-            )}
-          </Button>
-        </Link>
-      ))}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              className="w-full max-w-md bg-card border rounded-xl shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center border-b px-3">
+                <Search className="h-4 w-4 text-muted-foreground mr-2" />
+                <Input ref={inputRef} value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Find a page..." className="border-0 shadow-none flex-1 h-12 focus-visible:ring-0 px-0" />
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setOpen(false)}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="p-1.5 max-h-64 overflow-y-auto">
+                {filtered.map((l) => (
+                  <Link key={l.href} href={l.href} onClick={() => setOpen(false)}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-accent transition-colors">
+                    <l.icon className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">{l.label}</span>
+                  </Link>
+                ))}
+                {filtered.length === 0 && (
+                  <div className="px-3 py-4 text-sm text-muted-foreground text-center">No pages found</div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }
 
-// ── Mobile menu ────────────────────────────────────────────────────────────
+// ── Sidebar ────────────────────────────────────────────────────────────────
 
-function MobileMenu() {
-  const [open, setOpen] = useState(false);
+function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const pathname = usePathname();
+
+  const isActive = (href: string) => {
+    if (href === "/") return pathname === "/";
+    return pathname.startsWith(href);
+  };
+
   return (
-    <div className="md:hidden">
-      <Button variant="ghost" size="icon" onClick={() => setOpen(!open)}>
-        {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-      </Button>
-      <AnimatePresence>
-        {open && (
+    <AnimatePresence>
+      {open && (
+        <>
+          {/* Mobile backdrop */}
           <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2 }}
-            className="absolute top-16 left-0 right-0 bg-background border-b shadow-lg p-4 flex flex-col gap-1 z-50 overflow-hidden"
+            className="fixed inset-0 z-40 bg-black/30 lg:hidden"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={onClose}
+          />
+
+          {/* Sidebar */}
+          <motion.aside
+            className="fixed left-0 top-16 bottom-0 z-40 w-60 bg-card border-r flex flex-col shadow-lg"
+            initial={{ x: -240 }} animate={{ x: 0 }} exit={{ x: -240 }}
+            transition={{ type: "spring", stiffness: 400, damping: 30 }}
           >
-            <NavLinks mobile onClick={() => setOpen(false)} />
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+            {/* Mobile close */}
+            <div className="lg:hidden flex justify-end p-2">
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            {/* Primary links */}
+            <nav className="flex-1 px-3 py-2 space-y-0.5">
+              <p className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Main
+              </p>
+              {primaryLinks.map(({ href, label, icon: Icon }) => (
+                <Link key={href} href={href} onClick={onClose}>
+                  <div
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                      isActive(href)
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                    )}
+                  >
+                    <Icon className={cn("h-4 w-4", isActive(href) && "text-primary")} />
+                    {label}
+                  </div>
+                </Link>
+              ))}
+
+              {/* Secondary links */}
+              <p className="px-3 pt-4 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Tools
+              </p>
+              {secondaryLinks.map(({ href, label, icon: Icon }) => (
+                <Link key={href} href={href} onClick={onClose}>
+                  <div
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                      isActive(href)
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                    )}
+                  >
+                    <Icon className={cn("h-4 w-4", isActive(href) && "text-primary")} />
+                    {label}
+                  </div>
+                </Link>
+              ))}
+            </nav>
+
+            {/* Footer */}
+            <div className="p-3 border-t text-[10px] text-muted-foreground text-center">
+              Article Processor
+            </div>
+          </motion.aside>
+        </>
+      )}
+    </AnimatePresence>
   );
 }
 
 // ── Navbar ─────────────────────────────────────────────────────────────────
 
 function NavBar() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const pathname = usePathname();
+
+  const isActive = (href: string) => {
+    if (href === "/") return pathname === "/";
+    return pathname.startsWith(href);
+  };
+
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container mx-auto flex h-16 items-center justify-between px-4">
-        <div className="flex items-center gap-1">
-          <Link href="/" className="flex items-center gap-2 mr-4 group">
+      <div className="flex h-16 items-center justify-between px-4">
+        {/* Left: toggle + logo */}
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" className="h-9 w-9"
+            onClick={() => setSidebarOpen(!sidebarOpen)}>
+            {sidebarOpen ? <PanelLeftClose className="h-5 w-5" /> : <PanelLeftOpen className="h-5 w-5" />}
+          </Button>
+
+          <Link href="/" className="flex items-center gap-2.5 group flex-shrink-0">
             <motion.div
               whileHover={{ rotate: 15, scale: 1.15 }}
               transition={{ type: "spring", stiffness: 400 }}
@@ -144,15 +270,32 @@ function NavBar() {
               Article Processor
             </span>
           </Link>
-          <nav className="hidden md:flex items-center gap-1">
-            <NavLinks />
-          </nav>
         </div>
+
+        {/* Center: quick nav (desktop) */}
+        <nav className="hidden lg:flex items-center gap-1 mx-4">
+          {primaryLinks.map(({ href, label, icon: Icon }) => (
+            <Link key={href} href={href}>
+              <Button
+                variant={isActive(href) ? "secondary" : "ghost"}
+                size="sm"
+                className="gap-2 h-9"
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </Button>
+            </Link>
+          ))}
+        </nav>
+
+        {/* Right */}
         <div className="flex items-center gap-2">
+          <div className="hidden md:block"><SearchBar /></div>
           <ThemeToggle />
-          <MobileMenu />
         </div>
       </div>
+
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
     </header>
   );
 }
