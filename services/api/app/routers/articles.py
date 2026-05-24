@@ -184,11 +184,10 @@ def get_article_file(article_id: int, db: Session = Depends(get_db)):
 
 
 def _rewrite_markdown_image_urls(markdown: str) -> str:
-    """Rewrite relative image URLs to absolute API URLs so the frontend can load them.
+    """Rewrite relative image URLs to absolute API /storage/images/ URLs.
 
-    MinerU/draft parsers may produce relative paths like `storage/images/ts/hash.jpg`
-    which the browser resolves against the current frontend page URL (e.g. /articles/1/).
-    We rewrite these to absolute `http://localhost:8000/storage/images/...` URLs.
+    Extracts just the filename from any relative path and points it at the
+    /storage/images mount which serves files from storage/images/ flat.
     """
     import re
     from app.core.config import settings as _s
@@ -197,12 +196,11 @@ def _rewrite_markdown_image_urls(markdown: str) -> str:
 
     def _abs_url(match: re.Match) -> str:
         alt = match.group(1) or ""
-        src = match.group(2)
+        src = match.group(2).strip()
         if src.startswith(("http://", "https://", "data:")):
             return match.group(0)
-        if src.startswith("/"):
-            return f"![{alt}]({api_base.rstrip('/')}{src})"
-        return f"![{alt}]({api_base.rstrip('/')}/{src})"
+        fname = src.rsplit("/", 1)[-1]  # just the filename
+        return f"![{alt}]({api_base.rstrip('/')}/storage/images/{fname})"
 
     return re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', _abs_url, markdown)
 

@@ -267,19 +267,22 @@ class MinerUAdapter(BaseParser):
     # ── Shared helpers ───────────────────────────────────────────────────
 
     def _store_images(self, image_paths: list[str]) -> str:
-        """Copy extracted images to project storage under storage/images/."""
+        """Copy extracted images to project storage under storage/images/.
+
+        Images are stored flat (no timestamp subdirectory) so URLs like
+        /storage/images/hash.jpg are predictable and stable across reprocesses.
+        """
         try:
             images_root = settings.project_root / "storage" / "images"
-            import datetime
-            ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
-            dest_dir = images_root / ts
-            dest_dir.mkdir(parents=True, exist_ok=True)
+            images_root.mkdir(parents=True, exist_ok=True)
 
             for img_path in image_paths:
                 fname = os.path.basename(img_path)
-                shutil.copy2(img_path, dest_dir / fname)
+                dest = images_root / fname
+                if not dest.exists():
+                    shutil.copy2(img_path, dest)
 
-            return str(dest_dir.relative_to(settings.project_root))
+            return "storage/images"  # flat dir, relative to project root
         except Exception as e:
             logger.warning(f"Failed to store images: {e}")
             return ""
@@ -287,9 +290,8 @@ class MinerUAdapter(BaseParser):
     def _rewrite_image_paths(self, markdown: str, old_dir: str, new_dir: str) -> str:
         """Rewrite image references from temp dir to persisted storage path.
 
-        Image paths in the final markdown are written as absolute URLs
-        pointing to the API server so they resolve correctly from the
-        frontend regardless of the current page URL.
+        Images are stored flat under storage/images/. All image references
+        are rewritten to absolute API URLs pointing at /storage/images/filename.ext.
         """
         import re
 
@@ -301,18 +303,16 @@ class MinerUAdapter(BaseParser):
         if old_basename:
             markdown = markdown.replace(f"{old_basename}/", f"{new_dir}/")
 
-        # Rewrite any remaining relative image paths to absolute API URLs
+        # Rewrite all image references to absolute /storage/images/ URLs
         def _abs_url(match: re.Match) -> str:
             alt = match.group(1) or ""
-            src = match.group(2)
-            # Already absolute? Leave it
-            if src.startswith("http://") or src.startswith("https://"):
+            src = match.group(2).strip()
+            # Already absolute
+            if src.startswith(("http://", "https://", "data:")):
                 return match.group(0)
-            # Resolve relative → absolute
-            if src.startswith("/"):
-                return f"![{alt}]({api_base.rstrip('/')}{src})"
-            # Relative path — prepend API base
-            return f"![{alt}]({api_base.rstrip('/')}/{src})"
+            # Extract just the filename and point to storage mount
+            fname = src.rsplit("/", 1)[-1]
+            return f"![{alt}]({api_base.rstrip('/')}/storage/images/{fname})"
 
         markdown = re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', _abs_url, markdown)
         return markdown
