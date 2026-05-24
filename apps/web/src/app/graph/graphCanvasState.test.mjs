@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createGraphViewportState } from "./graphCanvasState.mjs";
+import { createGraphViewportState, resolveGraphCanvasSize } from "./graphCanvasState.mjs";
 
 test("stable graph viewport state reflects pan and cursor-centered zoom updates", () => {
   const viewport = createGraphViewportState({ x: 0, y: 0, scale: 1 });
@@ -14,3 +14,9 @@ test("stable graph viewport state reflects pan and cursor-centered zoom updates"
   assert.deepEqual(drawFrame(), { x: -75, y: -90, scale: 2 });
 });
 
+test("graph canvas uses the measured card width instead of a fixed maximum width", () => {
+  assert.deepEqual(
+    resolveGraphCanvasSize({ containerWidth: 1440, viewportHeight: 900 }),
+    { width: 1440, height: 620 }
+  );
+});

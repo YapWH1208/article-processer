@@ -16,6 +16,13 @@ export function zoomTransformAt(transform, point, nextScale) {
   };
 }
 
+export function resolveGraphCanvasSize({ containerWidth, viewportHeight }) {
+  return {
+    width: Math.max(320, Math.round(containerWidth)),
+    height: Math.max(360, Math.round(viewportHeight - 280)),
+  };
+}
+
 export function createGraphViewportState(initialTransform = { x: 0, y: 0, scale: 1 }) {
   let transform = {
     x: initialTransform.x,
@@ -53,4 +60,3 @@ export function createGraphViewportState(initialTransform = { x: 0, y: 0, scale:
     },
   };
 }
-

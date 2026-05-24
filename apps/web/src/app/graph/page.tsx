@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getGlobalGraph } from "@/lib/api";
 import type { GlobalGraphData } from "@/lib/types";
 import { FadeIn } from "@/components/ui/animated";
-import { createGraphViewportState } from "./graphCanvasState.mjs";
+import { createGraphViewportState, resolveGraphCanvasSize } from "./graphCanvasState.mjs";
 
 // ── Entity type colors ─────────────────────────────────────────────
 const TYPE_COLORS: Record<string, string> = {
@@ -466,6 +466,8 @@ export default function GraphPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set());
+  const graphContainerRef = useRef<HTMLDivElement>(null);
+  const [graphSize, setGraphSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
     getGlobalGraph(300)
@@ -478,6 +480,31 @@ export default function GraphPage() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const updateGraphSize = () => {
+      const containerWidth = graphContainerRef.current?.clientWidth || 0;
+      if (containerWidth <= 0) return;
+      setGraphSize(
+        resolveGraphCanvasSize({
+          containerWidth,
+          viewportHeight: window.innerHeight,
+        })
+      );
+    };
+
+    updateGraphSize();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateGraphSize) : null;
+    if (observer && graphContainerRef.current) {
+      observer.observe(graphContainerRef.current);
+    }
+    window.addEventListener("resize", updateGraphSize);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateGraphSize);
+    };
   }, []);
 
   const toggleType = (t: string) => {
@@ -571,41 +598,47 @@ export default function GraphPage() {
       <FadeIn delay={0.1}>
         <Card>
           <CardContent className="p-0 overflow-hidden rounded-lg">
-            {loading ? (
-              <div className="flex items-center justify-center h-[70vh]">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              </div>
-            ) : error ? (
-              <div className="flex flex-col items-center justify-center h-[70vh] text-muted-foreground gap-2">
-                <GitBranch className="h-12 w-12 opacity-30" />
-                <p className="text-sm">Failed to load graph: {error}</p>
-              </div>
-            ) : nodes.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-[70vh] text-muted-foreground gap-3">
-                <GitBranch className="h-16 w-16 opacity-20" />
-                <div className="text-center space-y-1">
-                  <p className="text-sm font-medium">No graph data yet</p>
-                  <p className="text-xs text-muted-foreground/70 max-w-xs">
-                    Process articles with AI extraction enabled to populate the knowledge graph with entities and relationships.
+            <div ref={graphContainerRef} className="w-full" style={{ height: graphSize.height || "70vh" }}>
+              {loading ? (
+                <div className="flex h-full items-center justify-center">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : error ? (
+                <div className="flex h-full flex-col items-center justify-center text-muted-foreground gap-2">
+                  <GitBranch className="h-12 w-12 opacity-30" />
+                  <p className="text-sm">Failed to load graph: {error}</p>
+                </div>
+              ) : nodes.length === 0 ? (
+                <div className="flex h-full flex-col items-center justify-center text-muted-foreground gap-3">
+                  <GitBranch className="h-16 w-16 opacity-20" />
+                  <div className="text-center space-y-1">
+                    <p className="text-sm font-medium">No graph data yet</p>
+                    <p className="text-xs text-muted-foreground/70 max-w-xs">
+                      Process articles with AI extraction enabled to populate the knowledge graph with entities and relationships.
+                    </p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => router.push("/upload")} className="mt-2 gap-1.5">
+                    <Upload className="h-3.5 w-3.5" />
+                    Upload Articles
+                  </Button>
+                  <p className="text-[11px] text-muted-foreground/50 mt-2">
+                    Tip: Drag to pan · Scroll to zoom · Click node to open article
                   </p>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => router.push("/upload")} className="mt-2 gap-1.5">
-                  <Upload className="h-3.5 w-3.5" />
-                  Upload Articles
-                </Button>
-                <p className="text-[11px] text-muted-foreground/50 mt-2">
-                  Tip: Drag to pan · Scroll to zoom · Click node to open article
-                </p>
-              </div>
-            ) : (
-              <GraphCanvas
-                nodes={nodes}
-                edges={edges}
-                width={Math.min(1200, typeof window !== "undefined" ? window.innerWidth - 48 : 1000)}
-                height={typeof window !== "undefined" ? window.innerHeight - 280 : 600}
-                onNodeClick={(node) => router.push(`/articles/${node.articleId}`)}
-              />
-            )}
+              ) : graphSize.width > 0 && graphSize.height > 0 ? (
+                <GraphCanvas
+                  nodes={nodes}
+                  edges={edges}
+                  width={graphSize.width}
+                  height={graphSize.height}
+                  onNodeClick={(node) => router.push(`/articles/${node.articleId}`)}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
       </FadeIn>
