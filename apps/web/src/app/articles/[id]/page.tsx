@@ -74,6 +74,7 @@ export default function ArticleDetailPage() {
   const [chatting, setChatting] = useState(false);
   const [chatOpen, setChatOpen] = useState(true);
   const [contextText, setContextText] = useState("");
+  const [expandedMsgs, setExpandedMsgs] = useState<Set<number>>(new Set());
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Actions
@@ -702,7 +703,31 @@ export default function ArticleDetailPage() {
                           <motion.div key={i} initial={{ opacity: 0, y: 10, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.25 }}
                             className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                             <div className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
-                              <p className="whitespace-pre-wrap text-xs">{msg.content.slice(0, 600)}{msg.content.length > 600 ? "..." : ""}</p>
+                              <div className="whitespace-pre-wrap text-xs">
+                                {msg.content.length > 400 && !expandedMsgs.has(i) ? (
+                                  <>
+                                    {msg.content.slice(0, 400)}…
+                                    <button
+                                      onClick={() => setExpandedMsgs((prev) => { const next = new Set(prev); next.add(i); return next; })}
+                                      className="ml-1 text-primary hover:underline font-medium"
+                                    >
+                                      Show more
+                                    </button>
+                                  </>
+                                ) : msg.content.length > 400 ? (
+                                  <>
+                                    {msg.content}
+                                    <button
+                                      onClick={() => setExpandedMsgs((prev) => { const next = new Set(prev); next.delete(i); return next; })}
+                                      className="ml-1 text-primary hover:underline font-medium"
+                                    >
+                                      Show less
+                                    </button>
+                                  </>
+                                ) : (
+                                  msg.content
+                                )}
+                              </div>
                               <div className="flex items-center gap-2 mt-1 flex-wrap">
                                 {msg.role === "assistant" && citations(msg).length > 0 && (
                                   <div className="mt-1.5 pt-1.5 border-t border-border/50 w-full">
