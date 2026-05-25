@@ -2,14 +2,44 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+/** Read the stored JWT token — same key that AuthProvider writes to. */
+function getAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("auth_token");
+}
+
+/** Paths that should NOT receive an auth header (login, register, health). */
+const AUTH_EXEMPT_PREFIXES = ["/auth/login", "/auth/register", "/health"];
+
+function buildRequest(path: string, options?: RequestInit): { url: string; init: RequestInit } {
   const url = `${API_BASE}${path}`;
-  const res = await fetch(url, {
+
+  // Build headers — attach auth token for protected endpoints
+  const headers = new Headers(options?.headers);
+
+  const isAuthExempt = AUTH_EXEMPT_PREFIXES.some((p) => path.startsWith(p));
+  if (!isAuthExempt) {
+    const token = getAuthToken();
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+  }
+
+  const init: RequestInit = {
     ...options,
-    headers: {
-      ...(options?.headers || {}),
-    },
-  });
+    headers,
+  };
+
+  return { url, init };
+}
+
+export async function authFetch(path: string, options?: RequestInit): Promise<Response> {
+  const { url, init } = buildRequest(path, options);
+  return fetch(url, init);
+}
+
+async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await authFetch(path, options);
 
   if (!res.ok) {
     const body = await res.text();
@@ -114,6 +144,18 @@ export async function reprocessArticle(id: number, mode: "full" | "parse_only" |
     `/articles/${id}/reprocess?mode=${mode}`,
     { method: "POST" }
   );
+}
+
+export async function toggleArchiveArticle(id: number, isArchived: boolean) {
+  const action = isArchived ? "unarchive" : "archive";
+  return apiFetch<{ article_id: number; is_archived: boolean }>(
+    `/articles/${id}/${action}`,
+    { method: "POST" }
+  );
+}
+
+export async function deleteArticle(id: number) {
+  return apiFetch<{ article_id: number; deleted: boolean }>(`/articles/${id}`, { method: "DELETE" });
 }
 
 // ── Chat ──────────────────────────────────────────────────────────

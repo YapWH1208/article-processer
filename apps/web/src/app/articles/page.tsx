@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { StaggerContainer, StaggerItem, HoverCard, FadeIn } from "@/components/ui/animated";
+import { deleteArticle, toggleArchiveArticle } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 const TERMINAL_ARTICLE_STATUSES = new Set(["completed", "failed", "needs_review"]);
@@ -66,15 +67,23 @@ export default function ArticlesPage() {
   const handleBatchArchive = async () => {
     setBatchAction("archive");
     let ok = 0;
+    let failed = 0;
     for (const id of selected) {
       try {
         const a = articles.find((x) => x.id === id);
         const url = a?.is_archived ? "unarchive" : "archive";
-        await fetch(`${API_BASE}/articles/${id}/${url}`, { method: "POST" });
+        await toggleArchiveArticle(id, Boolean(a?.is_archived));
         ok++;
-      } catch { /* skip */ }
+      } catch (e) {
+        failed++;
+        console.error(`Failed to update article ${id}:`, e);
+      }
     }
-    toast.success(`${ok} article(s) updated`);
+    if (failed > 0) {
+      toast.warning(`${ok} updated, ${failed} failed`);
+    } else {
+      toast.success(`${ok} article(s) updated`);
+    }
     setSelected(new Set());
     setBatchAction(null);
     setRefreshKey((k) => k + 1);
@@ -84,13 +93,21 @@ export default function ArticlesPage() {
     setDeleteOpen(false);
     setBatchAction("delete");
     let ok = 0;
+    let failed = 0;
     for (const id of selected) {
       try {
-        await fetch(`${API_BASE}/articles/${id}`, { method: "DELETE" });
+        await deleteArticle(id);
         ok++;
-      } catch { /* skip */ }
+      } catch (e) {
+        failed++;
+        console.error(`Failed to delete article ${id}:`, e);
+      }
     }
-    toast.success(`${ok} article(s) deleted`);
+    if (failed > 0) {
+      toast.warning(`${ok} deleted, ${failed} failed`);
+    } else {
+      toast.success(`${ok} article(s) deleted`);
+    }
     setSelected(new Set());
     setBatchAction(null);
     setRefreshKey((k) => k + 1);

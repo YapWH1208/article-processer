@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 from app.core.logging import setup_logging
+from app.core.rate_limit import RateLimitMiddleware
 from app.db.session import engine, Base
 from app.routers import uploads, articles, chat, exports, imports, skills as skills_router, auth, settings_page, dashboard, dev
 
@@ -35,13 +36,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Add rate limiting before CORS. In Starlette/FastAPI, the last-added
+# middleware runs first, so CORS wraps the limiter and 429 responses include
+# CORS headers for browsers.
+app.add_middleware(RateLimitMiddleware)
+
 # CORS — allow frontend dev server
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 

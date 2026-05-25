@@ -2,11 +2,12 @@
 
 import json
 import logging
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 from app.db.session import SessionLocal
 from pydantic import BaseModel, Field
 
+from app.core.auth_deps import require_user
 from app.core.config import reload_settings, DOTENV_PATH, settings
 from app.core.config import Settings as SettingsClass
 
@@ -223,7 +224,7 @@ def get_settings():
 
 
 @router.put("", response_model=SettingsResponse)
-def update_settings(update: SettingsUpdate):
+def update_settings(update: SettingsUpdate, user=Depends(require_user)):
     env_vars = _read_env_file()
 
     # ── LLM ──────────────────────────────────────────────────────────
@@ -553,7 +554,7 @@ class TestConnectionBody(BaseModel):
 
 
 @router.post("/test")
-async def test_connection(body: TestConnectionBody):
+async def test_connection(body: TestConnectionBody, user=Depends(require_user)):
     """Test LLM and embedding provider connectivity with a minimal API call.
 
     Accepts current form state — does NOT save to .env. Returns per-provider
@@ -692,7 +693,7 @@ async def test_connection(body: TestConnectionBody):
 
 
 @router.post("/import")
-async def import_settings(file: UploadFile = File(...)):
+async def import_settings(file: UploadFile = File(...), user=Depends(require_user)):
     """Import settings + articles from a previously exported JSON file."""
     if not file.filename or not file.filename.endswith(".json"):
         raise HTTPException(400, "Please upload a .json settings file")

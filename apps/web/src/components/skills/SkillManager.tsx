@@ -11,8 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+import { authFetch } from "@/lib/api";
 
 interface SkillDef {
   name: string; purpose: string; description: string;
@@ -70,12 +69,12 @@ export default function SkillManager({ skills, onSkillsChanged }: SkillManagerPr
         prompt_instructions: formPrompt.trim(),
       };
 
-      const url = editingSkill
-        ? `${API_BASE}/skills/${encodeURIComponent(editingSkill.name)}`
-        : `${API_BASE}/skills`;
+      const path = editingSkill
+        ? `/skills/${encodeURIComponent(editingSkill.name)}`
+        : "/skills";
       const method = editingSkill ? "PUT" : "POST";
 
-      const res = await fetch(url, {
+      const res = await authFetch(path, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -93,7 +92,7 @@ export default function SkillManager({ skills, onSkillsChanged }: SkillManagerPr
   const handleDelete = async (name: string) => {
     setDeletingName(name);
     try {
-      const res = await fetch(`${API_BASE}/skills/${encodeURIComponent(name)}`, { method: "DELETE" });
+      const res = await authFetch(`/skills/${encodeURIComponent(name)}`, { method: "DELETE" });
       if (!res.ok) throw new Error((await res.json()).detail || "Delete failed");
       toast.success(`Skill "${name}" deleted`);
       onSkillsChanged();

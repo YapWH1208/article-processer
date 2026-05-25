@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
+from app.core.auth_deps import require_user
 from app.db.session import get_db
 from app.db.models import Article
 from app.services.skills.registry import SkillRegistry, Skill
@@ -34,6 +35,7 @@ async def run_skill(
     skill_name: str,
     body: dict,
     db: Session = Depends(get_db),
+    user=Depends(require_user),
 ):
     """Run a skill on a specific article. Body should contain article_id."""
     skill = registry.get(skill_name)
@@ -68,7 +70,7 @@ async def run_skill(
 # ── CRUD ────────────────────────────────────────────────────────────────
 
 @router.post("")
-def create_skill(body: dict):
+def create_skill(body: dict, user=Depends(require_user)):
     """Create a new skill. Required fields: name, purpose, description, input_schema, output_schema."""
     name = body.get("name", "").strip()
     if not name:
@@ -87,7 +89,7 @@ def create_skill(body: dict):
 
 
 @router.put("/{skill_name}")
-def update_skill(skill_name: str, body: dict):
+def update_skill(skill_name: str, body: dict, user=Depends(require_user)):
     """Update an existing skill. Only user-created skills can be modified."""
     if not registry.get(skill_name):
         raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
@@ -108,7 +110,7 @@ def update_skill(skill_name: str, body: dict):
 
 
 @router.delete("/{skill_name}")
-def delete_skill(skill_name: str):
+def delete_skill(skill_name: str, user=Depends(require_user)):
     """Delete a skill. Built-in defaults are protected from deletion unless they've been edited."""
     if not registry.get(skill_name):
         raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
@@ -132,6 +134,7 @@ def export_skills():
 async def import_skills(
     file: UploadFile = File(None),
     body: dict = None,
+    user=Depends(require_user),
 ):
     """Import skills from an uploaded JSON file or a JSON body.
 

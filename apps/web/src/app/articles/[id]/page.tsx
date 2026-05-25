@@ -26,12 +26,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { sendChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle } from "@/lib/api";
+import { sendChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, toggleArchiveArticle, deleteArticle } from "@/lib/api";
 import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
 
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 interface Article {
   id: number; title: string; status: string; original_filename: string;
@@ -123,8 +122,10 @@ export default function ArticleDetailPage() {
       listSkills().then((s) => setSkills(s.skills || [])).catch(() => {});
       // Load job history
       getArticleJobs(articleId).then((j) => setJobs(Array.isArray(j) ? j : [])).catch(() => {});
-    } catch { /* handled */ }
-    finally { setLoading(false); }
+    } catch (e) {
+      console.error("Failed to load article data:", e);
+      toast.error("Failed to load article. Check your connection and try again.");
+    } finally { setLoading(false); }
   }, [articleId]);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -152,7 +153,7 @@ export default function ArticleDetailPage() {
         if (isTerminalArticleStatus(res.article_status)) {
           loadData();
         }
-      } catch { /* ignore poll errors */ }
+      } catch { /* ignore poll errors — will retry on next interval */ }
     };
     poll(); // immediate first poll
     const interval = setInterval(poll, 2000);
@@ -212,10 +213,7 @@ export default function ArticleDetailPage() {
   const handleArchive = async () => {
     setArchiving(true);
     try {
-      const url = article?.is_archived ? "unarchive" : "archive";
-      const res = await fetch(`${API_BASE}/articles/${articleId}/${url}`, { method: "POST" });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
+      const data = await toggleArchiveArticle(articleId, Boolean(article?.is_archived));
       setArticle((prev) => prev ? { ...prev, is_archived: data.is_archived ? 1 : 0 } : null);
       toast.success(data.is_archived ? "Article archived" : "Article restored");
     } catch { toast.error("Failed"); }
@@ -225,8 +223,7 @@ export default function ArticleDetailPage() {
   const handleDelete = async () => {
     setDeleting(true);
     try {
-      const res = await fetch(`${API_BASE}/articles/${articleId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error();
+      await deleteArticle(articleId);
       toast.success("Article deleted");
       router.push("/articles");
     } catch { toast.error("Delete failed"); setDeleting(false); setDeleteOpen(false); }
@@ -453,7 +450,7 @@ export default function ArticleDetailPage() {
                       <CardHeader className="shrink-0 flex flex-row items-center justify-between">
                         <div><CardTitle className="text-lg">Extraction</CardTitle><CardDescription>AI-extracted info</CardDescription></div>
                         <div className="flex gap-2">
-                          {["json","markdown"].map(f=><a key={f} href={`${API_BASE}/articles/${articleId}/export/${f}`} target="_blank" rel="noopener noreferrer"><Button variant="outline" size="sm" className="gap-1"><Download className="h-3.5 w-3.5"/>{f}</Button></a>)}
+                          {["json","markdown"].map(f=><a key={f} href={`${API_BASE}/articles/${articleId}/export/${f}`} target="_blank" rel="noopener noreferrer"><Button variant="outline" size="sm" className="gap-1"><Download className="h-3.5 w-3.5"/>Export {f.toUpperCase()}</Button></a>)
                         </div>
                       </CardHeader>
                       <CardContent className="flex-1 min-h-0 p-4">
@@ -760,12 +757,12 @@ function SummaryContent({ extraction, onAsk, onAdd }: { extraction: ExtractionRe
     <div className="space-y-4 text-sm">
       {extraction.abstract && <SectionWithAsk title="Abstract" text={extraction.abstract} onAsk={onAsk} onAdd={onAdd}/>}
       {Array.isArray(extraction.authors) && extraction.authors.length > 0 && (
-        <div><h4 className="font-semibold mb-1 flex items-center gap-2">Authors <button onClick={()=>onAsk(`Tell me about the authors of this paper`)} className="text-primary hover:underline text-xs font-normal"><MessageCircle className="h-3 w-3 inline mr-0.5"/>Ask</button></h4>
+        <div><h4 className="font-semibold mb-1 flex items-center gap-2">Authors <button onClick={()=>onAsk(`Tell me about the authors of this paper`)} className="text-primary hover:underline text-xs font-normal"><MessageCircle className="h-3 w-3 inline-block"/></button></h4>
           <div className="flex flex-wrap gap-1">{extraction.authors.map((a,i)=><Badge key={i} variant="secondary">{a}</Badge>)}</div>
         </div>
       )}
       <div className="grid sm:grid-cols-2 gap-3">
-        {[["Year",extraction.year],["Venue",extraction.venue],["DOI",extraction.doi],["URL",extraction.url]].map(([l,v])=>v?<div key={l}><h4 className="font-semibold mb-1">{l}</h4><p className="text-muted-foreground text-xs break-all">{String(v)}</p></div>:null)}
+        {[["Year",extraction.year],["Venue",extraction.venue],["DOI",extraction.doi],["URL",extraction.url]].map(([l,v])=>v?<div key={l as string}><h4 className="font-semibold mb-1">{l as string}</h4><p className="text-muted-foreground">{String(v)}</p></div>:null)}
       </div>
       {["background","research_problem","methodology","results","limitations","future_work"].map(k=>{
         const label = k.replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase());
@@ -775,7 +772,7 @@ function SummaryContent({ extraction, onAsk, onAdd }: { extraction: ExtractionRe
       {Array.isArray(extraction.key_claims) && extraction.key_claims.length > 0 && (
         <div><h4 className="font-semibold mb-1">Key Claims</h4>
           <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
-            {extraction.key_claims.map((c,i)=><li key={i} className="group flex items-start gap-2"><span className="flex-1">{c.claim}</span><button onClick={()=>onAsk(`Tell me more about this claim: "${c.claim}"`)} className="opacity-0 group-hover:opacity-100 text-primary shrink-0" title="Ask"><MessageCircle className="h-3 w-3"/></button></li>)}
+            {extraction.key_claims.map((c,i)=><li key={i} className="group flex items-start gap-2"><span className="flex-1">{c.claim}</span><button onClick={()=>onAsk(`Tell me more about this claim: ${c.claim}`)} className="text-primary hover:underline text-xs opacity-0 group-hover:opacity-100"><MessageCircle className="h-3 w-3"/></button><button onClick={()=>onAdd(c.claim,"Key Claims")} className="text-primary hover:underline text-xs opacity-0 group-hover:opacity-100"><Plus className="h-3 w-3"/></button></li>)}
           </ul>
         </div>
       )}
@@ -788,7 +785,8 @@ function SectionWithAsk({ title, text, onAsk, onAdd }: { title: string; text: st
     <div>
       <h4 className="font-semibold mb-1 flex items-center gap-2">
         {title}
-        <button onClick={() => onAsk(`Tell me about the ${title.toLowerCase()} of this paper`)} className="text-primary hover:underline text-xs font-normal"><MessageCircle className="h-3 w-3 inline mr-0.5"/>Ask</button>
+        <button onClick={() => onAsk(`Tell me about the ${title.toLowerCase()} of this paper`)} className="text-primary hover:underline text-xs font-normal"><MessageCircle className="h-3 w-3 inline-block"/></button>
+        <button onClick={() => onAdd(text, title)} className="text-primary hover:underline text-xs font-normal"><Plus className="h-3 w-3 inline-block"/></button>
       </h4>
       <p className="text-muted-foreground">{text}</p>
     </div>
@@ -817,10 +815,6 @@ function SkillResultView({ result }: { result: unknown }) {
     </div>
   );
 }
-
-// ── Pipeline Progress Bar ──────────────────────────────────────────────
-
-// ── AI Extraction Progress Bar ───────────────────────────────────────
 
 function PipelineProgress({ job }: { job: JobInfo }) {
   const logs = job.logs || [];

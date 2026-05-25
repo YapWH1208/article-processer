@@ -96,6 +96,8 @@ class Settings(BaseSettings):
     # ── Server ────────────────────────────────────────────────────────────
     host: str = "0.0.0.0"
     port: int = 8000
+    trust_proxy_headers: bool = False
+    trusted_proxies: str = ""
 
     # ── Resolved helpers ──────────────────────────────────────────────────
 

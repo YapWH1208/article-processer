@@ -8,6 +8,7 @@ from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.auth_deps import require_user
 from app.core.security import (
     sanitize_filename,
     compute_file_hash,
@@ -29,6 +30,7 @@ async def upload_file(
     file: UploadFile = File(...),
     run_ai: str = Form("true"),
     db: Session = Depends(get_db),
+    user=Depends(require_user),
 ):
     """Upload a PDF, ZIP, HTML, MD, or TXT file for processing."""
     # Explicitly parse run_ai — avoid FastAPI bool coercion edge cases
