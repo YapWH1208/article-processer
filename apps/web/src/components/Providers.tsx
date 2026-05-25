@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Toaster } from "sonner";
 import {
   FileText, Sun, Moon, Home, FileUp, MessageCircle,
-  GitBranch, BarChart3, Settings2, BookOpen, Menu, X,
+  GitBranch, BarChart3, Settings2, BookOpen, Menu, X, Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -72,6 +72,8 @@ const navLinks = [
 function NavBar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [processingCount, setProcessingCount] = useState(0);
+  const PROCESSING_STATUSES = ["uploaded", "parsing", "extracting", "indexing"];
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
@@ -79,6 +81,28 @@ function NavBar() {
   };
 
   const closeMobile = () => setMobileOpen(false);
+
+  // Poll for in-progress articles every 10s
+  useEffect(() => {
+    const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    const poll = async () => {
+      try {
+        // Query each non-terminal status and sum counts
+        let total = 0;
+        for (const status of PROCESSING_STATUSES) {
+          const res = await fetch(`${API_BASE}/articles?status=${status}&limit=1`);
+          if (res.ok) {
+            const data = await res.json();
+            total += data.total || 0;
+          }
+        }
+        setProcessingCount(total);
+      } catch { /* ignore poll errors */ }
+    };
+    poll();
+    const interval = setInterval(poll, 10_000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -125,6 +149,18 @@ function NavBar() {
 
         {/* Right */}
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Processing indicator */}
+          {processingCount > 0 && (
+            <Link href="/articles">
+              <Button variant="ghost" size="sm" className="gap-1.5 h-8 text-xs">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+                </span>
+                <span className="hidden sm:inline">{processingCount} processing</span>
+              </Button>
+            </Link>
+          )}
           <Link href="/settings" className="hidden md:inline-flex">
             <Button variant="ghost" size="icon" className="h-9 w-9" title="Settings">
               <Settings2 className="h-5 w-5" />
