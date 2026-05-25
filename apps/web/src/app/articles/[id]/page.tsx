@@ -293,7 +293,11 @@ export default function ArticleDetailPage() {
   };
 
   if (loading) {
-    return <div className="space-y-4"><Skeleton className="h-8 w-64"/><Skeleton className="h-4 w-48"/><Skeleton className="h-[70vh] w-full"/></div>;
+    return (
+      <motion.div className="space-y-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}>
+        <Skeleton className="h-8 w-64"/><Skeleton className="h-4 w-48"/><Skeleton className="h-[70vh] w-full"/>
+      </motion.div>
+    );
   }
 
   if (!article) {
