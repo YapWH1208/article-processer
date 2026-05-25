@@ -39,7 +39,11 @@ class BaseLLMProvider(ABC):
 
     @abstractmethod
     async def answer_question(
-        self, question: str, article_title: str, article_text: str,
+        self,
+        question: str,
+        article_title: str,
+        article_text: str | None = None,
+        chunks: list[Any] | None = None,
     ) -> tuple[str, list[dict]]:
         ...
 
@@ -69,7 +73,7 @@ def _load_providers() -> list[dict]:
     """Load provider configs from dev_config.json."""
     if DEV_CONFIG_PATH.exists():
         try:
-            with open(DEV_CONFIG_PATH, "r") as f:
+            with open(DEV_CONFIG_PATH, "r", encoding="utf-8-sig") as f:
                 config = json.load(f)
             return config.get("providers", [])
         except (json.JSONDecodeError, OSError):
@@ -81,7 +85,7 @@ def _get_active_provider_id() -> str | None:
     """Get the active provider id from dev_config."""
     if DEV_CONFIG_PATH.exists():
         try:
-            with open(DEV_CONFIG_PATH, "r") as f:
+            with open(DEV_CONFIG_PATH, "r", encoding="utf-8-sig") as f:
                 config = json.load(f)
             return config.get("active_provider_id")
         except (json.JSONDecodeError, OSError):
@@ -91,11 +95,11 @@ def _get_active_provider_id() -> str | None:
 
 def _build_provider_from_entry(entry: dict) -> BaseLLMProvider:
     """Build a provider instance from a dev_config provider entry."""
-    provider_type = entry.get("type", "custom")
+    provider_type = str(entry.get("type", "custom")).strip().lower()
     api_key = entry.get("api_key", "")
     base_url = entry.get("base_url", "")
     model = entry.get("model", "")
-    protocol = entry.get("protocol", "openai")
+    protocol = str(entry.get("protocol", "openai")).strip().lower()
 
     # If type is a known preset and base_url is empty, fill from preset
     if provider_type in KNOWN_PROVIDER_PRESETS and not base_url:
@@ -112,16 +116,25 @@ def _build_provider_from_entry(entry: dict) -> BaseLLMProvider:
             if not key:
                 from app.services.ai.mock_provider import MockLLMProvider
                 return MockLLMProvider()
-            return AnthropicProvider()
+            return AnthropicProvider(api_key=key, model=model or settings.anthropic_model)
         else:
             from app.services.ai.anthropic_provider import CustomAnthropicProvider
-            return CustomAnthropicProvider()
+            return CustomAnthropicProvider(
+                api_key=api_key or settings.llm_custom_api_key or "not-needed",
+                base_url=base_url or settings.llm_custom_base_url,
+                model=model or settings.llm_custom_model,
+                provider_name=provider_type,
+            )
     else:
         # OpenAI-compatible (covers openai, deepseek, openrouter, glm, minimax, mimo, kimi, custom)
         from app.services.ai.openai_provider import CustomOpenAIProvider, OpenAIProvider
         if provider_type == "openai" and api_key:
             # Use native OpenAI only when explicitly configured with a key
-            return OpenAIProvider()
+            return OpenAIProvider(
+                api_key=api_key,
+                model=model or KNOWN_PROVIDER_PRESETS["openai"]["default_model"],
+                provider_name="openai",
+            )
         # Everything else goes through CustomOpenAIProvider
         if not base_url:
             # Fall back to env settings for backward compat
@@ -131,8 +144,12 @@ def _build_provider_from_entry(entry: dict) -> BaseLLMProvider:
                 base_url = settings.llm_custom_base_url or "http://localhost:11434/v1"
 
         effective_key = api_key or getattr(settings, f"{provider_type}_api_key", None) or ""
-        if not effective_key and provider_type not in ("custom",):
-            effective_key = "not-needed"  # local models like Ollama don't need keys
+        if not effective_key and provider_type in KNOWN_PROVIDER_PRESETS:
+            from app.services.ai.mock_provider import MockLLMProvider
+            logger.warning("Provider '%s' has no API key; falling back to mock provider", provider_type)
+            return MockLLMProvider()
+        if not effective_key:
+            effective_key = "not-needed"
 
         effective_model = model or getattr(settings, f"{provider_type}_model", "") or "gpt-4.1-mini"
 
@@ -140,6 +157,7 @@ def _build_provider_from_entry(entry: dict) -> BaseLLMProvider:
             base_url=base_url,
             api_key=effective_key,
             model=effective_model,
+            provider_name=provider_type,
         )
 
 

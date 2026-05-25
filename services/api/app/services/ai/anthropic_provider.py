@@ -17,6 +17,7 @@ from app.services.ai.prompts import (
     get_input_template,
 )
 from app.core.security import protect_prompt_from_injection
+from app.services.ai.extraction import ExtractionService
 from app.services.ai.openai_provider import _repair_json
 
 logger = logging.getLogger(__name__)
@@ -33,15 +34,20 @@ except ImportError:
 class AnthropicProvider(BaseLLMProvider):
     """Anthropic Claude provider via official SDK."""
 
-    def __init__(self):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str | None = None,
+        provider_name: str = "anthropic",
+    ):
         super().__init__()
         if not HAS_ANTHROPIC:
             raise RuntimeError(
                 "Anthropic SDK not installed. Run: pip install anthropic"
             )
-        self.client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-        self.model = settings.anthropic_model
-        self._provider_name = "anthropic"
+        self.client = anthropic.AsyncAnthropic(api_key=api_key or settings.anthropic_api_key)
+        self.model = model or settings.anthropic_model
+        self._provider_name = provider_name
 
     async def extract_structured(
         self, markdown: str, article_title: str,
@@ -53,12 +59,27 @@ class AnthropicProvider(BaseLLMProvider):
             f"{protected_text}\n\n"
             f"Respond with a JSON object only, no other text."
         )
-        return await self._call_claude(prompt, "extraction", max_tokens=8000)
+        parsed, _ = await self._call_claude(prompt, "extraction", max_tokens=8000)
+        if not isinstance(parsed, dict):
+            return None, ["JSON parse error"], 0.0
+
+        result = ExtractionService.normalize_extraction(parsed, article_title=article_title)
+        errors = ExtractionService.validate_schema(result)
+        return result, (errors or None), 0.85 if not errors else 0.6
 
     async def answer_question(
-        self, question: str, article_title: str, article_text: str,
+        self,
+        question: str,
+        article_title: str,
+        article_text: str | None = None,
+        chunks: list[Any] | None = None,
     ) -> tuple[str, list[dict]]:
-        protected_text = protect_prompt_from_injection(article_text)
+        if chunks:
+            article_text = "\n\n---\n\n".join(
+                self._format_chunk_for_context(chunk)
+                for chunk in chunks
+            )
+        protected_text = protect_prompt_from_injection(article_text or "")
 
         input_template = get_input_template("chat")
         user_content = input_template.format(
@@ -69,7 +90,7 @@ class AnthropicProvider(BaseLLMProvider):
 
         prompt = f"{QA_SYSTEM_PROMPT}\n\n{user_content}"
         answer, _ = await self._call_claude(prompt, "qa")
-        citations = self._extract_citations(answer, [])
+        citations = self._extract_citations(answer, chunks or [])
         return answer, citations
 
     async def run_skill(self, skill: Any, article_markdown: str) -> dict:
@@ -142,6 +163,14 @@ class AnthropicProvider(BaseLLMProvider):
                 })
         return citations
 
+    @staticmethod
+    def _format_chunk_for_context(chunk: Any) -> str:
+        text = chunk.text if hasattr(chunk, 'text') else str(chunk)
+        section = chunk.section_title if hasattr(chunk, 'section_title') else None
+        page = f"pp. {chunk.page_start}-{chunk.page_end}" if hasattr(chunk, 'page_start') and chunk.page_start else ""
+        idx = chunk.chunk_index if hasattr(chunk, 'chunk_index') else 0
+        return f'[Chunk {idx}, Section: "{section or "N/A"}", {page}]\n{text}'
+
 
 class CustomAnthropicProvider(AnthropicProvider):
     """Anthropic-compatible provider at a custom endpoint.
@@ -149,13 +178,19 @@ class CustomAnthropicProvider(AnthropicProvider):
     Uses ``llm_custom_base_url``, ``llm_custom_api_key``, ``llm_custom_model``.
     """
 
-    def __init__(self):
-        super().__init__()
+    def __init__(
+        self,
+        api_key: str = "",
+        base_url: str = "",
+        model: str = "",
+        provider_name: str = "custom",
+    ):
+        BaseLLMProvider.__init__(self)
         if not HAS_ANTHROPIC:
             raise RuntimeError("Anthropic SDK not installed. Run: pip install anthropic")
         self.client = anthropic.AsyncAnthropic(
-            api_key=settings.llm_custom_api_key or "not-needed",
-            base_url=settings.llm_custom_base_url.rstrip("/"),
+            api_key=api_key or settings.llm_custom_api_key or "not-needed",
+            base_url=(base_url or settings.llm_custom_base_url).rstrip("/"),
         )
-        self.model = settings.llm_custom_model
-        self._provider_name = "custom"
+        self.model = model or settings.llm_custom_model
+        self._provider_name = provider_name

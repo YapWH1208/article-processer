@@ -76,3 +76,29 @@ async def test_extract_structured_retries_without_json_mode_after_empty_json_res
     assert errors is None
     assert confidence == 0.85
     assert result["title"] == "Paper"
+
+
+@pytest.mark.asyncio
+async def test_extract_structured_normalizes_partial_provider_response_without_retry():
+    provider = _provider_with_responses([
+        _chat_response(
+            '{"paper_title": "Partial Paper", "authors": "Alice, Bob", '
+            '"year": "2024", "datasets": {"name": "ImageNet"}, '
+            '"graph_entities": [{"type": "method", "name": "FastLearn"}]}'
+        ),
+    ])
+
+    result, errors, confidence = await provider.extract_structured(
+        markdown="# Partial Paper\n\nBody",
+        article_title="Fallback",
+    )
+
+    calls = provider.client.chat.completions.calls
+    assert len(calls) == 1
+    assert errors is None
+    assert confidence == 0.85
+    assert result["title"] == "Partial Paper"
+    assert result["authors"] == ["Alice", "Bob"]
+    assert result["datasets"] == ["ImageNet"]
+    assert result["abstract"] is None
+    assert result["graph_entities"][0]["type"] == "Method"
