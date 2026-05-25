@@ -26,12 +26,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { sendChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle } from "@/lib/api";
+import { sendChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, toggleArchiveArticle, deleteArticle } from "@/lib/api";
 import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
 
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 interface Article {
   id: number; title: string; status: string; original_filename: string;
@@ -214,10 +212,7 @@ export default function ArticleDetailPage() {
   const handleArchive = async () => {
     setArchiving(true);
     try {
-      const url = article?.is_archived ? "unarchive" : "archive";
-      const res = await fetch(`${API_BASE}/articles/${articleId}/${url}`, { method: "POST" });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
+      const data = await toggleArchiveArticle(articleId, Boolean(article?.is_archived));
       setArticle((prev) => prev ? { ...prev, is_archived: data.is_archived ? 1 : 0 } : null);
       toast.success(data.is_archived ? "Article archived" : "Article restored");
     } catch { toast.error("Failed"); }
@@ -227,8 +222,7 @@ export default function ArticleDetailPage() {
   const handleDelete = async () => {
     setDeleting(true);
     try {
-      const res = await fetch(`${API_BASE}/articles/${articleId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error();
+      await deleteArticle(articleId);
       toast.success("Article deleted");
       router.push("/articles");
     } catch { toast.error("Delete failed"); setDeleting(false); setDeleteOpen(false); }

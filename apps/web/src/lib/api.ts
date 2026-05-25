@@ -137,6 +137,18 @@ export async function reprocessArticle(id: number, mode: "full" | "parse_only" |
   );
 }
 
+export async function toggleArchiveArticle(id: number, isArchived: boolean) {
+  const action = isArchived ? "unarchive" : "archive";
+  return apiFetch<{ ok: boolean; id: number; is_archived: boolean }>(
+    `/articles/${id}/${action}`,
+    { method: "POST" }
+  );
+}
+
+export async function deleteArticle(id: number) {
+  return apiFetch<{ ok: boolean }>(`/articles/${id}`, { method: "DELETE" });
+}
+
 // ── Chat ──────────────────────────────────────────────────────────
 
 export async function sendChatMessage(articleId: number, message: string) {

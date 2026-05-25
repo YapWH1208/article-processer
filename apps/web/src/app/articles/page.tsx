@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { StaggerContainer, StaggerItem, HoverCard, FadeIn } from "@/components/ui/animated";
+import { deleteArticle, toggleArchiveArticle } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 const TERMINAL_ARTICLE_STATUSES = new Set(["completed", "failed", "needs_review"]);
@@ -71,7 +72,7 @@ export default function ArticlesPage() {
       try {
         const a = articles.find((x) => x.id === id);
         const url = a?.is_archived ? "unarchive" : "archive";
-        await fetch(`${API_BASE}/articles/${id}/${url}`, { method: "POST" });
+        await toggleArchiveArticle(id, Boolean(a?.is_archived));
         ok++;
       } catch (e) {
         failed++;
@@ -95,7 +96,7 @@ export default function ArticlesPage() {
     let failed = 0;
     for (const id of selected) {
       try {
-        await fetch(`${API_BASE}/articles/${id}`, { method: "DELETE" });
+        await deleteArticle(id);
         ok++;
       } catch (e) {
         failed++;

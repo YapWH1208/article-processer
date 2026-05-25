@@ -54,8 +54,8 @@ _CLEANUP_INTERVAL_S = 300  # 5 minutes
 _STALE_THRESHOLD_S = 600  # 10 minutes
 
 
-def _resolve_limit(path: str) -> int:
-    """Return requests-per-minute for *path*.
+def _resolve_limit(path: str) -> tuple[int, str]:
+    """Return (requests-per-minute, scope_key) for *path*.
 
     Matches against known endpoint prefixes. For parameterised paths the
     raw request path is used (e.g. ``/articles/42/chat``) — we match on
@@ -69,8 +69,8 @@ def _resolve_limit(path: str) -> int:
                 seg == pseg or ("{" in pseg and "}" in pseg)
                 for seg, pseg in zip(segments, prefix_segments)
             ):
-                return rpm
-    return _DEFAULT_RPM
+                return rpm, prefix
+    return _DEFAULT_RPM, "__default__"
 
 
 # ── Limiter ────────────────────────────────────────────────────────────────
@@ -94,19 +94,21 @@ class RateLimiter:
         Returns ``True`` if the request is within limits, ``False`` if
         rate-limited (caller should return 429).
         """
-        rpm = _resolve_limit(path)
+        rpm, limit_scope = _resolve_limit(path)
         rate = rpm / 60.0   # tokens per second
         capacity = rpm       # bucket capacity = one minute worth
 
         now = time.monotonic()
 
+        bucket_key = f"{client_id}:{limit_scope}"
+
         with self._lock:
             self._maybe_cleanup(now)
 
-            bucket = self._buckets.get(client_id)
+            bucket = self._buckets.get(bucket_key)
             if bucket is None:
                 bucket = _TokenBucket(rate=rate, capacity=capacity)
-                self._buckets[client_id] = bucket
+                self._buckets[bucket_key] = bucket
 
             # Refill tokens based on elapsed time
             elapsed = now - bucket.last_refill
@@ -121,7 +123,9 @@ class RateLimiter:
     def clear(self, client_id: str) -> None:
         """Reset bucket for *client_id* (e.g. after successful login)."""
         with self._lock:
-            self._buckets.pop(client_id, None)
+            keys_to_clear = [key for key in self._buckets if key.startswith(f"{client_id}:")]
+            for key in keys_to_clear:
+                self._buckets.pop(key, None)
 
     # ── helpers ────────────────────────────────────────────────────────
 
