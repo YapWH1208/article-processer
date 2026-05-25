@@ -19,10 +19,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FadeIn } from "@/components/ui/animated";
-import { listParsers, getDevConfig } from "@/lib/api";
+import { listParsers, authFetch } from "@/lib/api";
 import type { ParserInfo } from "@/lib/types";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -157,7 +155,7 @@ export default function SettingsPage() {
 
   const loadSettings = async () => {
     try {
-      const res = await fetch(`${API_BASE}/settings`);
+      const res = await authFetch("/settings");
       if (!res.ok) throw new Error("Failed");
       const d = await res.json();
       setSettings(d);
@@ -169,7 +167,7 @@ export default function SettingsPage() {
 
   const loadDevConfig = async () => {
     try {
-      const res = await fetch(`${API_BASE}/dev`);
+      const res = await authFetch("/dev");
       if (!res.ok) throw new Error("Failed");
       const d: DevConfig = await res.json();
       setConfig(d);
@@ -193,7 +191,7 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       const body: Record<string, unknown> = { use_mock_ai: mockAi, max_upload_mb: maxUploadMb, parser_priority: parserPriority };
-      const res = await fetch(`${API_BASE}/settings`, {
+      const res = await authFetch("/settings", {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error((await res.json()).detail || "Save failed");
@@ -205,7 +203,7 @@ export default function SettingsPage() {
   const saveSystemMessage = async (name: string) => {
     setSmSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/dev/system-messages/${name}`, {
+      const res = await authFetch(`/dev/system-messages/${name}`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: editSmContent }),
       });
@@ -220,7 +218,7 @@ export default function SettingsPage() {
   const saveInputTemplate = async (name: string) => {
     setItSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/dev/input-templates/${name}`, {
+      const res = await authFetch(`/dev/input-templates/${name}`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ template: editItTemplate }),
       });
@@ -235,7 +233,7 @@ export default function SettingsPage() {
   const saveModelParams = async () => {
     setMpSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/dev/model-params`, {
+      const res = await authFetch("/dev/model-params", {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ temperature, top_p: topP, max_tokens: maxTokens, frequency_penalty: freqPenalty, presence_penalty: presPenalty }),
       });
@@ -335,7 +333,7 @@ export default function SettingsPage() {
                           <Button variant="outline" size="sm" className="h-8 text-xs"
                             onClick={async () => {
                               try {
-                                const res = await fetch(`${API_BASE}/dev/providers/active`, {
+                                const res = await authFetch("/dev/providers/active", {
                                   method: "PUT", headers: {"Content-Type":"application/json"},
                                   body: JSON.stringify({provider_id: p.id}),
                                 });
@@ -349,7 +347,7 @@ export default function SettingsPage() {
                           onClick={async () => {
                             if (!confirm(`Delete provider "${p.name}"?`)) return;
                             try {
-                              const res = await fetch(`${API_BASE}/dev/providers/${p.id}`, { method: "DELETE" });
+                              const res = await authFetch(`/dev/providers/${p.id}`, { method: "DELETE" });
                               if (!res.ok) throw new Error("Failed");
                               setProviders((prev) => prev.filter((x) => x.id !== p.id));
                               if (activeProviderId === p.id) setActiveProviderId(null);
@@ -440,7 +438,7 @@ export default function SettingsPage() {
                         if (!newProvider.name.trim()) { toast.error("Name is required"); return; }
                         setProvSaving(true);
                         try {
-                          const res = await fetch(`${API_BASE}/dev/providers`, {
+                          const res = await authFetch("/dev/providers", {
                             method: "POST", headers: {"Content-Type":"application/json"},
                             body: JSON.stringify(newProvider),
                           });
@@ -705,7 +703,7 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="flex gap-3">
           <Button variant="outline" className="gap-2" onClick={async () => {
-            const res = await fetch(`${API_BASE}/settings/export`);
+            const res = await authFetch("/settings/export");
             const blob = await res.blob();
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a"); a.href = url; a.download = "settings-export.json"; a.click();
@@ -717,7 +715,7 @@ export default function SettingsPage() {
               const file = (e.target as HTMLInputElement).files?.[0]; if (!file) return;
               const form = new FormData(); form.append("file", file);
               try {
-                const res = await fetch(`${API_BASE}/settings/import`, { method: "POST", body: form });
+                const res = await authFetch("/settings/import", { method: "POST", body: form });
                 if (!res.ok) throw new Error((await res.json()).detail || "Import failed");
                 toast.success("Settings imported — reloading page...");
                 setTimeout(() => window.location.reload(), 800);

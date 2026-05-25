@@ -36,7 +36,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Rate limiting — applied before CORS so 429s are returned even for cross-origin requests
+# Add rate limiting before CORS. In Starlette/FastAPI, the last-added
+# middleware runs first, so CORS wraps the limiter and 429 responses include
+# CORS headers for browsers.
 app.add_middleware(RateLimitMiddleware)
 
 # CORS — allow frontend dev server

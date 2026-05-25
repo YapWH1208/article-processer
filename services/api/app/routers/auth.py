@@ -8,7 +8,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 from app.db.session import get_db
 from app.db.models import User
-from app.core.auth_deps import get_current_user, require_user
+from app.core.auth_deps import require_user
 from app.core.security import (
     hash_password,
     verify_password,

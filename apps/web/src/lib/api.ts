@@ -11,26 +11,35 @@ function getAuthToken(): string | null {
 /** Paths that should NOT receive an auth header (login, register, health). */
 const AUTH_EXEMPT_PREFIXES = ["/auth/login", "/auth/register", "/health"];
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+function buildRequest(path: string, options?: RequestInit): { url: string; init: RequestInit } {
   const url = `${API_BASE}${path}`;
 
   // Build headers — attach auth token for protected endpoints
-  const headers: Record<string, string> = {
-    ...(options?.headers as Record<string, string> || {}),
-  };
+  const headers = new Headers(options?.headers);
 
   const isAuthExempt = AUTH_EXEMPT_PREFIXES.some((p) => path.startsWith(p));
   if (!isAuthExempt) {
     const token = getAuthToken();
     if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
+      headers.set("Authorization", `Bearer ${token}`);
     }
   }
 
-  const res = await fetch(url, {
+  const init: RequestInit = {
     ...options,
     headers,
-  });
+  };
+
+  return { url, init };
+}
+
+export async function authFetch(path: string, options?: RequestInit): Promise<Response> {
+  const { url, init } = buildRequest(path, options);
+  return fetch(url, init);
+}
+
+async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await authFetch(path, options);
 
   if (!res.ok) {
     const body = await res.text();
@@ -139,14 +148,14 @@ export async function reprocessArticle(id: number, mode: "full" | "parse_only" |
 
 export async function toggleArchiveArticle(id: number, isArchived: boolean) {
   const action = isArchived ? "unarchive" : "archive";
-  return apiFetch<{ ok: boolean; id: number; is_archived: boolean }>(
+  return apiFetch<{ article_id: number; is_archived: boolean }>(
     `/articles/${id}/${action}`,
     { method: "POST" }
   );
 }
 
 export async function deleteArticle(id: number) {
-  return apiFetch<{ ok: boolean }>(`/articles/${id}`, { method: "DELETE" });
+  return apiFetch<{ article_id: number; deleted: boolean }>(`/articles/${id}`, { method: "DELETE" });
 }
 
 // ── Chat ──────────────────────────────────────────────────────────

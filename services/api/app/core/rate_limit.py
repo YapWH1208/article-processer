@@ -7,18 +7,18 @@ for inactive clients are periodically cleaned up to bound memory usage.
 Configuration
 -------------
 Global default:  60 requests / minute
-High-cost paths: /articles/{id}/chat  → 10 req/min  (LLM calls)
+High-cost paths: /articles/chat       → 10 req/min  (multi-article LLM calls)
+                 /articles/{id}/chat  → 10 req/min  (LLM calls)
                  /uploads             →  5 req/min  (file uploads)
                  /articles/{id}/reprocess →  5 req/min  (pipeline runs)
                  /auth/login          → 10 req/min  (brute-force mitigation)
 """
 
 import time
-import threading
-from collections import defaultdict
-from typing import Optional
+import math
+import asyncio
 
-from fastapi import Request
+from app.core.config import settings
 
 
 # ── Bucket state ───────────────────────────────────────────────────────────
@@ -40,6 +40,7 @@ class _TokenBucket:
 # (path_prefix, requests_per_minute)
 _ENDPOINT_LIMITS: list[tuple[str, int]] = [
     ("/uploads", 5),
+    ("/articles/chat", 10),
     ("/articles/{id}/chat", 10),
     ("/articles/{id}/reprocess", 5),
     ("/auth/login", 10),
@@ -83,16 +84,15 @@ class RateLimiter:
 
     def __init__(self) -> None:
         self._buckets: dict[str, _TokenBucket] = {}
-        self._lock = threading.Lock()
+        self._lock = asyncio.Lock()
         self._last_cleanup = time.monotonic()
 
     # ── public API ─────────────────────────────────────────────────────
 
-    def is_allowed(self, client_id: str, path: str) -> bool:
+    async def is_allowed(self, client_id: str, path: str) -> tuple[bool, int | None]:
         """Check (and consume) a request for *client_id* on *path*.
 
-        Returns ``True`` if the request is within limits, ``False`` if
-        rate-limited (caller should return 429).
+        Returns ``(True, None)`` if within limits, otherwise ``(False, retry_after_seconds)``.
         """
         rpm, limit_scope = _resolve_limit(path)
         rate = rpm / 60.0   # tokens per second
@@ -102,7 +102,7 @@ class RateLimiter:
 
         bucket_key = f"{client_id}:{limit_scope}"
 
-        with self._lock:
+        async with self._lock:
             self._maybe_cleanup(now)
 
             bucket = self._buckets.get(bucket_key)
@@ -117,12 +117,13 @@ class RateLimiter:
 
             if bucket.tokens >= 1.0:
                 bucket.tokens -= 1.0
-                return True
-            return False
+                return True, None
+            retry_after = max(1, math.ceil((1.0 - bucket.tokens) / bucket.rate))
+            return False, retry_after
 
-    def clear(self, client_id: str) -> None:
+    async def clear(self, client_id: str) -> None:
         """Reset bucket for *client_id* (e.g. after successful login)."""
-        with self._lock:
+        async with self._lock:
             keys_to_clear = [key for key in self._buckets if key.startswith(f"{client_id}:")]
             for key in keys_to_clear:
                 self._buckets.pop(key, None)
@@ -144,21 +145,6 @@ class RateLimiter:
             del self._buckets[cid]
 
 
-# ── Client IP resolution ───────────────────────────────────────────────────
-
-def _get_client_id(request: Request) -> str:
-    """Resolve a stable client identifier from the request.
-
-    Prefers ``X-Forwarded-For`` (first entry) when behind a proxy;
-    falls back to ``client.host`` for direct connections.
-    """
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    host = getattr(request.client, "host", None) if request.client else None
-    return host or "unknown"
-
-
 # ── FastAPI middleware ─────────────────────────────────────────────────────
 
 # Paths that should never be rate-limited
@@ -171,6 +157,30 @@ class RateLimitMiddleware:
     def __init__(self, app, limiter: RateLimiter | None = None):
         self.app = app
         self.limiter = limiter or RateLimiter()
+        self._trust_proxy_headers = settings.trust_proxy_headers
+        self._trusted_proxies = {
+            proxy.strip()
+            for proxy in settings.trusted_proxies.split(",")
+            if proxy.strip()
+        }
+        self._allow_all_proxies = "*" in self._trusted_proxies
+
+    def _get_client_id(self, scope) -> str:
+        peer_host = (
+            scope.get("client", ("unknown", 0))[0] if scope.get("client") else "unknown"
+        )
+
+        if self._trust_proxy_headers and (
+            self._allow_all_proxies or peer_host in self._trusted_proxies
+        ):
+            for header_name, header_value in scope.get("headers", []):
+                if header_name == b"x-forwarded-for":
+                    forwarded = header_value.decode("latin-1").split(",")[0].strip()
+                    if forwarded:
+                        return forwarded
+                    break
+
+        return peer_host or "unknown"
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -184,25 +194,17 @@ class RateLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # Resolve client IP from headers
-        client_id = "unknown"
-        for header_name, header_value in scope.get("headers", []):
-            if header_name == b"x-forwarded-for":
-                client_id = header_value.decode("latin-1").split(",")[0].strip()
-                break
-        if client_id == "unknown":
-            client_id = (
-                scope.get("client", ("unknown", 0))[0] if scope.get("client") else "unknown"
-            )
+        client_id = self._get_client_id(scope)
 
-        if not self.limiter.is_allowed(client_id, path):
+        is_allowed, retry_after = await self.limiter.is_allowed(client_id, path)
+        if not is_allowed:
             # 429 Too Many Requests
             await send({
                 "type": "http.response.start",
                 "status": 429,
                 "headers": [
                     (b"content-type", b"application/json"),
-                    (b"retry-after", b"60"),
+                    (b"retry-after", str(retry_after or 1).encode("ascii")),
                 ],
             })
             await send({
