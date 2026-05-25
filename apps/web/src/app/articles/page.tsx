@@ -97,8 +97,13 @@ export default function ArticlesPage() {
     let failed = 0;
     for (const id of selected) {
       try {
-        await deleteArticle(id);
-        deletedIds.push(id);
+        const result = await deleteArticle(id);
+        if (result?.deleted) {
+          deletedIds.push(id);
+        } else {
+          failed++;
+          console.error(`Delete API returned deleted=false for article ${id}`);
+        }
       } catch (e) {
         failed++;
         console.error(`Failed to delete article ${id}:`, e);
