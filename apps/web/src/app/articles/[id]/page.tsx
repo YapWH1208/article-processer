@@ -461,15 +461,24 @@ export default function ArticleDetailPage() {
                       <CardHeader className="shrink-0 pb-2 flex flex-row items-center justify-between">
                         <CardTitle className="text-sm font-medium text-muted-foreground">Document View</CardTitle>
                         {article.source_type === "pdf" && (
-                          <div className="flex rounded-md border border-border overflow-hidden">
-                            <button
-                              onClick={() => setReaderView("markdown")}
-                              className={`px-3 py-1 text-xs font-medium transition-colors ${readerView === "markdown" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
-                            >Markdown</button>
-                            <button
-                              onClick={() => setReaderView("pdf")}
-                              className={`px-3 py-1 text-xs font-medium transition-colors ${readerView === "pdf" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
-                            >PDF</button>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">View as:</span>
+                            <div className="flex rounded-md border border-border overflow-hidden">
+                              <button
+                                onClick={() => setReaderView("markdown")}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${readerView === "markdown" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+                                aria-label="View as Markdown"
+                              >
+                                <ScrollText className="h-3 w-3" /> Markdown
+                              </button>
+                              <button
+                                onClick={() => setReaderView("pdf")}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${readerView === "pdf" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+                                aria-label="View original PDF"
+                              >
+                                <FileText className="h-3 w-3" /> PDF
+                              </button>
+                            </div>
                           </div>
                         )}
                       </CardHeader>
