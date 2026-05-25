@@ -308,8 +308,13 @@ export default function ChatPage() {
         citations: res.citations,
       };
       setMessages((prev) => [...prev, assistantBubble]);
-      // Refresh session list to update title/order
-      loadSessions();
+      // Optimistically move active session to top — avoid full re-fetch
+      setSessions((prev) => {
+        const idx = prev.findIndex((s) => s.id === sid);
+        if (idx <= 0) return prev;
+        const [moved] = prev.splice(idx, 1);
+        return [moved, ...prev];
+      });
     } catch (err: unknown) {
       const errBubble: BubbleData = {
         role: "assistant",
