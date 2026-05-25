@@ -67,15 +67,20 @@ export default function ArticlesPage() {
   const handleBatchArchive = async () => {
     setBatchAction("archive");
     let ok = 0;
+    let failed = 0;
     for (const id of selected) {
       try {
         const a = articles.find((x) => x.id === id);
         const url = a?.is_archived ? "unarchive" : "archive";
         await fetch(`${API_BASE}/articles/${id}/${url}`, { method: "POST" });
         ok++;
-      } catch { /* skip */ }
+      } catch { failed++; }
     }
-    toast.success(`${ok} article(s) updated`);
+    if (failed > 0) {
+      toast.warning(`${ok} archived, ${failed} failed`);
+    } else {
+      toast.success(`${ok} article(s) archived`);
+    }
     setSelected(new Set());
     setBatchAction(null);
     setRefreshKey((k) => k + 1);
@@ -85,31 +90,36 @@ export default function ArticlesPage() {
     setDeleteOpen(false);
     setBatchAction("delete");
     const deletedIds: number[] = [];
+    let failed = 0;
     for (const id of selected) {
       try {
         await fetch(`${API_BASE}/articles/${id}`, { method: "DELETE" });
         deletedIds.push(id);
-      } catch { /* skip */ }
+      } catch { failed++; }
     }
     const count = deletedIds.length;
-    toast.success(`${count} article(s) trashed`, {
-      action: count > 0 ? {
-        label: "Undo",
-        onClick: async () => {
+    const msg = failed > 0 ? `${count} trashed, ${failed} failed` : `${count} article(s) trashed`;
+    if (failed > 0) {
+      toast.warning(msg, {
+        action: count > 0 ? { label: "Undo", onClick: async () => {
           let restored = 0;
           for (const id of deletedIds) {
-            try {
-              await fetch(`${API_BASE}/articles/${id}/restore`, { method: "POST" });
-              restored++;
-            } catch { /* skip */ }
+            try { await fetch(`${API_BASE}/articles/${id}/restore`, { method: "POST" }); restored++; } catch {}
           }
-          if (restored > 0) {
-            toast.success(`${restored} article(s) restored`);
-            setRefreshKey((k) => k + 1);
+          if (restored > 0) { toast.success(`${restored} article(s) restored`); setRefreshKey((k) => k + 1); }
+        }} : undefined,
+      });
+    } else {
+      toast.success(msg, {
+        action: count > 0 ? { label: "Undo", onClick: async () => {
+          let restored = 0;
+          for (const id of deletedIds) {
+            try { await fetch(`${API_BASE}/articles/${id}/restore`, { method: "POST" }); restored++; } catch {}
           }
-        },
-      } : undefined,
-    });
+          if (restored > 0) { toast.success(`${restored} article(s) restored`); setRefreshKey((k) => k + 1); }
+        }} : undefined,
+      });
+    }
     setSelected(new Set());
     setBatchAction(null);
     setRefreshKey((k) => k + 1);
