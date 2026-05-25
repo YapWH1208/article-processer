@@ -308,3 +308,54 @@ class TestExtractionEdgeCases:
 
         assert response.extraction is not None
         assert response.extraction.references[0].authors == "Ryan, R. M., Deci, E. L."
+
+    def test_normalize_extraction_repairs_common_provider_shape_drift(self):
+        """Provider outputs should be normalized before validation."""
+        raw = {
+            "paper_title": "Shape Drift Paper",
+            "authors": "Alice Researcher, Bob Scientist",
+            "year": "2024",
+            "datasets": [{"name": "ImageNet"}, "CIFAR-10"],
+            "key_claims": ["The method improves accuracy.", {"text": "It is efficient."}],
+            "references": [
+                {
+                    "title": "Prior Work",
+                    "authors": ["Carol Engineer", "Dan Scientist"],
+                    "year": "2020",
+                }
+            ],
+            "graph_entities": [
+                {"type": "method", "name": "FastLearn"},
+                {"type": "unknown_type", "label": "Computer Vision"},
+            ],
+            "graph_relationships": [
+                {
+                    "source": "FastLearn",
+                    "source_type": "method",
+                    "target": "ImageNet",
+                    "target_type": "dataset",
+                    "relationship": "evaluates_on",
+                }
+            ],
+        }
+
+        normalized = ExtractionService.normalize_extraction(raw, article_title="Fallback Title")
+        errors = ExtractionService.validate_schema(normalized)
+
+        assert errors == []
+        assert normalized["title"] == "Shape Drift Paper"
+        assert normalized["authors"] == ["Alice Researcher", "Bob Scientist"]
+        assert normalized["year"] == 2024
+        assert normalized["abstract"] is None
+        assert normalized["experiments"] == []
+        assert normalized["key_claims"][0]["claim"] == "The method improves accuracy."
+        assert normalized["references"][0]["authors"] == "Carol Engineer, Dan Scientist"
+        assert normalized["graph_entities"][0]["type"] == "Method"
+        assert normalized["graph_entities"][0]["confidence"] == 0.5
+        assert normalized["graph_entities"][1]["type"] == "Keyword"
+        assert normalized["graph_relationships"][0]["type"] == "EVALUATES_ON"
+        assert normalized["graph_relationships"][0]["confidence"] == 0.5
+
+    def test_split_authors_preserves_citation_style_initials(self):
+        parts = ExtractionService._split_list_text("Ryan, R. M., Deci, E. L.", "authors")
+        assert parts == ["Ryan, R. M., Deci, E. L."]

@@ -14,6 +14,7 @@ from app.services.ai.prompts import (
     SKILL_SYSTEM_PROMPT,
     get_input_template,
 )
+from app.services.ai.extraction import ExtractionService
 from app.core.security import protect_prompt_from_injection
 
 logger = logging.getLogger(__name__)
@@ -119,11 +120,16 @@ def _repair_json(raw: str) -> dict:
 class OpenAIProvider(BaseLLMProvider):
     """OpenAI LLM provider for extraction, Q&A, and skill execution."""
 
-    def __init__(self):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str | None = None,
+        provider_name: str = "openai",
+    ):
         super().__init__()
-        self.client = AsyncOpenAI(api_key=settings.openai_api_key)
-        self.model = settings.openai_model
-        self._provider_name = "openai"
+        self.client = AsyncOpenAI(api_key=api_key or settings.openai_api_key)
+        self.model = model or settings.openai_model
+        self._provider_name = provider_name
 
     async def extract_structured(
         self,
@@ -143,18 +149,30 @@ class OpenAIProvider(BaseLLMProvider):
             {"role": "user", "content": f"Title: {article_title}\n\n{protected_text}"},
         ]
 
-        result, errors = await self._extract_with(messages, use_json_mode=True)
+        result, errors = await self._extract_with(
+            messages,
+            use_json_mode=True,
+            article_title=article_title,
+        )
 
         # If JSON mode was rejected by the API, retry without it
         if result is None and errors == ["json_mode_unsupported"]:
             logger.info("Model rejected response_format — retrying without JSON mode")
-            result, errors = await self._extract_with(messages, use_json_mode=False)
+            result, errors = await self._extract_with(
+                messages,
+                use_json_mode=False,
+                article_title=article_title,
+            )
 
         # DeepSeek documents occasional empty content from JSON Output. Retry
         # once without response_format before surfacing the provider failure.
         if result is None and errors == [_EMPTY_RESPONSE_SENTINEL]:
             logger.info("Model returned empty JSON-mode extraction response; retrying without JSON mode")
-            result, errors = await self._extract_with(messages, use_json_mode=False)
+            result, errors = await self._extract_with(
+                messages,
+                use_json_mode=False,
+                article_title=article_title,
+            )
             if result is None and errors == [_EMPTY_RESPONSE_SENTINEL]:
                 errors = ["model returned empty response"]
 
@@ -162,7 +180,10 @@ class OpenAIProvider(BaseLLMProvider):
         return result, errors, confidence
 
     async def _extract_with(
-        self, messages: list, use_json_mode: bool,
+        self,
+        messages: list,
+        use_json_mode: bool,
+        article_title: str,
     ) -> tuple[dict | None, list[str] | None]:
         """Run extraction + optional correction retry.  Returns (parsed, errors)."""
         kwargs: dict = {
@@ -194,7 +215,10 @@ class OpenAIProvider(BaseLLMProvider):
 
         # Parse (with repair) + validate
         try:
-            result = _repair_json(raw)
+            result = ExtractionService.normalize_extraction(
+                _repair_json(raw),
+                article_title=article_title,
+            )
         except json.JSONDecodeError:
             logger.error(f"Failed to parse extraction response (after repair): raw len={len(raw)}")
             return None, ["JSON parse error"]
@@ -219,7 +243,10 @@ class OpenAIProvider(BaseLLMProvider):
             retry_response = await self.client.chat.completions.create(**retry_kwargs)
             self._capture_usage(retry_response)
             retry_raw = retry_response.choices[0].message.content or ""
-            result = _repair_json(retry_raw)
+            result = ExtractionService.normalize_extraction(
+                _repair_json(retry_raw),
+                article_title=article_title,
+            )
             errors = self._validate_extraction(result)
         except Exception as e:
             logger.error(f"Extraction correction retry failed: {e}")
@@ -257,10 +284,16 @@ class OpenAIProvider(BaseLLMProvider):
         self,
         question: str,
         article_title: str,
-        article_text: str,
+        article_text: str | None = None,
+        chunks: list[Any] | None = None,
     ) -> tuple[str, list[dict]]:
         """Answer a question using the full article text via OpenAI."""
-        protected_text = protect_prompt_from_injection(article_text)
+        if chunks:
+            article_text = "\n\n---\n\n".join(
+                self._format_chunk_for_context(chunk)
+                for chunk in chunks
+            )
+        protected_text = protect_prompt_from_injection(article_text or "")
 
         input_template = get_input_template("chat")
         user_content = input_template.format(
@@ -285,7 +318,7 @@ class OpenAIProvider(BaseLLMProvider):
             answer = response.choices[0].message.content or ""
 
             # Extract citations from section references in answer
-            citations = self._extract_citations(answer, [])
+            citations = self._extract_citations(answer, chunks or [])
 
             return answer, citations
 
@@ -325,57 +358,19 @@ class OpenAIProvider(BaseLLMProvider):
 
     def _validate_extraction(self, data: dict) -> list[str]:
         """Validate extraction against expected schema."""
-        errors = []
+        return ExtractionService.validate_schema(data)
 
-        # Check required top-level keys
-        expected_keys = {
-            "title", "authors", "year", "venue", "doi", "arxiv_id", "url",
-            "abstract", "background", "research_problem", "methodology",
-            "datasets", "experiments", "metrics", "results", "limitations",
-            "future_work", "key_claims", "references", "tags",
-            "graph_entities", "graph_relationships",
-        }
-        missing = expected_keys - set(data.keys())
-        if missing:
-            errors.append(f"Missing fields: {', '.join(sorted(missing))}")
-
-        # Validate types
-        if "authors" in data and not isinstance(data["authors"], list):
-            errors.append("'authors' must be an array")
-
-        if "datasets" in data and not isinstance(data["datasets"], list):
-            errors.append("'datasets' must be an array")
-
-        if "key_claims" in data and isinstance(data["key_claims"], list):
-            for i, claim in enumerate(data["key_claims"]):
-                if not isinstance(claim, dict):
-                    errors.append(f"key_claims[{i}] must be an object")
-                elif "claim" not in claim:
-                    errors.append(f"key_claims[{i}] missing 'claim'")
-
-        # Validate entity types
-        allowed_entities = {
-            "Article", "Author", "Institution", "Method", "Dataset",
-            "Experiment", "Metric", "Result", "Claim", "Task", "Domain",
-            "Tool", "Model", "Citation", "Keyword",
-        }
-        if "graph_entities" in data and isinstance(data["graph_entities"], list):
-            for i, e in enumerate(data["graph_entities"]):
-                if isinstance(e, dict) and e.get("type") not in allowed_entities:
-                    errors.append(f"graph_entities[{i}] has invalid type: {e.get('type')}")
-
-        # Validate relationship types
-        allowed_rels = {
-            "USES_METHOD", "EVALUATES_ON", "REPORTS_RESULT", "USES_METRIC",
-            "CITES", "SUPPORTED_BY", "ADDRESSES_TASK", "IMPROVES_ON",
-            "HAS_LIMITATION", "HAS_KEYWORD",
-        }
-        if "graph_relationships" in data and isinstance(data["graph_relationships"], list):
-            for i, r in enumerate(data["graph_relationships"]):
-                if isinstance(r, dict) and r.get("type") not in allowed_rels:
-                    errors.append(f"graph_relationships[{i}] has invalid type: {r.get('type')}")
-
-        return errors
+    @staticmethod
+    def _format_chunk_for_context(chunk: Any) -> str:
+        text = chunk.text if hasattr(chunk, "text") else str(chunk)
+        section = chunk.section_title if hasattr(chunk, "section_title") else None
+        chunk_idx = chunk.chunk_index if hasattr(chunk, "chunk_index") else 0
+        page = (
+            f', Page: {chunk.page_start}-{chunk.page_end}'
+            if hasattr(chunk, "page_start") and chunk.page_start
+            else ""
+        )
+        return f'[Chunk {chunk_idx}, Section: "{section or "N/A"}"{page}]\n{text}'
 
     def _extract_citations(self, answer: str, chunks: list[Any]) -> list[dict]:
         """Extract citation references from the answer text."""
@@ -419,8 +414,14 @@ class CustomOpenAIProvider(OpenAIProvider):
     by default, but can be constructed with explicit parameters for preset providers.
     """
 
-    def __init__(self, base_url: str = "", api_key: str = "", model: str = ""):
-        super().__init__()
+    def __init__(
+        self,
+        base_url: str = "",
+        api_key: str = "",
+        model: str = "",
+        provider_name: str = "custom",
+    ):
+        BaseLLMProvider.__init__(self)
         effective_url = base_url or settings.llm_custom_base_url
         effective_key = api_key or settings.llm_custom_api_key or "not-needed"
         effective_model = model or settings.llm_custom_model
@@ -431,7 +432,7 @@ class CustomOpenAIProvider(OpenAIProvider):
             base_url=normalized,
         )
         self.model = effective_model
-        self._provider_name = "custom"
+        self._provider_name = provider_name
 
 
 def _normalize_openai_base_url(raw: str) -> str:

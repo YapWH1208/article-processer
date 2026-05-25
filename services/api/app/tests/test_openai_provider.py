@@ -76,3 +76,49 @@ async def test_extract_structured_retries_without_json_mode_after_empty_json_res
     assert errors is None
     assert confidence == 0.85
     assert result["title"] == "Paper"
+
+
+@pytest.mark.asyncio
+async def test_extract_structured_normalizes_partial_provider_response_without_retry():
+    provider = _provider_with_responses([
+        _chat_response(
+            '{"paper_title": "Partial Paper", "authors": "Alice, Bob", '
+            '"year": "2024", "datasets": {"name": "ImageNet"}, '
+            '"graph_entities": [{"type": "method", "name": "FastLearn"}]}'
+        ),
+    ])
+
+    result, errors, confidence = await provider.extract_structured(
+        markdown="# Partial Paper\n\nBody",
+        article_title="Fallback",
+    )
+
+    calls = provider.client.chat.completions.calls
+    assert len(calls) == 1
+    assert errors is None
+    assert confidence == 0.85
+    assert result["title"] == "Partial Paper"
+    assert result["authors"] == ["Alice", "Bob"]
+    assert result["datasets"] == ["ImageNet"]
+    assert result["abstract"] is None
+    assert result["graph_entities"][0]["type"] == "Method"
+
+
+def test_extract_citations_matches_chunk_header_format_with_page_range():
+    provider = _provider_with_responses([])
+    chunk = SimpleNamespace(
+        chunk_index=3,
+        section_title="Results",
+        page_start=10,
+        page_end=12,
+        text="Model outperformed baseline by 4 points.",
+    )
+
+    header = provider._format_chunk_for_context(chunk).splitlines()[0]
+    answer = f"Evidence comes from {header}."
+    citations = provider._extract_citations(answer, [chunk])
+
+    assert len(citations) == 1
+    assert citations[0]["chunk_id"] == 3
+    assert citations[0]["page_start"] == 10
+    assert citations[0]["page_end"] == 12
