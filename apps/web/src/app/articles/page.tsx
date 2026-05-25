@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { StaggerContainer, StaggerItem, HoverCard, FadeIn } from "@/components/ui/animated";
+import { deleteArticle, toggleArchiveArticle, restoreArticle } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 const TERMINAL_ARTICLE_STATUSES = new Set(["completed", "failed", "needs_review"]);
@@ -72,9 +73,12 @@ export default function ArticlesPage() {
       try {
         const a = articles.find((x) => x.id === id);
         const url = a?.is_archived ? "unarchive" : "archive";
-        await fetch(`${API_BASE}/articles/${id}/${url}`, { method: "POST" });
+        await toggleArchiveArticle(id, Boolean(a?.is_archived));
         ok++;
-      } catch { failed++; }
+      } catch (e) {
+        failed++;
+        console.error(`Failed to update article ${id}:`, e);
+      }
     }
     if (failed > 0) {
       toast.warning(`${ok} archived, ${failed} failed`);
@@ -93,9 +97,12 @@ export default function ArticlesPage() {
     let failed = 0;
     for (const id of selected) {
       try {
-        await fetch(`${API_BASE}/articles/${id}`, { method: "DELETE" });
+        await deleteArticle(id);
         deletedIds.push(id);
-      } catch { failed++; }
+      } catch (e) {
+        failed++;
+        console.error(`Failed to delete article ${id}:`, e);
+      }
     }
     const count = deletedIds.length;
     const msg = failed > 0 ? `${count} trashed, ${failed} failed` : `${count} article(s) trashed`;
@@ -104,7 +111,7 @@ export default function ArticlesPage() {
         action: count > 0 ? { label: "Undo", onClick: async () => {
           let restored = 0;
           for (const id of deletedIds) {
-            try { await fetch(`${API_BASE}/articles/${id}/restore`, { method: "POST" }); restored++; } catch {}
+            try { await restoreArticle(id); restored++; } catch {}
           }
           if (restored > 0) { toast.success(`${restored} article(s) restored`); setRefreshKey((k) => k + 1); }
         }} : undefined,
@@ -114,7 +121,7 @@ export default function ArticlesPage() {
         action: count > 0 ? { label: "Undo", onClick: async () => {
           let restored = 0;
           for (const id of deletedIds) {
-            try { await fetch(`${API_BASE}/articles/${id}/restore`, { method: "POST" }); restored++; } catch {}
+            try { await restoreArticle(id); restored++; } catch {}
           }
           if (restored > 0) { toast.success(`${restored} article(s) restored`); setRefreshKey((k) => k + 1); }
         }} : undefined,

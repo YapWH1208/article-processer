@@ -6,6 +6,7 @@ import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.auth_deps import require_user
 from app.db.session import get_db
 from app.db.models import Article, ArticleExtraction, GraphEntity, GraphRelationship, ProcessingJob, ArticleStatus, JobStatus
 from app.core.security import compute_file_hash
@@ -17,7 +18,7 @@ router = APIRouter()
 # ── Article JSON Import ─────────────────────────────────────────────────
 
 @router.post("/articles")
-async def import_articles(body: dict, db: Session = Depends(get_db)):
+async def import_articles(body: dict, db: Session = Depends(get_db), user=Depends(require_user)):
     """Import previously exported articles from a JSON array.
 
     Body: {"articles": [{...article data...}, ...]}
