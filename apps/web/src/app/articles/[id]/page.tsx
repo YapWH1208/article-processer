@@ -26,7 +26,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { sendChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle } from "@/lib/api";
+import { sendChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle } from "@/lib/api";
 import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
 
@@ -171,16 +171,46 @@ export default function ArticleDetailPage() {
     setMessages((prev) => [...prev, userMsg]);
     setQuestion("");
     setContextText("");
-    try {
-      const res = await sendChatMessage(articleId, userMsg.content);
-      setMessages((prev) => [
-        ...prev.slice(0, -1),
-        { ...prev[prev.length - 1], prompt_tokens: res.prompt_tokens || 0 },
-        { role: "assistant", content: res.answer, citations_json: JSON.stringify(res.citations), prompt_tokens: 0, completion_tokens: res.completion_tokens || 0 },
-      ]);
-    } catch (e: unknown) {
-      setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${e instanceof Error ? e.message : "Chat failed"}` }]);
-    } finally { setChatting(false); }
+
+    // Placeholder assistant message for streaming
+    const assistantMsg: ChatMessage = { role: "assistant", content: "" };
+    setMessages((prev) => [...prev, assistantMsg]);
+
+    let streamedContent = "";
+
+    await streamChatMessage(
+      articleId,
+      userMsg.content,
+      // onToken: append each token to the streaming message
+      (token) => {
+        streamedContent += token;
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { ...updated[updated.length - 1], content: streamedContent };
+          return updated;
+        });
+      },
+      // onDone: streaming completed successfully
+      () => {
+        setChatting(false);
+      },
+      // onError: fall back to non-streaming endpoint
+      async (streamErr) => {
+        // Remove the empty streaming placeholder
+        setMessages((prev) => prev.slice(0, -1));
+        try {
+          const res = await sendChatMessage(articleId, userMsg.content);
+          setMessages((prev) => [
+            ...prev.slice(0, -1),
+            { ...prev[prev.length - 1], prompt_tokens: res.prompt_tokens || 0 },
+            { role: "assistant", content: res.answer, citations_json: JSON.stringify(res.citations), prompt_tokens: 0, completion_tokens: res.completion_tokens || 0 },
+          ]);
+        } catch {
+          setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${streamErr}` }]);
+        }
+        setChatting(false);
+      },
+    );
   };
 
   // Add text selection to chat context

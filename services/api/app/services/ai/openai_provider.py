@@ -326,6 +326,49 @@ class OpenAIProvider(BaseLLMProvider):
             logger.error(f"OpenAI Q&A failed: {e}")
             raise
 
+    async def stream_answer(
+        self,
+        question: str,
+        article_title: str,
+        article_text: str | None = None,
+        chunks: list[Any] | None = None,
+    ):
+        """Stream answer tokens using OpenAI's native streaming API."""
+        if chunks:
+            article_text = "\n\n---\n\n".join(
+                self._format_chunk_for_context(chunk)
+                for chunk in chunks
+            )
+        protected_text = protect_prompt_from_injection(article_text or "")
+
+        input_template = get_input_template("chat")
+        user_content = input_template.format(
+            context_header=f"Article: {article_title}",
+            document=protected_text,
+            question=question,
+        )
+
+        messages = [
+            {"role": "system", "content": QA_SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ]
+
+        try:
+            stream = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=0.3,
+                max_tokens=1500,
+                stream=True,
+            )
+            async for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta and delta.content:
+                    yield delta.content
+        except Exception as e:
+            logger.error(f"OpenAI streaming Q&A failed: {e}")
+            raise
+
     async def run_skill(self, skill: Any, article_markdown: str) -> dict:
         """Run a skill using OpenAI."""
         protected_text = protect_prompt_from_injection(article_markdown)

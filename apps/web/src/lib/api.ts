@@ -138,6 +138,72 @@ export async function sendChatMessage(articleId: number, message: string) {
   );
 }
 
+/** Stream a chat answer token-by-token. Calls `onToken` for each token, `onDone` when complete. */
+export async function streamChatMessage(
+  articleId: number,
+  message: string,
+  onToken: (token: string) => void,
+  onDone: (fullAnswer: string) => void,
+  onError: (error: string) => void,
+): Promise<void> {
+  const url = `${API_BASE}/articles/${articleId}/chat/stream`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      let detail = body;
+      try { detail = JSON.parse(body).detail || body; } catch {}
+      throw new Error(detail || `HTTP ${res.status}`);
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("No response body");
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let fullAnswer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.token) {
+              fullAnswer += data.token;
+              onToken(data.token);
+            } else if (data.done) {
+              onDone(data.answer || fullAnswer);
+            } else if (data.error) {
+              onError(data.error);
+            }
+          } catch {}
+        }
+      }
+    }
+    // Final flush
+    if (buffer.startsWith("data: ")) {
+      try {
+        const data = JSON.parse(buffer.slice(6));
+        if (data.done) onDone(data.answer || fullAnswer);
+      } catch {}
+    }
+  } catch (e: unknown) {
+    onError(e instanceof Error ? e.message : "Stream failed");
+  }
+}
+
 export async function getChatHistory(articleId: number) {
   return apiFetch<import("./types").ChatHistoryResponse>(
     `/articles/${articleId}/chat`

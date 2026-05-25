@@ -47,6 +47,21 @@ class BaseLLMProvider(ABC):
     ) -> tuple[str, list[dict]]:
         ...
 
+    async def stream_answer(
+        self,
+        question: str,
+        article_title: str,
+        article_text: str | None = None,
+        chunks: list[Any] | None = None,
+    ):
+        """Stream an answer token-by-token. Default: yield full answer as one chunk."""
+        from collections.abc import AsyncGenerator
+        answer, _ = await self.answer_question(question, article_title, article_text, chunks)
+        # Yield in word-sized chunks to simulate streaming
+        words = answer.split(" ")
+        for i, word in enumerate(words):
+            yield word + (" " if i < len(words) - 1 else "")
+
     @abstractmethod
     async def run_skill(self, skill: Any, article_markdown: str) -> dict:
         ...
