@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
@@ -70,23 +70,35 @@ export default function LogsPage() {
   const [jobs, setJobs] = useState<JobItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [liveMode, setLiveMode] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  const fetchLogs = async () => {
+    const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    const res = await fetch(`${API_BASE}/dashboard/logs?limit=100`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const d = await res.json();
+    setJobs(d.jobs || []);
+    return d;
+  };
 
   useEffect(() => {
-    const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-    fetch(`${API_BASE}/dashboard/logs?limit=100`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((d) => {
-        setJobs(d.jobs || []);
-        setLoading(false);
-      })
-      .catch((e) => {
-        setError(e.message);
-        setLoading(false);
-      });
+    fetchLogs()
+      .then(() => setLoading(false))
+      .catch((e) => { setError(e.message); setLoading(false); });
   }, []);
+
+  // Live polling
+  useEffect(() => {
+    if (!liveMode) return;
+    const interval = setInterval(() => { fetchLogs().catch(() => {}); }, 2000);
+    return () => clearInterval(interval);
+  }, [liveMode]);
+
+  // Auto-scroll in live mode
+  useEffect(() => {
+    if (liveMode) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [jobs, liveMode]);
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -101,10 +113,24 @@ export default function LogsPage() {
             Step-by-step processing history and token usage for all articles.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => router.push("/dashboard")}>
-          <ArrowLeft className="h-4 w-4 mr-1" />
-          Dashboard
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={liveMode ? "default" : "outline"}
+            size="sm"
+            onClick={() => setLiveMode((prev) => !prev)}
+            className="gap-1.5"
+          >
+            {liveMode && <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+            </span>}
+            {liveMode ? "Live" : "Live"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => router.push("/dashboard")}>
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            Dashboard
+          </Button>
+        </div>
       </motion.div>
 
       {loading && (
@@ -237,6 +263,7 @@ export default function LogsPage() {
           </Card>
         </motion.div>
       ))}
+      <div ref={bottomRef} />
     </div>
   );
 }
