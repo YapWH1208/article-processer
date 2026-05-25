@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Toaster } from "sonner";
 import {
   FileText, Sun, Moon, Home, FileUp, MessageCircle,
-  GitBranch, BarChart3, Settings2, BookOpen,
+  GitBranch, BarChart3, Settings2, BookOpen, Menu, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -70,17 +70,31 @@ const navLinks = [
 
 function NavBar() {
   const pathname = usePathname();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
     return pathname.startsWith(href);
   };
 
+  const closeMobile = () => setMobileOpen(false);
+
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex h-16 items-center justify-between px-4">
+        {/* Mobile hamburger */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 md:hidden flex-shrink-0"
+          onClick={() => setMobileOpen(true)}
+          aria-label="Open navigation menu"
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
+
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2.5 group flex-shrink-0">
+        <Link href="/" className="flex items-center gap-2.5 group flex-shrink-0 ml-2 md:ml-0">
           <motion.div
             whileHover={{ rotate: 15, scale: 1.15 }}
             transition={{ type: "spring", stiffness: 400 }}
@@ -92,8 +106,8 @@ function NavBar() {
           </span>
         </Link>
 
-        {/* Center: nav links */}
-        <nav className="flex items-center gap-1 mx-4 overflow-x-auto">
+        {/* Center: nav links — hidden on mobile */}
+        <nav className="hidden md:flex items-center gap-1 mx-4 overflow-x-auto">
           {navLinks.map(({ href, label, icon: Icon }) => (
             <Link key={href} href={href}>
               <Button
@@ -110,7 +124,7 @@ function NavBar() {
 
         {/* Right */}
         <div className="flex items-center gap-2 flex-shrink-0">
-          <Link href="/settings">
+          <Link href="/settings" className="hidden md:inline-flex">
             <Button variant="ghost" size="icon" className="h-9 w-9" title="Settings">
               <Settings2 className="h-5 w-5" />
             </Button>
@@ -118,6 +132,63 @@ function NavBar() {
           <ThemeToggle />
         </div>
       </div>
+
+      {/* Mobile drawer overlay */}
+      <AnimatePresence>
+        {mobileOpen && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              className="fixed inset-0 z-50 bg-black/50 md:hidden"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={closeMobile}
+            />
+            {/* Drawer panel */}
+            <motion.div
+              className="fixed inset-y-0 left-0 z-50 w-72 bg-card border-r shadow-2xl md:hidden flex flex-col"
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "spring", stiffness: 400, damping: 35 }}
+            >
+              {/* Drawer header */}
+              <div className="flex items-center justify-between p-4 border-b">
+                <span className="text-lg font-bold tracking-tight">Article Processor</span>
+                <Button variant="ghost" size="icon" onClick={closeMobile} aria-label="Close menu">
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+
+              {/* Nav links */}
+              <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
+                {navLinks.map(({ href, label, icon: Icon }) => (
+                  <Link key={href} href={href} onClick={closeMobile}>
+                    <Button
+                      variant={isActive(href) ? "secondary" : "ghost"}
+                      className="w-full justify-start gap-3 h-11"
+                    >
+                      <Icon className="h-5 w-5" />
+                      <span>{label}</span>
+                    </Button>
+                  </Link>
+                ))}
+              </nav>
+
+              {/* Drawer footer */}
+              <div className="p-4 border-t">
+                <Link href="/settings" onClick={closeMobile}>
+                  <Button variant="outline" className="w-full justify-start gap-3 h-11">
+                    <Settings2 className="h-5 w-5" />
+                    <span>Settings</span>
+                  </Button>
+                </Link>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </header>
   );
 }
