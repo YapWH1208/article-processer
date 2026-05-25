@@ -6,6 +6,7 @@ import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.auth_deps import require_user
 from app.db.session import get_db
 from app.db.models import Article, ChatMessage, ChatSession, TokenUsage
 from app.schemas.chat import (
@@ -24,6 +25,7 @@ async def chat_with_article(
     article_id: int,
     request: ChatRequest,
     db: Session = Depends(get_db),
+    user=Depends(require_user),
 ):
     """Ask a question about an article and get a cited answer.
 
@@ -141,6 +143,7 @@ def get_chat_history(article_id: int, db: Session = Depends(get_db)):
 async def multi_article_chat(
     request: MultiArticleChatRequest,
     db: Session = Depends(get_db),
+    user=Depends(require_user),
 ):
     """Chat across multiple articles with full-text context.
 
@@ -296,7 +299,7 @@ def list_sessions(db: Session = Depends(get_db)):
 
 
 @router.post("/sessions", response_model=SessionResponse)
-def create_session(request: SessionCreateRequest, db: Session = Depends(get_db)):
+def create_session(request: SessionCreateRequest, db: Session = Depends(get_db), user=Depends(require_user)):
     """Create a new chat session."""
     session = ChatSession(title=request.title)
     db.add(session)
@@ -312,7 +315,7 @@ def create_session(request: SessionCreateRequest, db: Session = Depends(get_db))
 
 
 @router.delete("/sessions/{session_id}")
-def delete_session(session_id: int, db: Session = Depends(get_db)):
+def delete_session(session_id: int, db: Session = Depends(get_db), user=Depends(require_user)):
     """Delete a chat session and all its messages."""
     session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
     if not session:
@@ -360,6 +363,7 @@ async def send_session_message(
     session_id: int,
     request: SessionMessageRequest,
     db: Session = Depends(get_db),
+    user=Depends(require_user),
 ):
     """Send a message in a chat session. Uses multi-article or library-wide context."""
     session = db.query(ChatSession).filter(ChatSession.id == session_id).first()

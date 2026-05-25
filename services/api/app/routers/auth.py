@@ -1,13 +1,14 @@
 """Auth router — user registration, login, and token management."""
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr, Field
 
 from app.db.session import get_db
 from app.db.models import User
+from app.core.auth_deps import get_current_user, require_user
 from app.core.security import (
     hash_password,
     verify_password,
@@ -48,29 +49,6 @@ class UserResponse(BaseModel):
     display_name: str | None = None
     is_active: bool
     created_at: str | None = None
-
-
-# ── Helpers ──────────────────────────────────────────────────────────────
-
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    db: Session = Depends(get_db),
-) -> User | None:
-    """Optional dependency — returns User if authenticated, None otherwise."""
-    token = credentials.credentials if credentials else None
-    user_id = get_optional_user_id(f"Bearer {token}" if token else None)
-    if user_id:
-        return db.query(User).filter(User.id == user_id, User.is_active == 1).first()
-    return None
-
-
-def require_user(
-    current_user: User | None = Depends(get_current_user),
-) -> User:
-    """Require authentication — raises 401 if not authenticated."""
-    if current_user is None:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    return current_user
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────

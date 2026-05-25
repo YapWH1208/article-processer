@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from app.core.auth_deps import require_user
 from app.db.session import get_db
 from app.db.models import (
     Article,
@@ -355,6 +356,7 @@ def reprocess_article(
     article_id: int,
     mode: str = "full",
     db: Session = Depends(get_db),
+    user=Depends(require_user),
 ):
     """Re-run processing for an article.
 
@@ -406,7 +408,7 @@ def reprocess_article(
 
 
 @router.post("/{article_id}/archive")
-def archive_article(article_id: int, db: Session = Depends(get_db)):
+def archive_article(article_id: int, db: Session = Depends(get_db), user=Depends(require_user)):
     """Soft-archive an article (hide from default list)."""
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
@@ -417,7 +419,7 @@ def archive_article(article_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{article_id}/unarchive")
-def unarchive_article(article_id: int, db: Session = Depends(get_db)):
+def unarchive_article(article_id: int, db: Session = Depends(get_db), user=Depends(require_user)):
     """Restore an archived article."""
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
@@ -428,7 +430,7 @@ def unarchive_article(article_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/{article_id}")
-def update_article(article_id: int, body: dict, db: Session = Depends(get_db)):
+def update_article(article_id: int, body: dict, db: Session = Depends(get_db), user=Depends(require_user)):
     """Update article metadata (title only for now). Body: {"title": "New Title"}."""
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
@@ -446,7 +448,7 @@ def update_article(article_id: int, body: dict, db: Session = Depends(get_db)):
 
 
 @router.delete("/{article_id}")
-def delete_article(article_id: int, db: Session = Depends(get_db)):
+def delete_article(article_id: int, db: Session = Depends(get_db), user=Depends(require_user)):
     """Hard-delete an article and its storage files."""
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:

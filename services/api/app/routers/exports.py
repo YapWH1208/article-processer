@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse, JSONResponse
 from sqlalchemy.orm import Session
 
+from app.core.auth_deps import require_user
 from app.db.session import get_db
 from app.db.models import Article, ArticleExtraction, GraphEntity, GraphRelationship
 from app.core.config import settings
@@ -175,7 +176,7 @@ def export_markdown(article_id: int, db: Session = Depends(get_db)):
 # ── Batch Export ─────────────────────────────────────────────────────────
 
 @router.post("/export")
-def export_articles(body: dict, db: Session = Depends(get_db)):
+def export_articles(body: dict, db: Session = Depends(get_db), user=Depends(require_user)):
     """Export multiple articles as a JSON array. Body: {"article_ids": [1, 2, 3]} or {"all": true}."""
     article_ids = body.get("article_ids")
     export_all = body.get("all", False)
