@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 from app.core.logging import setup_logging
+from app.core.rate_limit import RateLimitMiddleware
 from app.db.session import engine, Base
 from app.routers import uploads, articles, chat, exports, imports, skills as skills_router, auth, settings_page, dashboard, dev
 
@@ -34,6 +35,9 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# Rate limiting — applied before CORS so 429s are returned even for cross-origin requests
+app.add_middleware(RateLimitMiddleware)
 
 # CORS — allow frontend dev server
 app.add_middleware(
