@@ -506,7 +506,14 @@ export default function ArticleDetailPage() {
                       <CardHeader className="shrink-0 flex flex-row items-center justify-between">
                         <div><CardTitle className="text-lg">Extraction</CardTitle><CardDescription>AI-extracted info</CardDescription></div>
                         <div className="flex gap-2">
-                          {["json","markdown"].map(f=><a key={f} href={`${API_BASE}/articles/${articleId}/export/${f}`} target="_blank" rel="noopener noreferrer"><Button variant="outline" size="sm" className="gap-1"><Download className="h-3.5 w-3.5"/>Export {f.toUpperCase()}</Button></a>)
+                          {["json", "markdown"].map((f) => (
+                            <a key={f} href={`${API_BASE}/articles/${articleId}/export/${f}`} target="_blank" rel="noopener noreferrer">
+                              <Button variant="outline" size="sm" className="gap-1">
+                                <Download className="h-3.5 w-3.5" />
+                                Export {f.toUpperCase()}
+                              </Button>
+                            </a>
+                          ))}
                         </div>
                       </CardHeader>
                       <CardContent className="flex-1 min-h-0 p-4">
