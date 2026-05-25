@@ -118,7 +118,7 @@ async def chat_with_article_stream(
 
     async def event_stream():
         full_answer = ""
-        citations: list = []
+        citations: list[dict] = []
         try:
             async for token in llm.stream_answer(
                 question=request.message,
@@ -128,8 +128,19 @@ async def chat_with_article_stream(
                 full_answer += token
                 yield f"data: {json.dumps({'token': token})}\n\n"
 
+            # Compute citations for streamed answer so behavior matches non-streaming chat.
+            try:
+                _, citations = await llm.answer_question(
+                    question=request.message,
+                    article_title=article.title or article.original_filename,
+                    article_text=article.markdown_text,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to compute citations for streamed chat: {e}")
+                citations = []
+
             # Send completion event with full answer + citations
-            yield f"data: {json.dumps({'done': True, 'answer': full_answer, 'citations': []})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'answer': full_answer, 'citations': citations})}\n\n"
 
         except Exception as e:
             logger.error(f"Streaming chat failed: {e}")
