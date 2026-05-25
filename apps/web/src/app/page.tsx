@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AnimatedCounter, PulseDot } from "@/components/ui/animated";
+import { OnboardingBanner } from "@/components/OnboardingBanner";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -667,6 +668,9 @@ export default function HomePage() {
           </motion.div>
         </div>
       </section>
+
+      {/* Onboarding for first-time users */}
+      <OnboardingBanner visible={!loading && stats.total === 0} />
 
       {/* ═══════════════════════════════════════════════════════════ PIPELINE (moved up — it's the core workflow) */}
       <ScrollReveal>
