@@ -14,6 +14,7 @@ from app.db.models import (
     GraphEntity,
     GraphRelationship,
     ProcessingJob,
+    TokenUsage,
     ArticleStatus,
     JobStatus,
 )
@@ -26,7 +27,6 @@ from app.services.parsers.mineru_adapter import MinerUAdapter
 from app.services.pipeline.markdown_normalizer import normalize_markdown
 from app.services.pipeline.chunking import chunk_markdown, estimate_tokens
 from app.services.ai.base import get_llm_provider
-from app.services.ai.embeddings import get_embedding_provider
 from app.services.graph.builder import GraphBuilder
 from app.core.config import settings
 
@@ -78,18 +78,18 @@ def _get_parsers():
     }
 
 
-async def run_pipeline(article_id: int, run_ai: bool = True) -> None:
+async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "parse") -> None:
     """Run the processing pipeline for an article.
 
-    If run_ai=False, stops after Markdown normalization (parse-only mode).
+    run_ai=False: stops after chunking (parse-only mode).
+    start_step="extract": skips parse + chunk, starts at AI extraction (requires existing markdown_text).
 
     Steps:
     1. Parse document to Markdown
     2. Normalize Markdown
     3. Chunk
-    4. AI extraction (skipped if run_ai=False)
-    5. Embeddings (skipped if run_ai=False)
-    6. Graph building
+    4. AI extraction
+    5. Graph building
     """
     db = SessionLocal()
     job: ProcessingJob | None = None
@@ -133,64 +133,88 @@ async def run_pipeline(article_id: int, run_ai: bool = True) -> None:
                 job.error = message
             db.commit()
 
-        # ── Step 1: Parse ──────────────────────────────────────────────
-        add_log("parsing", "Starting document parsing...")
-        article.status = ArticleStatus.PARSING.value
-        db.commit()
+        # ── Steps 1-2: Parse + Chunk (skipped in extraction-only mode) ─
+        if start_step == "extract":
+            # Use existing markdown — must already be parsed
+            markdown = article.markdown_text
+            if not markdown:
+                raise ValueError("Cannot run extraction-only: article has no markdown_text. Run full pipeline first.")
+            add_log("parsing", "Skipped — using existing markdown")
+            add_log("chunking", "Skipped — using existing chunks (or re-chunking below)")
+            # Re-chunk from existing markdown to ensure fresh chunks
+            chunks = chunk_markdown(markdown)
+            db.query(ArticleChunk).filter(ArticleChunk.article_id == article_id).delete()
+            for c in chunks:
+                db.add(ArticleChunk(
+                    article_id=article_id,
+                    chunk_index=c.chunk_index,
+                    section_title=c.section_title,
+                    page_start=c.page_start,
+                    page_end=c.page_end,
+                    text=c.text,
+                    token_count=c.token_count,
+                ))
+            db.commit()
+            add_log("chunking", f"Re-chunked: {len(chunks)} chunks from existing markdown")
+        else:
+            # ── Step 1: Parse ──────────────────────────────────────────
+            add_log("parsing", "Starting document parsing...")
+            article.status = ArticleStatus.PARSING.value
+            db.commit()
 
-        parser = _get_parsers().get(article.source_type)
-        if not parser:
-            raise ValueError(f"No parser for source type: {article.source_type}")
+            parser = _get_parsers().get(article.source_type)
+            if not parser:
+                raise ValueError(f"No parser for source type: {article.source_type}")
 
-        # Track which parser was used (human-readable name)
-        _PARSER_DISPLAY_NAMES = {
-            "MinerUAdapter": "MinerU (magic-pdf)",
-            "DoclingAdapter": "Docling",
-            "PdfParser": "pypdf",
-            "HtmlParser": "BeautifulSoup (HTML)",
-            "MarkdownParser": "Markdown passthrough",
-        }
-        cls_name = parser.__class__.__name__
-        article.parser_name = _PARSER_DISPLAY_NAMES.get(cls_name, cls_name)
+            # Track which parser was used (human-readable name)
+            _PARSER_DISPLAY_NAMES = {
+                "MinerUAdapter": "MinerU (magic-pdf)",
+                "DoclingAdapter": "Docling",
+                "PdfParser": "pypdf",
+                "HtmlParser": "BeautifulSoup (HTML)",
+                "MarkdownParser": "Markdown passthrough",
+            }
+            cls_name = parser.__class__.__name__
+            article.parser_name = _PARSER_DISPLAY_NAMES.get(cls_name, cls_name)
 
-        parse_result = await parser.parse(Path(article.storage_path))
-        markdown = normalize_markdown(parse_result.markdown)
-        # Title stays as the filename from upload (user can edit via PATCH /articles/{id})
-        article.markdown_text = markdown
+            parse_result = await parser.parse(Path(article.storage_path))
+            markdown = normalize_markdown(parse_result.markdown)
+            # Title stays as the filename from upload (user can edit via PATCH /articles/{id})
+            article.markdown_text = markdown
 
-        # Also save to disk
-        md_path = storage.save_markdown(article_id, markdown)
-        article.markdown_path = str(md_path)
+            # Also save to disk
+            md_path = storage.save_markdown(article_id, markdown)
+            article.markdown_path = str(md_path)
 
-        add_log("parsing", f"Parsing complete. Title: {article.title}")
-        db.commit()
+            add_log("parsing", f"Parsing complete. Title: {article.title}")
+            db.commit()
 
-        # ── Step 2: Chunking ───────────────────────────────────────────
-        add_log("chunking", "Chunking document...")
-        db.commit()
+            # ── Step 2: Chunking ───────────────────────────────────────
+            add_log("chunking", "Chunking document...")
+            db.commit()
 
-        chunks = chunk_markdown(markdown)
+            chunks = chunk_markdown(markdown)
 
-        # Delete old chunks
-        db.query(ArticleChunk).filter(ArticleChunk.article_id == article_id).delete()
+            # Delete old chunks
+            db.query(ArticleChunk).filter(ArticleChunk.article_id == article_id).delete()
 
-        for c in chunks:
-            db.add(ArticleChunk(
-                article_id=article_id,
-                chunk_index=c.chunk_index,
-                section_title=c.section_title,
-                page_start=c.page_start,
-                page_end=c.page_end,
-                text=c.text,
-                token_count=c.token_count,
-            ))
+            for c in chunks:
+                db.add(ArticleChunk(
+                    article_id=article_id,
+                    chunk_index=c.chunk_index,
+                    section_title=c.section_title,
+                    page_start=c.page_start,
+                    page_end=c.page_end,
+                    text=c.text,
+                    token_count=c.token_count,
+                ))
 
-        add_log("chunking", f"Created {len(chunks)} chunks")
-        db.commit()
+            add_log("chunking", f"Created {len(chunks)} chunks")
+            db.commit()
 
         # ── Step 3: AI Extraction ──────────────────────────────────────
         if not run_ai:
-            add_log("parse_complete", "AI pipeline disabled — skipping extraction, embeddings, and graph. Article ready for reading.")
+            add_log("parse_complete", "AI pipeline disabled — skipping extraction and graph. Article ready for reading.")
             article.status = ArticleStatus.COMPLETED.value
             db.commit()
             job.status = JobStatus.COMPLETED.value
@@ -223,6 +247,29 @@ async def run_pipeline(article_id: int, run_ai: bool = True) -> None:
         )
         db.add(extraction)
 
+        # Record extraction token usage
+        if llm.last_usage and llm.last_usage.total_tokens > 0:
+            db.add(TokenUsage(
+                article_id=article_id,
+                step="extraction",
+                model=llm.last_usage.model,
+                provider=llm.last_usage.provider,
+                prompt_tokens=llm.last_usage.prompt_tokens,
+                completion_tokens=llm.last_usage.completion_tokens,
+                total_tokens=llm.last_usage.total_tokens,
+            ))
+
+        if extraction_result is None:
+            failure_message = "; ".join(validation_errors or ["AI extraction returned no result"])
+            article.needs_review = 1
+            article.status = ArticleStatus.FAILED.value
+            article.processing_error = failure_message
+            job.status = JobStatus.FAILED.value
+            job.completed_at = datetime.datetime.utcnow()
+            add_log("extracting", failure_message, error=True)
+            logger.warning(f"Pipeline extraction failed for article {article_id}: {failure_message}")
+            return
+
         if validation_errors:
             add_log("extracting", f"Extraction complete with {len(validation_errors)} validation errors")
             article.needs_review = 1
@@ -231,23 +278,7 @@ async def run_pipeline(article_id: int, run_ai: bool = True) -> None:
 
         db.commit()
 
-        # ── Step 4: Embeddings ─────────────────────────────────────────
-        add_log("indexing", "Generating embeddings...")
-        article.status = ArticleStatus.INDEXING.value
-        db.commit()
-
-        embedding_provider = get_embedding_provider()
-
-        for chunk in db.query(ArticleChunk).filter(
-            ArticleChunk.article_id == article_id
-        ).all():
-            embedding = await embedding_provider.embed(chunk.text)
-            chunk.embedding_json = json.dumps(embedding)
-
-        add_log("indexing", f"Embeddings generated for {len(chunks)} chunks")
-        db.commit()
-
-        # ── Step 5: Graph Building ─────────────────────────────────────
+        # ── Step 4: Graph Building ─────────────────────────────────────
         add_log("graph", "Building graph entities...")
         if extraction_result:
             builder = GraphBuilder()
@@ -328,11 +359,10 @@ async def run_pipeline(article_id: int, run_ai: bool = True) -> None:
         db.close()
 
 
-def run_pipeline_background(article_id: int, run_ai: bool = True) -> None:
-    """Kick off pipeline in a background thread via FastAPI BackgroundTasks equivalent.
+def run_pipeline_background(article_id: int, run_ai: bool = True, start_step: str = "parse") -> None:
+    """Kick off pipeline in a background thread.
 
-    Since we can't use FastAPI's BackgroundTasks outside of a request context,
-    we use a simple thread-based approach for the MVP.
+    start_step: "parse" (full pipeline) or "extract" (skip parse+chunk, start at extraction).
     """
     import asyncio
     import threading
@@ -341,10 +371,10 @@ def run_pipeline_background(article_id: int, run_ai: bool = True) -> None:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(run_pipeline(article_id, run_ai=run_ai))
+            loop.run_until_complete(run_pipeline(article_id, run_ai=run_ai, start_step=start_step))
         finally:
             loop.close()
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
-    logger.info(f"Background pipeline started for article {article_id} (run_ai={run_ai})")
+    logger.info(f"Background pipeline started for article {article_id} (run_ai={run_ai}, start_step={start_step})")

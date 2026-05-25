@@ -51,19 +51,22 @@ cp .env.example apps/web/.env.local
 
 ## Features
 
-- **Document Ingestion**: Upload PDF, ZIP (containing PDFs/HTML/MD/TXT), HTML, Markdown, or plain text
-- **Automatic Parsing**: Convert documents to canonical Markdown with structure preservation — MinerU (best), Docling, or pypdf
-- **AI Extraction**: Extract structured research information (authors, methodology, results, claims, etc.)
-- **RAG Q&A**: Ask questions about articles with cited answers, side-by-side chat with citation sources, persistent chat history
-- **Built-in AI Skills**: Research summary, methodology extraction, experiment extraction, literature review notes, reviewer critique — all with structured results. Create, edit, import, and export custom skills.
-- **Graph Analysis**: Entity and relationship extraction with color-coded type visualization and directional relationship cards
+- **Immersive Landing Page**: Particle canvas, floating orbs, typewriter headline, animated stats, and accurate 5-step pipeline diagram (Upload → Parse → Chunk → Extract → Graph) with hover interactions
+- **Document Ingestion**: Upload PDF, ZIP (containing PDFs/HTML/MD/TXT), HTML, Markdown, or plain text — with live LLM model badge
+- **Automatic Parsing**: Convert documents to canonical Markdown with structure preservation — MinerU v3.x (best), Docling, or pypdf
+- **5-Step Processing Pipeline**: Parse → Semantic Chunk → AI Extract → Build Graph → Complete. Live progress bar with step-by-step status.
+- **AI Extraction**: Extract structured research information (authors, methodology, results, claims, entities, references) with evidence trails and confidence scoring
+- **Full-Context Chat**: Ask questions about articles with cited, source-linked answers drawn from complete article text. @-mention articles for focused context or let AI search your entire library. Multi-turn sessions persist across refreshes.
+- **Model Selector**: Switch LLM providers on-the-fly from the Chat page — no reload required
+- **Built-in AI Skills**: Research summary, methodology extraction, experiment extraction, literature review notes, reviewer critique — with structured results. Create, edit, import, and export custom skills.
+- **Global Knowledge Graph**: Interactive canvas-based force-directed graph of all entities and relationships across articles (Obsidian-style), with zoom/pan, type filtering, and click-to-navigate
+- **Metrics Dashboard**: Professional analytics with time-range filter, KPI cards, charts (line, bar, donut), and top articles table — track token usage, article throughput, and processing metrics
 - **Batch Operations**: Select multiple articles for bulk archive/restore, delete, or export
-- **Global Search**: Full-text search across all article content from the dashboard
-- **Export**: Individual article export (JSON, Markdown) and unified "Export All" (settings + articles + skills) from Settings
-- **Multi-Provider AI**: 9 LLM providers — OpenAI, Anthropic, DeepSeek, OpenRouter, GLM (Zhipu), MiniMax, Mimo (MiniMax-M1), Kimi (Moonshot), and Custom (any OpenAI/Anthropic-compatible endpoint)
+- **Global Search**: Full-text search across all article content from the home page
+- **Export**: Individual article export (JSON, Markdown) and unified export/import (settings + articles + skills) from Settings
+- **Multi-Provider AI**: 9 LLM providers — OpenAI, Anthropic, DeepSeek, OpenRouter, GLM (Zhipu), MiniMax, Kimi (Moonshot), and Custom (any OpenAI/Anthropic-compatible endpoint). Configure in Settings → Providers.
 - **PDF Original View**: Toggle between parsed Markdown and the original PDF inline in the Reader
-- **Processing Progress**: Live step-by-step pipeline progress bar with auto-reload on completion
-- **Settings**: Configure LLM/embedding providers, test connections, manage skills, unified Export All / Import All (settings + articles + skills)
+- **Unified Settings Page**: Single `/settings` page with 5 tabs — Providers, System Messages, Input Templates, Model Params, and General (parsers, mock AI, limits, data export/import)
 - **Dark Mode**: Full light/dark theme with system preference detection and live OS theme switching
 - **Inline Title Editing**: Click any article title to rename it inline — defaults to the original filename
 - **Pagination & Sort**: Server-side pagination with sort controls (newest, oldest, title, status)
@@ -89,7 +92,7 @@ data/              - SQLite database
 - **Frontend**: Next.js, React, TypeScript, Tailwind CSS
 - **Backend**: Python FastAPI, SQLAlchemy, Pydantic
 - **Database**: SQLite (default), PostgreSQL optional
-- **AI**: OpenAI provider with mock fallback for offline development
+- **AI**: Multi-provider LLM (OpenAI, Anthropic, DeepSeek, custom endpoints) with mock fallback for offline development
 
 ## Environment Variables
 
@@ -97,13 +100,13 @@ See `.env.example` for all configuration options. Key variables:
 
 | Variable | Default | Description |
 |---|---|---|
-| `LLM_PROVIDER` | `openai` | LLM backend: `openai`, `anthropic`, `deepseek`, `openrouter`, `glm`, `minimax`, `mimo`, `kimi`, or `custom` |
+| `LLM_PROVIDER` | `openai` | LLM backend: `openai`, `anthropic`, `deepseek`, `openrouter`, `glm`, `minimax`, `kimi`, or `custom` |
 | `LLM_CUSTOM_PROTOCOL` | `openai` | When custom: `openai` or `anthropic` |
 | `LLM_CUSTOM_BASE_URL` | — | Custom endpoint URL |
 | `LLM_CUSTOM_MODEL` | — | Custom model name |
-| `OPENAI_API_KEY` | — | OpenAI key (shared by LLM + embeddings) |
+| `OPENAI_API_KEY` | — | OpenAI API key |
 | `OPENAI_MODEL` | `gpt-4.1-mini` | OpenAI model |
-| `ANTHROPIC_API_KEY` | — | Anthropic key |
+| `ANTHROPIC_API_KEY` | — | Anthropic API key |
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Claude model |
 | `DEEPSEEK_API_KEY` | — | DeepSeek API key |
 | `DEEPSEEK_MODEL` | `deepseek-chat` | DeepSeek model |
@@ -113,18 +116,14 @@ See `.env.example` for all configuration options. Key variables:
 | `GLM_MODEL` | `glm-4-plus` | GLM model |
 | `MINIMAX_API_KEY` | — | MiniMax API key |
 | `MINIMAX_MODEL` | `MiniMax-Text-01` | MiniMax model |
-| `MIMO_API_KEY` | — | Mimo (MiniMax-M1) API key |
-| `MIMO_MODEL` | `MiniMax-M1` | Mimo model |
 | `KIMI_API_KEY` | — | Kimi (Moonshot) API key |
 | `KIMI_MODEL` | `moonshot-v1-8k` | Kimi model |
-| `EMBEDDING_PROVIDER` | `openai` | Embeddings backend: `openai` or `custom` |
-| `EMBEDDING_CUSTOM_BASE_URL` | — | Custom embeddings endpoint |
-| `EMBEDDING_CUSTOM_MODEL` | — | Custom embeddings model |
-| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
 | `USE_MOCK_AI` | `true` | Offline regex extraction (no API key needed) |
 | `MAX_UPLOAD_MB` | `50` | Max file size |
 | `PARSER_PRIORITY` | `mineru_first` | PDF parser: `mineru_first`, `docling`, `pypdf`, or `ocr` |
 | `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` | Backend URL for frontend |
+
+> **Note:** Multiple providers can also be configured from Settings → Providers in the UI. Providers configured in the UI take precedence over `.env` variables.
 
 ### LLM Provider Examples
 
@@ -188,33 +187,24 @@ KIMI_API_KEY=sk-...
 KIMI_MODEL=moonshot-v1-8k
 ```
 
-### Embedding Provider Examples
-
-**Custom — Ollama**:
-```env
-EMBEDDING_PROVIDER=custom
-EMBEDDING_CUSTOM_BASE_URL=http://localhost:11434/v1
-EMBEDDING_CUSTOM_MODEL=nomic-embed-text
-```
-
 All settings can also be configured from the Settings page in the UI (`/settings`).
 
 ## Known Limitations
 
-- SQLite does not support native vector search; embeddings use cosine similarity in Python
+- Chat uses full article text in context (no chunk retrieval) — works well for articles within the model's context window
 - Mock AI providers return deterministic but non-realistic extraction
 - No authentication system in MVP
 - Worker runs in-process via FastAPI BackgroundTasks
 - No Redis/Celery; single-process execution
-- MinerU image extraction requires `magic-pdf` package (optional, falls back to Docling/pypdf)
+- MinerU image extraction requires `mineru` package (optional, falls back to Docling/pypdf)
+- Embeddings and vector search removed in v0.4.0
 
 ## Next Steps
 
-- PostgreSQL + pgvector for production vector search
+- PostgreSQL for production database
 - Neo4j sync for graph analysis
 - MCP server support for tool extensibility
 - Multi-article comparison view
-- Graph visualization (force-directed layout)
 - Cloud object storage (S3)
 - Real-time processing status (WebSocket/SSE)
 - Authentication enforcement (currently optional)

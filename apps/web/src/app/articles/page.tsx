@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { StaggerContainer, StaggerItem, HoverCard, FadeIn } from "@/components/ui/animated";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const TERMINAL_ARTICLE_STATUSES = new Set(["completed", "failed", "needs_review"]);
 
 interface Article {
   id: number; title: string; status: string;
@@ -124,6 +125,8 @@ export default function ArticlesPage() {
     return "secondary" as const;
   };
 
+  const isProcessingStatus = (s: string) => !TERMINAL_ARTICLE_STATUSES.has(s);
+
   return (
     <div className="space-y-6">
       <FadeIn>
@@ -162,6 +165,7 @@ export default function ArticlesPage() {
               <SelectItem value="parsing">Parsing</SelectItem>
               <SelectItem value="extracting">Extracting</SelectItem>
               <SelectItem value="indexing">Indexing</SelectItem>
+              <SelectItem value="needs_review">Needs Review</SelectItem>
               <SelectItem value="failed">Failed</SelectItem>
             </SelectContent>
           </Select>
@@ -291,7 +295,7 @@ export default function ArticlesPage() {
                       <div className="flex items-center gap-1.5 shrink-0">
                         {a.is_archived === 1 && <Badge variant="outline" className="text-muted-foreground text-[10px]">Archived</Badge>}
                         <Badge variant={statusVariant(a.status)}>
-                          {!["completed", "failed"].includes(a.status) ? (
+                          {isProcessingStatus(a.status) ? (
                             <span className="flex items-center gap-1.5">
                               <span className="animate-pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-current" />
                               {a.status}

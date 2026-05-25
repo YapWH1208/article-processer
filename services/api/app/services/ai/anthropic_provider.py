@@ -14,8 +14,10 @@ from app.services.ai.prompts import (
     EXTRACTION_SYSTEM_PROMPT,
     QA_SYSTEM_PROMPT,
     SKILL_SYSTEM_PROMPT,
+    get_input_template,
 )
 from app.core.security import protect_prompt_from_injection
+from app.services.ai.openai_provider import _repair_json
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +34,14 @@ class AnthropicProvider(BaseLLMProvider):
     """Anthropic Claude provider via official SDK."""
 
     def __init__(self):
+        super().__init__()
         if not HAS_ANTHROPIC:
             raise RuntimeError(
                 "Anthropic SDK not installed. Run: pip install anthropic"
             )
         self.client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
         self.model = settings.anthropic_model
+        self._provider_name = "anthropic"
 
     async def extract_structured(
         self, markdown: str, article_title: str,
@@ -49,29 +53,23 @@ class AnthropicProvider(BaseLLMProvider):
             f"{protected_text}\n\n"
             f"Respond with a JSON object only, no other text."
         )
-        return await self._call_claude(prompt, "extraction")
+        return await self._call_claude(prompt, "extraction", max_tokens=8000)
 
     async def answer_question(
-        self, question: str, article_title: str, chunks: list[Any],
+        self, question: str, article_title: str, article_text: str,
     ) -> tuple[str, list[dict]]:
-        chunk_texts = []
-        for c in chunks:
-            text = c.text if hasattr(c, 'text') else str(c)
-            section = c.section_title if hasattr(c, 'section_title') else None
-            page = f"pp. {c.page_start}-{c.page_end}" if hasattr(c, 'page_start') and c.page_start else ""
-            idx = c.chunk_index if hasattr(c, 'chunk_index') else 0
-            chunk_texts.append(f'[Chunk {idx}, Section: "{section or "N/A"}", {page}]\n{text}')
+        protected_text = protect_prompt_from_injection(article_text)
 
-        context = "\n\n---\n\n".join(chunk_texts)
-        protected_context = protect_prompt_from_injection(context)
-
-        prompt = (
-            f"{QA_SYSTEM_PROMPT}\n\n"
-            f"Article: {article_title}\n\n{protected_context}\n\n"
-            f"Question: {question}"
+        input_template = get_input_template("chat")
+        user_content = input_template.format(
+            context_header=f"Article: {article_title}",
+            document=protected_text,
+            question=question,
         )
+
+        prompt = f"{QA_SYSTEM_PROMPT}\n\n{user_content}"
         answer, _ = await self._call_claude(prompt, "qa")
-        citations = self._extract_citations(answer, chunks)
+        citations = self._extract_citations(answer, [])
         return answer, citations
 
     async def run_skill(self, skill: Any, article_markdown: str) -> dict:
@@ -89,27 +87,31 @@ class AnthropicProvider(BaseLLMProvider):
 
     # ── Internal ───────────────────────────────────────────────────────
 
-    async def _call_claude(self, prompt: str, task: str) -> tuple[dict | str, float]:
+    async def _call_claude(self, prompt: str, task: str, max_tokens: int = 4000) -> tuple[dict | str, float]:
         """Call Claude and parse the response. Returns (parsed_or_text, confidence)."""
         try:
             response = await self.client.messages.create(
                 model=self.model,
-                max_tokens=4000,
+                max_tokens=max_tokens,
                 temperature=0.1,
                 messages=[{"role": "user", "content": prompt}],
             )
+            # Capture token usage from Anthropic response
+            if hasattr(response, "usage") and response.usage:
+                self.last_usage.prompt_tokens += response.usage.input_tokens or 0
+                self.last_usage.completion_tokens += response.usage.output_tokens or 0
+                total = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
+                self.last_usage.total_tokens += total
+                self.last_usage.model = self.model
+                self.last_usage.provider = self._provider_name
+
             text = response.content[0].text if response.content else ""
 
-            # Try to parse as JSON
+            # Try to parse as JSON with repair
             try:
-                # Claude may wrap in ```json ... ``` blocks
-                if "```json" in text:
-                    text = text.split("```json")[1].split("```")[0].strip()
-                elif "```" in text:
-                    text = text.split("```")[1].split("```")[0].strip()
-                return json.loads(text), 0.85
-            except (json.JSONDecodeError, IndexError):
-                # Return raw text for QA responses
+                return _repair_json(text), 0.85
+            except json.JSONDecodeError:
+                # Return raw text for QA / skill responses
                 return text, 0.7
 
         except Exception as e:
@@ -148,6 +150,7 @@ class CustomAnthropicProvider(AnthropicProvider):
     """
 
     def __init__(self):
+        super().__init__()
         if not HAS_ANTHROPIC:
             raise RuntimeError("Anthropic SDK not installed. Run: pip install anthropic")
         self.client = anthropic.AsyncAnthropic(
@@ -155,3 +158,4 @@ class CustomAnthropicProvider(AnthropicProvider):
             base_url=settings.llm_custom_base_url.rstrip("/"),
         )
         self.model = settings.llm_custom_model
+        self._provider_name = "custom"

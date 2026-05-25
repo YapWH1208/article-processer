@@ -160,6 +160,8 @@ export interface ChatResponse {
   citations: Citation[];
   message_id: number;
   created_at: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
 }
 
 export interface ChatMessageResponse {
@@ -173,6 +175,30 @@ export interface ChatMessageResponse {
 export interface ChatHistoryResponse {
   article_id: number;
   messages: ChatMessageResponse[];
+}
+
+export interface MultiArticleChatResponse {
+  answer: string;
+  citations: Citation[];
+  prompt_tokens: number;
+  completion_tokens: number;
+  article_ids: number[];
+}
+
+export interface ChatSession {
+  id: number;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
+export interface SessionMessageResponse {
+  answer: string;
+  citations: Citation[];
+  prompt_tokens: number;
+  completion_tokens: number;
+  session_id: number;
 }
 
 // ── Job types ─────────────────────────────────────────────────────
@@ -197,4 +223,135 @@ export interface SkillDef {
   description: string;
   input_schema: Record<string, unknown>;
   output_schema: Record<string, unknown>;
+}
+
+// ── Dashboard types ──────────────────────────────────────────────
+
+export interface DashboardMetrics {
+  total_articles: number;
+  total_completed: number;
+  total_failed: number;
+  total_processing: number;
+  articles_by_day: { date: string; count: number }[];
+  articles_by_status: { status: string; count: number }[];
+  total_chat_messages: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  token_usage_by_model: {
+    model: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    message_count: number;
+  }[];
+  top_articles_by_tokens: {
+    article_id: number;
+    title: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  }[];
+  total_graph_entities: number;
+  total_graph_relationships: number;
+  articles_with_graph: number;
+  avg_processing_seconds: number;
+}
+
+export interface GlobalGraphData {
+  entities: {
+    id: number;
+    article_id: number;
+    article_title: string;
+    type: string;
+    name: string;
+    canonical_name: string | null;
+    confidence: number;
+  }[];
+  relationships: {
+    id: number;
+    article_id: number;
+    article_title: string;
+    source_entity_id: number;
+    target_entity_id: number;
+    type: string;
+    confidence: number;
+  }[];
+}
+
+// ── Logs ───────────────────────────────────────────────────
+
+export interface TokenUsageLog {
+  id: number;
+  step: string;
+  model: string;
+  provider: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  created_at: string | null;
+}
+
+export interface JobLog {
+  id: number;
+  status: string;
+  current_step: string | null;
+  logs: { step: string; timestamp: string; message: string; error?: boolean }[];
+  error: string | null;
+  created_at: string | null;
+  completed_at: string | null;
+}
+
+export interface ArticleLogs {
+  article_id: number;
+  title: string;
+  status: string;
+  jobs: JobLog[];
+  token_usage: TokenUsageLog[];
+}
+
+// ── Health ──────────────────────────────────────────────────
+
+export interface HealthInfo {
+  status: string;
+  version: string;
+  mock_ai: boolean;
+  llm_provider: string;
+  llm_model: string;
+  llm_custom_protocol?: string | null;
+}
+
+// ── Parsers ──────────────────────────────────────────────────
+
+export interface ParserInfo {
+  key: string;
+  name: string;
+  installed: boolean;
+  version?: string | null;
+  description: string;
+  install_cmd?: string | null;
+}
+
+// ── Providers ─────────────────────────────────────────────────
+
+export interface ProviderEntry {
+  id: string;
+  name: string;
+  type: string;
+  api_key: string;  // masked in responses
+  base_url: string;
+  model: string;
+  protocol: string;
+}
+
+export interface DevConfig {
+  temperature: number;
+  top_p: number;
+  max_tokens: number;
+  frequency_penalty: number;
+  presence_penalty: number;
+  system_messages: Record<string, { content: string }>;
+  input_templates: Record<string, { template: string; description: string }>;
+  providers: ProviderEntry[];
+  active_provider_id: string | null;
 }

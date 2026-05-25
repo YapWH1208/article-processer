@@ -3,618 +3,607 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
-import { Save, RotateCcw, Brain, Cpu, Settings2, Server, Download, Upload, Wifi, Loader2, FileCode, CheckCircle2, AlertTriangle } from "lucide-react";
+import {
+  Settings2, Server, Download, Upload, Loader2, FileCode,
+  Save, RotateCcw, Thermometer, Gauge, Hash, Sparkles,
+  Plus, Trash2, Brain, CheckCircle2, MessageSquare,
+  SlidersHorizontal, SwitchCamera,
+} from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FadeIn } from "@/components/ui/animated";
-import { listParsers, listSkills } from "@/lib/api";
-import SkillManager from "@/components/skills/SkillManager";
-import { Wand2 } from "lucide-react";
+import { listParsers, getDevConfig } from "@/lib/api";
+import type { ParserInfo } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
-interface Settings {
-  llm_provider: string; llm_custom_protocol: string;
-  llm_custom_base_url: string; llm_custom_api_key: string; llm_custom_model: string;
-  openai_api_key: string; openai_model: string;
-  anthropic_api_key: string; anthropic_model: string;
-  deepseek_api_key?: string; deepseek_model?: string; deepseek_coding_model?: string;
-  openrouter_api_key?: string; openrouter_model?: string; openrouter_coding_model?: string;
-  glm_api_key?: string; glm_model?: string; glm_coding_model?: string;
-  minimax_api_key?: string; minimax_model?: string; minimax_coding_model?: string;
-  mimo_api_key?: string; mimo_model?: string; mimo_coding_model?: string;
-  kimi_api_key?: string; kimi_model?: string; kimi_coding_model?: string;
-  embedding_provider: string;
-  embedding_custom_base_url: string; embedding_custom_api_key: string; embedding_custom_model: string;
-  openai_embedding_model: string;
-  use_mock_ai: boolean; max_upload_mb: number;
-  parser_priority?: string;
+interface SettingsData {
   host: string; port: number; env_path: string;
+  use_mock_ai: boolean; max_upload_mb: number; parser_priority: string;
 }
 
-// ── Constants ────────────────────────────────────────────────────────────
+interface SystemMessageItem { content: string; }
 
-const LLM_PROVIDERS = [
-  { value: "openai", label: "OpenAI", desc: "GPT-4.1, GPT-4o, GPT-4 Turbo" },
-  { value: "anthropic", label: "Anthropic", desc: "Claude Sonnet, Haiku, Opus" },
-  { value: "deepseek", label: "DeepSeek", desc: "DeepSeek-Chat, DeepSeek-Coder, DeepSeek-Reasoner" },
-  { value: "openrouter", label: "OpenRouter", desc: "Unified API for 200+ models" },
-  { value: "glm", label: "GLM (Zhipu)", desc: "GLM-4 Plus, Flash, Long, Air" },
-  { value: "minimax", label: "MiniMax", desc: "MiniMax-Text-01, abab6.5s" },
-  { value: "mimo", label: "Mimo (MiniMax-M1)", desc: "MiniMax-M1, MiniMax-M1-8k" },
-  { value: "kimi", label: "Kimi (Moonshot)", desc: "moonshot-v1-8k, 32k, 128k" },
-  { value: "custom", label: "Custom Endpoint", desc: "Any OpenAI or Anthropic compatible API" },
+interface InputTemplateItem { template: string; description: string; }
+
+interface ProviderEntry {
+  id: string; name: string; type: string;
+  api_key: string; base_url: string; model: string; protocol: string;
+}
+
+interface DevConfig {
+  temperature: number; top_p: number; max_tokens: number;
+  frequency_penalty: number; presence_penalty: number;
+  system_messages: Record<string, SystemMessageItem>;
+  input_templates: Record<string, InputTemplateItem>;
+  providers?: ProviderEntry[]; active_provider_id?: string | null;
+}
+
+const PROVIDER_TYPES = [
+  { value: "openai", label: "OpenAI", defaultModel: "gpt-4.1-mini", defaultBase: "https://api.openai.com/v1" },
+  { value: "anthropic", label: "Anthropic", defaultModel: "claude-sonnet-4-20250514", defaultBase: "" },
+  { value: "deepseek", label: "DeepSeek", defaultModel: "deepseek-chat", defaultBase: "https://api.deepseek.com/v1" },
+  { value: "openrouter", label: "OpenRouter", defaultModel: "openai/gpt-4.1-mini", defaultBase: "https://openrouter.ai/api/v1" },
+  { value: "glm", label: "GLM (Zhipu)", defaultModel: "glm-4-plus", defaultBase: "https://open.bigmodel.cn/api/paas/v4" },
+  { value: "minimax", label: "MiniMax", defaultModel: "MiniMax-Text-01", defaultBase: "https://api.minimax.chat/v1" },
+  { value: "kimi", label: "Kimi (Moonshot)", defaultModel: "moonshot-v1-8k", defaultBase: "https://api.moonshot.cn/v1" },
+  { value: "custom", label: "Custom Endpoint", defaultModel: "llama3.1:8b", defaultBase: "http://localhost:11434/v1" },
 ];
 
-const OPENAI_MODELS = [
-  { value: "gpt-4.1-mini", label: "GPT-4.1 Mini" }, { value: "gpt-4.1-nano", label: "GPT-4.1 Nano" },
-  { value: "gpt-4o", label: "GPT-4o" }, { value: "gpt-4o-mini", label: "GPT-4o Mini" },
-  { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
+const PROTOCOL_OPTIONS = [
+  { value: "openai", label: "OpenAI-compatible" },
+  { value: "anthropic", label: "Anthropic-compatible" },
 ];
 
-const ANTHROPIC_MODELS = [
-  { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
-  { value: "claude-3-5-sonnet-latest", label: "Claude 3.5 Sonnet" },
-  { value: "claude-3-5-haiku-latest", label: "Claude 3.5 Haiku" },
-  { value: "claude-3-opus-latest", label: "Claude 3 Opus" },
-  { value: "claude-opus-4-20250514", label: "Claude Opus 4" },
-];
+const taskLabels: Record<string, string> = {
+  extraction: "Extraction", chat: "Chat Q&A", skill_default: "Skills (Default)",
+};
 
-const EMBEDDING_PROVIDERS = [
-  { value: "openai", label: "OpenAI", desc: "text-embedding-3-small, 3-large, ada-002" },
-  { value: "custom", label: "Custom Endpoint", desc: "Any OpenAI-compatible embeddings API" },
-];
+// ── Slider field ─────────────────────────────────────────────────────────
 
-const EMBEDDING_MODELS = [
-  { value: "text-embedding-3-small", label: "3-small (1536d)" },
-  { value: "text-embedding-3-large", label: "3-large (3072d)" },
-  { value: "text-embedding-ada-002", label: "ada-002 (legacy)" },
-];
-
-const DEEPSEEK_MODELS = [
-  { value: "deepseek-chat", label: "DeepSeek-Chat (V3)" },
-  { value: "deepseek-coder", label: "DeepSeek-Coder" },
-  { value: "deepseek-reasoner", label: "DeepSeek-Reasoner (R1)" },
-];
-
-const OPENROUTER_MODELS = [
-  { value: "openai/gpt-4.1-mini", label: "GPT-4.1 Mini" },
-  { value: "openai/gpt-4o", label: "GPT-4o" },
-  { value: "anthropic/claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
-  { value: "google/gemini-2.5-pro-preview", label: "Gemini 2.5 Pro" },
-  { value: "deepseek/deepseek-chat", label: "DeepSeek V3" },
-  { value: "meta-llama/llama-4-maverick", label: "Llama 4 Maverick" },
-];
-
-const GLM_MODELS = [
-  { value: "glm-4-plus", label: "GLM-4 Plus" },
-  { value: "glm-4-flash", label: "GLM-4 Flash" },
-  { value: "glm-4-long", label: "GLM-4 Long (1M ctx)" },
-  { value: "glm-4-air", label: "GLM-4 Air" },
-];
-
-const MINIMAX_MODELS = [
-  { value: "MiniMax-Text-01", label: "MiniMax-Text-01" },
-  { value: "abab6.5s-chat", label: "abab6.5s-chat" },
-];
-
-const MIMO_MODELS = [
-  { value: "MiniMax-M1", label: "MiniMax-M1" },
-  { value: "MiniMax-M1-8k", label: "MiniMax-M1-8k" },
-];
-
-const KIMI_MODELS = [
-  { value: "moonshot-v1-8k", label: "Moonshot v1 8K" },
-  { value: "moonshot-v1-32k", label: "Moonshot v1 32K" },
-  { value: "moonshot-v1-128k", label: "Moonshot v1 128K" },
-];
-
-// ── Reusable fields ──────────────────────────────────────────────────────
-
-function RadioCards({ options, value, onChange }: {
-  options: { value: string; label: string; desc: string }[];
-  value: string; onChange: (v: string) => void;
+function SliderField({
+  label, value, min, max, step, onChange, icon: Icon, unit, hint,
+}: {
+  label: string; value: number; min: number; max: number; step: number;
+  onChange: (v: number) => void; icon: React.ElementType; unit?: string; hint?: string;
 }) {
+  const pct = ((value - min) / (max - min)) * 100;
   return (
-    <div className="grid gap-2">
-      {options.map((o) => (
-        <motion.label key={o.value} whileHover={{ scale: 1.01 }}
-          className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-            value === o.value ? "border-primary bg-primary/5" : "hover:bg-accent"
-          }`}>
-          <input type="radio" name={options[0].value} value={o.value}
-            checked={value === o.value} onChange={() => onChange(o.value)} className="mt-1" />
-          <div><p className="text-sm font-medium">{o.label}</p><p className="text-xs text-muted-foreground">{o.desc}</p></div>
-        </motion.label>
-      ))}
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <Label className="flex items-center gap-1.5 text-sm">
+          <Icon className="h-3.5 w-3.5 text-muted-foreground" />{label}
+        </Label>
+        <span className="text-sm font-mono tabular-nums text-muted-foreground">
+          {value.toFixed(step < 1 ? 2 : 0)}{unit || ""}
+        </span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="w-full h-2 rounded-full bg-muted appearance-none cursor-pointer
+          [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5
+          [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary
+          [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer
+          [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-background"
+        style={{ background: `linear-gradient(to right, hsl(var(--primary)) ${pct}%, hsl(var(--muted)) ${pct}%)` }}
+      />
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
 
-function KeyField({ label, value, savedMasked, touched, onChange, onFocus, placeholder }: {
-  label: string; value: string; savedMasked?: string; touched: boolean;
-  onChange: (v: string) => void; onFocus: () => void; placeholder: string;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      <Input type="password" value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onFocus={onFocus}
-        placeholder={!touched && savedMasked ? `Using key: ${savedMasked}` : placeholder} />
-    </div>
-  );
-}
-
-// ── Main component ───────────────────────────────────────────────────────
+// ── Page ─────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<Settings | null>(null);
+  // ── Tab ──────────────────────────────────────────────────────────────
+  const [tab, setTab] = useState("providers");
+
+  // ── General settings ─────────────────────────────────────────────────
+  const [settings, setSettings] = useState<SettingsData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ all_ok: boolean; results: Record<string, { ok: boolean; message: string }> } | null>(null);
-  const [tab, setTab] = useState("llm");
-  const [parsers, setParsers] = useState<{ key: string; name: string; installed: boolean; version: string | null; description: string; install_cmd: string | null }[]>([]);
-  const [parserPriority, setParserPriority] = useState("mineru_first");
-  const [skillDefs, setSkillDefs] = useState<{ name: string; purpose: string; description: string; input_schema: Record<string, unknown>; output_schema: Record<string, unknown>; prompt_instructions?: string }[]>([]);
-
-  // LLM state
-  const [llmProvider, setLlmProvider] = useState("openai");
-  const [llmCustomProtocol, setLlmCustomProtocol] = useState("openai");
-  const [llmCustomBaseUrl, setLlmCustomBaseUrl] = useState("");
-  const [llmCustomKey, setLlmCustomKey] = useState(""); const [llmCustomKeyTouched, setLlmCustomKeyTouched] = useState(false);
-  const [llmCustomModel, setLlmCustomModel] = useState("");
-  const [openaiKey, setOpenaiKey] = useState(""); const [openaiKeyTouched, setOpenaiKeyTouched] = useState(false);
-  const [openaiModel, setOpenaiModel] = useState("gpt-4.1-mini");
-  const [anthropicKey, setAnthropicKey] = useState(""); const [anthropicKeyTouched, setAnthropicKeyTouched] = useState(false);
-  const [anthropicModel, setAnthropicModel] = useState("claude-sonnet-4-20250514");
-
-  // New provider state
-  const [deepseekKey, setDeepseekKey] = useState(""); const [deepseekKeyTouched, setDeepseekKeyTouched] = useState(false);
-  const [deepseekModel, setDeepseekModel] = useState("deepseek-chat");
-  const [deepseekCodingModel, setDeepseekCodingModel] = useState("");
-  const [openrouterKey, setOpenrouterKey] = useState(""); const [openrouterKeyTouched, setOpenrouterKeyTouched] = useState(false);
-  const [openrouterModel, setOpenrouterModel] = useState("openai/gpt-4.1-mini");
-  const [openrouterCodingModel, setOpenrouterCodingModel] = useState("");
-  const [glmKey, setGlmKey] = useState(""); const [glmKeyTouched, setGlmKeyTouched] = useState(false);
-  const [glmModel, setGlmModel] = useState("glm-4-plus");
-  const [glmCodingModel, setGlmCodingModel] = useState("");
-  const [minimaxKey, setMinimaxKey] = useState(""); const [minimaxKeyTouched, setMinimaxKeyTouched] = useState(false);
-  const [minimaxModel, setMinimaxModel] = useState("MiniMax-Text-01");
-  const [minimaxCodingModel, setMinimaxCodingModel] = useState("");
-  const [mimoKey, setMimoKey] = useState(""); const [mimoKeyTouched, setMimoKeyTouched] = useState(false);
-  const [mimoModel, setMimoModel] = useState("MiniMax-M1");
-  const [mimoCodingModel, setMimoCodingModel] = useState("");
-  const [kimiKey, setKimiKey] = useState(""); const [kimiKeyTouched, setKimiKeyTouched] = useState(false);
-  const [kimiModel, setKimiModel] = useState("moonshot-v1-8k");
-  const [kimiCodingModel, setKimiCodingModel] = useState("");
-
-  // Embedding state
-  const [embeddingProvider, setEmbeddingProvider] = useState("openai");
-  const [embeddingCustomBaseUrl, setEmbeddingCustomBaseUrl] = useState("");
-  const [embeddingCustomKey, setEmbeddingCustomKey] = useState(""); const [embeddingCustomKeyTouched, setEmbeddingCustomKeyTouched] = useState(false);
-  const [embeddingCustomModel, setEmbeddingCustomModel] = useState("");
-  const [openaiEmbeddingModel, setOpenaiEmbeddingModel] = useState("text-embedding-3-small");
-
-  // General state
   const [mockAi, setMockAi] = useState(true);
   const [maxUploadMb, setMaxUploadMb] = useState(50);
+  const [parserPriority, setParserPriority] = useState("mineru_first");
+  const [parsers, setParsers] = useState<ParserInfo[]>([]);
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => { loadSettings(); }, []);
+  // ── Dev config ───────────────────────────────────────────────────────
+  const [config, setConfig] = useState<DevConfig | null>(null);
 
-  // ── Export/Import ─────────────────────────────────────────────────────
+  // System messages
+  const [systemMessages, setSystemMessages] = useState<Record<string, string>>({});
+  const [editingSm, setEditingSm] = useState<string | null>(null);
+  const [editSmContent, setEditSmContent] = useState("");
+  const [smSaving, setSmSaving] = useState(false);
 
-  const handleExport = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/settings/export`);
-      if (!res.ok) throw new Error("Export failed");
-      const data = await res.json();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = "article-processor-settings.json";
-      a.click(); URL.revokeObjectURL(url);
-      toast.success("Settings exported");
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Export failed");
-    }
-  };
+  // Input templates
+  const [inputTemplates, setInputTemplates] = useState<Record<string, InputTemplateItem>>({});
+  const [editingIt, setEditingIt] = useState<string | null>(null);
+  const [editItTemplate, setEditItTemplate] = useState("");
+  const [itSaving, setItSaving] = useState(false);
 
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch(`${API_BASE}/settings/import`, { method: "POST", body: formData });
-      if (!res.ok) throw new Error((await res.json()).detail || "Import failed");
-      toast.success("Settings imported — reloading...");
-      await loadSettings();
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Import failed");
-    }
-  };
+  // Model params
+  const [temperature, setTemperature] = useState(0.7);
+  const [topP, setTopP] = useState(0.95);
+  const [maxTokens, setMaxTokens] = useState(2048);
+  const [freqPenalty, setFreqPenalty] = useState(0.0);
+  const [presPenalty, setPresPenalty] = useState(0.0);
+  const [mpDirty, setMpDirty] = useState(false);
+  const [mpSaving, setMpSaving] = useState(false);
+
+  // Providers
+  const [providers, setProviders] = useState<ProviderEntry[]>([]);
+  const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newProvider, setNewProvider] = useState({
+    name: "", type: "openai", api_key: "", base_url: "", model: "", protocol: "openai",
+  });
+  const [provSaving, setProvSaving] = useState(false);
+
+  useEffect(() => {
+    Promise.all([loadSettings(), loadDevConfig()]).finally(() => setLoading(false));
+  }, []);
+
+  // ── Loaders ───────────────────────────────────────────────────────────
 
   const loadSettings = async () => {
-    setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/settings`);
-      if (!res.ok) throw new Error("Failed to load");
-      const d: Settings = await res.json();
+      if (!res.ok) throw new Error("Failed");
+      const d = await res.json();
       setSettings(d);
-      setParserPriority(d.parser_priority || "docling_first");
-      // LLM
-      setLlmProvider(d.llm_provider); setLlmCustomProtocol(d.llm_custom_protocol);
-      setLlmCustomBaseUrl(d.llm_custom_base_url); setLlmCustomKey(d.llm_custom_api_key); setLlmCustomModel(d.llm_custom_model);
-      setOpenaiKey(d.openai_api_key); setOpenaiModel(d.openai_model);
-      setAnthropicKey(d.anthropic_api_key); setAnthropicModel(d.anthropic_model);
-      // New providers
-      setDeepseekKey(d.deepseek_api_key || ""); setDeepseekModel(d.deepseek_model || "deepseek-chat"); setDeepseekCodingModel(d.deepseek_coding_model || "");
-      setOpenrouterKey(d.openrouter_api_key || ""); setOpenrouterModel(d.openrouter_model || "openai/gpt-4.1-mini"); setOpenrouterCodingModel(d.openrouter_coding_model || "");
-      setGlmKey(d.glm_api_key || ""); setGlmModel(d.glm_model || "glm-4-plus"); setGlmCodingModel(d.glm_coding_model || "");
-      setMinimaxKey(d.minimax_api_key || ""); setMinimaxModel(d.minimax_model || "MiniMax-Text-01"); setMinimaxCodingModel(d.minimax_coding_model || "");
-      setMimoKey(d.mimo_api_key || ""); setMimoModel(d.mimo_model || "MiniMax-M1"); setMimoCodingModel(d.mimo_coding_model || "");
-      setKimiKey(d.kimi_api_key || ""); setKimiModel(d.kimi_model || "moonshot-v1-8k"); setKimiCodingModel(d.kimi_coding_model || "");
-      // Embedding
-      setEmbeddingProvider(d.embedding_provider);
-      setEmbeddingCustomBaseUrl(d.embedding_custom_base_url); setEmbeddingCustomKey(d.embedding_custom_api_key); setEmbeddingCustomModel(d.embedding_custom_model);
-      setOpenaiEmbeddingModel(d.openai_embedding_model);
-      // General
-      setMockAi(d.use_mock_ai); setMaxUploadMb(d.max_upload_mb);
-
-      // Skills
-      try { const s = await listSkills(); setSkillDefs(s.skills || []); } catch { /* keep existing */ }
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Failed to load settings");
-    } finally { setLoading(false); }
+      setMockAi(d.use_mock_ai);
+      setMaxUploadMb(d.max_upload_mb);
+      setParserPriority(d.parser_priority);
+    } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Settings load failed"); }
   };
 
-  const handleSave = async () => {
+  const loadDevConfig = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/dev`);
+      if (!res.ok) throw new Error("Failed");
+      const d: DevConfig = await res.json();
+      setConfig(d);
+      setProviders(d.providers || []);
+      setActiveProviderId(d.active_provider_id || null);
+      const sm: Record<string, string> = {};
+      for (const [k, v] of Object.entries(d.system_messages)) sm[k] = v.content;
+      setSystemMessages(sm);
+      setInputTemplates(d.input_templates);
+      setTemperature(d.temperature);
+      setTopP(d.top_p);
+      setMaxTokens(d.max_tokens);
+      setFreqPenalty(d.frequency_penalty);
+      setPresPenalty(d.presence_penalty);
+    } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Dev config load failed"); }
+  };
+
+  // ── Saves ─────────────────────────────────────────────────────────────
+
+  const handleGeneralSave = async () => {
     setSaving(true);
     try {
-      const body: Record<string, unknown> = {
-        llm_provider: llmProvider,
-        llm_custom_protocol: llmCustomProtocol,
-        llm_custom_base_url: llmCustomBaseUrl,
-        llm_custom_model: llmCustomModel,
-        openai_model: openaiModel,
-        anthropic_model: anthropicModel,
-        embedding_provider: embeddingProvider,
-        embedding_custom_base_url: embeddingCustomBaseUrl,
-        embedding_custom_model: embeddingCustomModel,
-        openai_embedding_model: openaiEmbeddingModel,
-        use_mock_ai: mockAi,
-        max_upload_mb: maxUploadMb,
-        parser_priority: parserPriority,
-      };
-      if (llmCustomKeyTouched) body.llm_custom_api_key = llmCustomKey;
-      if (openaiKeyTouched) body.openai_api_key = openaiKey;
-      if (anthropicKeyTouched) body.anthropic_api_key = anthropicKey;
-      // New providers
-      body.deepseek_model = deepseekModel; body.deepseek_coding_model = deepseekCodingModel;
-      if (deepseekKeyTouched) body.deepseek_api_key = deepseekKey;
-      body.openrouter_model = openrouterModel; body.openrouter_coding_model = openrouterCodingModel;
-      if (openrouterKeyTouched) body.openrouter_api_key = openrouterKey;
-      body.glm_model = glmModel; body.glm_coding_model = glmCodingModel;
-      if (glmKeyTouched) body.glm_api_key = glmKey;
-      body.minimax_model = minimaxModel; body.minimax_coding_model = minimaxCodingModel;
-      if (minimaxKeyTouched) body.minimax_api_key = minimaxKey;
-      body.mimo_model = mimoModel; body.mimo_coding_model = mimoCodingModel;
-      if (mimoKeyTouched) body.mimo_api_key = mimoKey;
-      body.kimi_model = kimiModel; body.kimi_coding_model = kimiCodingModel;
-      if (kimiKeyTouched) body.kimi_api_key = kimiKey;
-      if (embeddingCustomKeyTouched) body.embedding_custom_api_key = embeddingCustomKey;
-
+      const body: Record<string, unknown> = { use_mock_ai: mockAi, max_upload_mb: maxUploadMb, parser_priority: parserPriority };
       const res = await fetch(`${API_BASE}/settings`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error((await res.json()).detail || "Save failed");
-      const d: Settings = await res.json();
-      setSettings(d);
-      setLlmCustomKey(d.llm_custom_api_key); setLlmCustomKeyTouched(false);
-      setOpenaiKey(d.openai_api_key); setOpenaiKeyTouched(false);
-      setAnthropicKey(d.anthropic_api_key); setAnthropicKeyTouched(false);
-      setEmbeddingCustomKey(d.embedding_custom_api_key); setEmbeddingCustomKeyTouched(false);
-      toast.success("Settings saved — changes take effect on the next request.");
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Save failed");
-    } finally { setSaving(false); }
+      toast.success("General settings saved");
+    } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Save failed"); }
+    finally { setSaving(false); }
   };
 
-  if (loading) return <div className="max-w-3xl mx-auto space-y-4"><Skeleton className="h-8 w-48"/><Skeleton className="h-96 w-full"/></div>;
+  const saveSystemMessage = async (name: string) => {
+    setSmSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/dev/system-messages/${name}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: editSmContent }),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || "Save failed");
+      setSystemMessages((prev) => ({ ...prev, [name]: editSmContent }));
+      setEditingSm(null);
+      toast.success(`System message "${name}" saved`);
+    } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Save failed"); }
+    finally { setSmSaving(false); }
+  };
+
+  const saveInputTemplate = async (name: string) => {
+    setItSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/dev/input-templates/${name}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ template: editItTemplate }),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || "Save failed");
+      setInputTemplates((prev) => ({ ...prev, [name]: { ...prev[name], template: editItTemplate } }));
+      setEditingIt(null);
+      toast.success(`Input template "${name}" saved`);
+    } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Save failed"); }
+    finally { setItSaving(false); }
+  };
+
+  const saveModelParams = async () => {
+    setMpSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/dev/model-params`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ temperature, top_p: topP, max_tokens: maxTokens, frequency_penalty: freqPenalty, presence_penalty: presPenalty }),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || "Save failed");
+      setMpDirty(false);
+      toast.success("Model parameters saved");
+    } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Save failed"); }
+    finally { setMpSaving(false); }
+  };
+
+  const applyPreset = (preset: "precise" | "balanced" | "creative") => {
+    const presets = {
+      precise: { temperature: 0.2, top_p: 0.8, freq_penalty: 0.0, pres_penalty: 0.0 },
+      balanced: { temperature: 0.7, top_p: 0.95, freq_penalty: 0.0, pres_penalty: 0.0 },
+      creative: { temperature: 1.2, top_p: 0.98, freq_penalty: 0.3, pres_penalty: 0.2 },
+    };
+    const p = presets[preset];
+    setTemperature(p.temperature); setTopP(p.top_p);
+    setFreqPenalty(p.freq_penalty); setPresPenalty(p.pres_penalty);
+    setMpDirty(true);
+  };
+
+  // ── Loading ───────────────────────────────────────────────────────────
+
+  if (loading) {
+    return <div className="max-w-3xl mx-auto space-y-4">
+      <Skeleton className="h-8 w-48"/><Skeleton className="h-96 w-full"/>
+    </div>;
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <FadeIn>
-        <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Stored in <code className="bg-muted px-1 rounded text-xs">{settings?.env_path || ".env"}</code>
-        </p>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center">
+            <Settings2 className="h-5 w-5 text-indigo-500" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+            <p className="text-sm text-muted-foreground">
+              Configure AI providers, system messages, model parameters, parsers, and general preferences.
+            </p>
+          </div>
+        </div>
       </FadeIn>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="w-full flex-wrap">
-          <TabsTrigger value="llm" className="gap-1.5 flex-1"><Brain className="h-4 w-4"/>LLM</TabsTrigger>
-          <TabsTrigger value="embeddings" className="gap-1.5 flex-1"><Cpu className="h-4 w-4"/>Embeddings</TabsTrigger>
-          <TabsTrigger value="general" className="gap-1.5 flex-1"><Settings2 className="h-4 w-4"/>General</TabsTrigger>
-          <TabsTrigger value="parsers" className="gap-1.5 flex-1" onClick={() => { listParsers().then(setParsers).catch(() => {}); }}><FileCode className="h-4 w-4"/>Parsers</TabsTrigger>
-          <TabsTrigger value="skills" className="gap-1.5 flex-1"><Wand2 className="h-4 w-4"/>Skills</TabsTrigger>
+          <TabsTrigger value="providers" className="gap-1.5"><Server className="h-4 w-4"/>Providers</TabsTrigger>
+          <TabsTrigger value="system-messages" className="gap-1.5"><MessageSquare className="h-4 w-4"/>System Msgs</TabsTrigger>
+          <TabsTrigger value="input-templates" className="gap-1.5"><FileCode className="h-4 w-4"/>Templates</TabsTrigger>
+          <TabsTrigger value="model-params" className="gap-1.5"><SlidersHorizontal className="h-4 w-4"/>Model Params</TabsTrigger>
+          <TabsTrigger value="general" className="gap-1.5"><Settings2 className="h-4 w-4"/>General</TabsTrigger>
         </TabsList>
 
         <AnimatePresence mode="wait">
-          {/* ── LLM Tab ─────────────────────────────────────────── */}
-          {tab === "llm" && (
-            <motion.div key="llm" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }}>
-              <TabsContent value="llm" forceMount className="mt-4 space-y-4">
+
+          {/* ── Providers Tab ──────────────────────────────────────── */}
+          {tab === "providers" && (
+            <motion.div key="prov" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }} className="mt-4 space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>LLM Providers</CardTitle>
+                  <CardDescription>
+                    Add multiple LLM providers and select which one to use. Each provider has its own API key, base URL, and model.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {providers.map((p) => (
+                    <div key={p.id} className={`flex items-center justify-between p-4 rounded-xl border transition-colors ${
+                      activeProviderId === p.id ? "border-primary bg-primary/5" : "hover:bg-accent/50"
+                    }`}>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                          activeProviderId === p.id ? "bg-primary/20" : "bg-muted"
+                        }`}>
+                          <Brain className={`h-4 w-4 ${activeProviderId === p.id ? "text-primary" : "text-muted-foreground"}`} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold truncate">{p.name}</span>
+                            {activeProviderId === p.id && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-primary bg-primary/10 px-1.5 py-0.5 rounded-full flex-shrink-0">
+                                <CheckCircle2 className="h-3 w-3" /> Active
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-0.5 truncate">
+                            {p.type}{p.protocol === "anthropic" ? " (Anthropic protocol)" : ""} · {p.model || "default"} {p.base_url ? `· ${p.base_url}` : ""}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                        {activeProviderId !== p.id && (
+                          <Button variant="outline" size="sm" className="h-8 text-xs"
+                            onClick={async () => {
+                              try {
+                                const res = await fetch(`${API_BASE}/dev/providers/active`, {
+                                  method: "PUT", headers: {"Content-Type":"application/json"},
+                                  body: JSON.stringify({provider_id: p.id}),
+                                });
+                                if (!res.ok) throw new Error("Failed");
+                                setActiveProviderId(p.id);
+                                toast.success(`Active provider: ${p.name}`);
+                              } catch { toast.error("Failed to set active provider"); }
+                            }}>Set Active</Button>
+                        )}
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          onClick={async () => {
+                            if (!confirm(`Delete provider "${p.name}"?`)) return;
+                            try {
+                              const res = await fetch(`${API_BASE}/dev/providers/${p.id}`, { method: "DELETE" });
+                              if (!res.ok) throw new Error("Failed");
+                              setProviders((prev) => prev.filter((x) => x.id !== p.id));
+                              if (activeProviderId === p.id) setActiveProviderId(null);
+                              toast.success(`Deleted ${p.name}`);
+                            } catch { toast.error("Failed to delete"); }
+                          }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                      </div>
+                    </div>
+                  ))}
+                  {providers.length === 0 && (
+                    <div className="text-center py-8 text-sm text-muted-foreground">
+                      <Server className="h-8 w-8 mx-auto mb-2 opacity-20" />
+                      No providers configured. Add one to start using AI features.
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* ── Add Provider Form ─────────────────────────────── */}
+              {showAddForm ? (
                 <Card>
-                  <CardHeader>
-                    <CardTitle>LLM Provider</CardTitle>
-                    <CardDescription>Choose the language model for extraction, Q&A, and skills.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <RadioCards options={LLM_PROVIDERS} value={llmProvider} onChange={setLlmProvider} />
+                  <CardHeader><CardTitle className="text-base">Add Provider</CardTitle></CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Name</Label>
+                        <Input value={newProvider.name}
+                          onChange={(e) => setNewProvider((p) => ({...p, name: e.target.value}))}
+                          placeholder="My Provider" className="h-9" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Provider Type</Label>
+                        <select value={newProvider.type} onChange={(e) => {
+                          const t = PROVIDER_TYPES.find((x) => x.value === e.target.value);
+                          setNewProvider((p) => ({
+                            ...p, type: e.target.value, base_url: t?.defaultBase || "",
+                            model: t?.defaultModel || "",
+                            protocol: e.target.value === "anthropic" ? "anthropic" : "openai",
+                          }));
+                        }} className="w-full h-9 rounded-md border bg-background px-3 text-sm">
+                          {PROVIDER_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                        </select>
+                      </div>
+                    </div>
 
-                    {/* OpenAI fields */}
-                    <AnimatePresence>
-                      {llmProvider === "openai" && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-                          className="pl-4 border-l-2 border-primary/30 space-y-3 overflow-hidden">
-                          <KeyField label="OpenAI API Key" value={openaiKey} savedMasked={settings?.openai_api_key}
-                            touched={openaiKeyTouched} onChange={(v) => { setOpenaiKey(v); setOpenaiKeyTouched(true); }}
-                            onFocus={() => { if (!openaiKeyTouched) setOpenaiKey(""); }} placeholder="sk-..." />
-                          <div className="space-y-1.5"><Label>Model</Label>
-                            <Select value={openaiModel} onValueChange={setOpenaiModel}>
-                              <SelectTrigger><SelectValue/></SelectTrigger>
-                              <SelectContent>{OPENAI_MODELS.map(m=><SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
-                            </Select>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                    {/* Protocol selector — only shown for Custom */}
+                    {newProvider.type === "custom" && (
+                      <div className="space-y-1.5">
+                        <Label className="text-xs flex items-center gap-1.5">
+                          <SwitchCamera className="h-3 w-3 text-muted-foreground" /> Protocol
+                        </Label>
+                        <Select value={newProvider.protocol} onValueChange={(v) => setNewProvider((p) => ({...p, protocol: v}))}>
+                          <SelectTrigger className="h-9"><SelectValue/></SelectTrigger>
+                          <SelectContent>
+                            {PROTOCOL_OPTIONS.map((o) => (
+                              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[11px] text-muted-foreground">
+                          OpenAI = <code className="bg-muted px-1 rounded text-[10px]">/v1/chat/completions</code> · Anthropic = <code className="bg-muted px-1 rounded text-[10px]">/v1/messages</code>
+                        </p>
+                      </div>
+                    )}
 
-                    {/* Anthropic fields */}
-                    <AnimatePresence>
-                      {llmProvider === "anthropic" && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-                          className="pl-4 border-l-2 border-orange-400/30 space-y-3 overflow-hidden">
-                          <KeyField label="Anthropic API Key" value={anthropicKey} savedMasked={settings?.anthropic_api_key}
-                            touched={anthropicKeyTouched} onChange={(v) => { setAnthropicKey(v); setAnthropicKeyTouched(true); }}
-                            onFocus={() => { if (!anthropicKeyTouched) setAnthropicKey(""); }} placeholder="sk-ant-..." />
-                          <div className="space-y-1.5"><Label>Model</Label>
-                            <Select value={anthropicModel} onValueChange={setAnthropicModel}>
-                              <SelectTrigger><SelectValue/></SelectTrigger>
-                              <SelectContent>{ANTHROPIC_MODELS.map(m=><SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
-                            </Select>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                    {/* DeepSeek fields */}
-                    <AnimatePresence>
-                      {llmProvider === "deepseek" && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-                          className="pl-4 border-l-2 border-blue-400/30 space-y-3 overflow-hidden">
-                          <KeyField label="DeepSeek API Key" value={deepseekKey} savedMasked={settings?.deepseek_api_key}
-                            touched={deepseekKeyTouched} onChange={(v) => { setDeepseekKey(v); setDeepseekKeyTouched(true); }}
-                            onFocus={() => { if (!deepseekKeyTouched) setDeepseekKey(""); }} placeholder="sk-..." />
-                          <div className="space-y-1.5"><Label>Model</Label>
-                            <Select value={deepseekModel} onValueChange={setDeepseekModel}>
-                              <SelectTrigger><SelectValue/></SelectTrigger>
-                              <SelectContent>{DEEPSEEK_MODELS.map(m=><SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1.5"><Label>Coding Model (optional, for plan/reasoning)</Label>
-                            <Input value={deepseekCodingModel} onChange={(e) => setDeepseekCodingModel(e.target.value)} placeholder="deepseek-coder" />
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                    {/* OpenRouter fields */}
-                    <AnimatePresence>
-                      {llmProvider === "openrouter" && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-                          className="pl-4 border-l-2 border-indigo-400/30 space-y-3 overflow-hidden">
-                          <KeyField label="OpenRouter API Key" value={openrouterKey} savedMasked={settings?.openrouter_api_key}
-                            touched={openrouterKeyTouched} onChange={(v) => { setOpenrouterKey(v); setOpenrouterKeyTouched(true); }}
-                            onFocus={() => { if (!openrouterKeyTouched) setOpenrouterKey(""); }} placeholder="sk-or-..." />
-                          <div className="space-y-1.5"><Label>Model</Label>
-                            <Select value={openrouterModel} onValueChange={setOpenrouterModel}>
-                              <SelectTrigger><SelectValue/></SelectTrigger>
-                              <SelectContent>{OPENROUTER_MODELS.map(m=><SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1.5"><Label>Coding Model (optional)</Label>
-                            <Input value={openrouterCodingModel} onChange={(e) => setOpenrouterCodingModel(e.target.value)} placeholder="anthropic/claude-sonnet-4-20250514" />
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                    {/* GLM fields */}
-                    <AnimatePresence>
-                      {llmProvider === "glm" && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-                          className="pl-4 border-l-2 border-teal-400/30 space-y-3 overflow-hidden">
-                          <KeyField label="GLM API Key (ZhipuAI)" value={glmKey} savedMasked={settings?.glm_api_key}
-                            touched={glmKeyTouched} onChange={(v) => { setGlmKey(v); setGlmKeyTouched(true); }}
-                            onFocus={() => { if (!glmKeyTouched) setGlmKey(""); }} placeholder="..." />
-                          <div className="space-y-1.5"><Label>Model</Label>
-                            <Select value={glmModel} onValueChange={setGlmModel}>
-                              <SelectTrigger><SelectValue/></SelectTrigger>
-                              <SelectContent>{GLM_MODELS.map(m=><SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1.5"><Label>Coding Model (optional)</Label>
-                            <Input value={glmCodingModel} onChange={(e) => setGlmCodingModel(e.target.value)} placeholder="glm-4-plus" />
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                    {/* MiniMax fields */}
-                    <AnimatePresence>
-                      {llmProvider === "minimax" && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-                          className="pl-4 border-l-2 border-rose-400/30 space-y-3 overflow-hidden">
-                          <KeyField label="MiniMax API Key" value={minimaxKey} savedMasked={settings?.minimax_api_key}
-                            touched={minimaxKeyTouched} onChange={(v) => { setMinimaxKey(v); setMinimaxKeyTouched(true); }}
-                            onFocus={() => { if (!minimaxKeyTouched) setMinimaxKey(""); }} placeholder="..." />
-                          <div className="space-y-1.5"><Label>Model</Label>
-                            <Select value={minimaxModel} onValueChange={setMinimaxModel}>
-                              <SelectTrigger><SelectValue/></SelectTrigger>
-                              <SelectContent>{MINIMAX_MODELS.map(m=><SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1.5"><Label>Coding Model (optional)</Label>
-                            <Input value={minimaxCodingModel} onChange={(e) => setMinimaxCodingModel(e.target.value)} placeholder="MiniMax-Text-01" />
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                    {/* Mimo fields */}
-                    <AnimatePresence>
-                      {llmProvider === "mimo" && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-                          className="pl-4 border-l-2 border-violet-400/30 space-y-3 overflow-hidden">
-                          <KeyField label="Mimo (MiniMax-M1) API Key" value={mimoKey} savedMasked={settings?.mimo_api_key}
-                            touched={mimoKeyTouched} onChange={(v) => { setMimoKey(v); setMimoKeyTouched(true); }}
-                            onFocus={() => { if (!mimoKeyTouched) setMimoKey(""); }} placeholder="..." />
-                          <div className="space-y-1.5"><Label>Model</Label>
-                            <Select value={mimoModel} onValueChange={setMimoModel}>
-                              <SelectTrigger><SelectValue/></SelectTrigger>
-                              <SelectContent>{MIMO_MODELS.map(m=><SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1.5"><Label>Coding Model (optional)</Label>
-                            <Input value={mimoCodingModel} onChange={(e) => setMimoCodingModel(e.target.value)} placeholder="MiniMax-M1" />
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                    {/* Kimi fields */}
-                    <AnimatePresence>
-                      {llmProvider === "kimi" && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-                          className="pl-4 border-l-2 border-sky-400/30 space-y-3 overflow-hidden">
-                          <KeyField label="Kimi (Moonshot) API Key" value={kimiKey} savedMasked={settings?.kimi_api_key}
-                            touched={kimiKeyTouched} onChange={(v) => { setKimiKey(v); setKimiKeyTouched(true); }}
-                            onFocus={() => { if (!kimiKeyTouched) setKimiKey(""); }} placeholder="sk-..." />
-                          <div className="space-y-1.5"><Label>Model</Label>
-                            <Select value={kimiModel} onValueChange={setKimiModel}>
-                              <SelectTrigger><SelectValue/></SelectTrigger>
-                              <SelectContent>{KIMI_MODELS.map(m=><SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1.5"><Label>Coding Model (optional)</Label>
-                            <Input value={kimiCodingModel} onChange={(e) => setKimiCodingModel(e.target.value)} placeholder="moonshot-v1-8k" />
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                    {/* Custom fields */}
-                    <AnimatePresence>
-                      {llmProvider === "custom" && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-                          className="pl-4 border-l-2 border-purple-400/30 space-y-3 overflow-hidden">
-                          <div className="space-y-1.5"><Label>Protocol</Label>
-                            <Select value={llmCustomProtocol} onValueChange={setLlmCustomProtocol}>
-                              <SelectTrigger><SelectValue/></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="openai">OpenAI-compatible</SelectItem>
-                                <SelectItem value="anthropic">Anthropic-compatible</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1.5"><Label>API Base URL</Label>
-                            <Input value={llmCustomBaseUrl} onChange={(e) => setLlmCustomBaseUrl(e.target.value)}
-                              placeholder="http://localhost:11434/v1" />
-                          </div>
-                          <KeyField label="API Key" value={llmCustomKey} savedMasked={settings?.llm_custom_api_key}
-                            touched={llmCustomKeyTouched} onChange={(v) => { setLlmCustomKey(v); setLlmCustomKeyTouched(true); }}
-                            onFocus={() => { if (!llmCustomKeyTouched) setLlmCustomKey(""); }} placeholder="ollama or your-key" />
-                          <div className="space-y-1.5"><Label>Model Name</Label>
-                            <Input value={llmCustomModel} onChange={(e) => setLlmCustomModel(e.target.value)}
-                              placeholder="llama3.1:8b" />
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">API Key</Label>
+                      <Input value={newProvider.api_key}
+                        onChange={(e) => setNewProvider((p) => ({...p, api_key: e.target.value}))}
+                        placeholder={newProvider.type === "custom" ? "ollama or your-key" : "sk-..."}
+                        type="password" className="h-9 font-mono" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Base URL</Label>
+                      <Input value={newProvider.base_url}
+                        onChange={(e) => setNewProvider((p) => ({...p, base_url: e.target.value}))}
+                        placeholder="https://api.openai.com/v1" className="h-9 font-mono text-xs" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Model</Label>
+                      <Input value={newProvider.model}
+                        onChange={(e) => setNewProvider((p) => ({...p, model: e.target.value}))}
+                        placeholder="gpt-4.1-mini" className="h-9" />
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      <Button variant="ghost" size="sm" onClick={() => setShowAddForm(false)}>Cancel</Button>
+                      <Button size="sm" onClick={async () => {
+                        if (!newProvider.name.trim()) { toast.error("Name is required"); return; }
+                        setProvSaving(true);
+                        try {
+                          const res = await fetch(`${API_BASE}/dev/providers`, {
+                            method: "POST", headers: {"Content-Type":"application/json"},
+                            body: JSON.stringify(newProvider),
+                          });
+                          if (!res.ok) throw new Error((await res.json()).detail || "Failed");
+                          const created: ProviderEntry = await res.json();
+                          setProviders((prev) => [...prev, created]);
+                          if (!activeProviderId) setActiveProviderId(created.id);
+                          setShowAddForm(false);
+                          setNewProvider({ name: "", type: "openai", api_key: "", base_url: "", model: "", protocol: "openai" });
+                          toast.success(`Added ${created.name}`);
+                        } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Failed"); }
+                        finally { setProvSaving(false); }
+                      }} disabled={provSaving}>
+                        {provSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1"/> : <Plus className="h-3.5 w-3.5 mr-1"/>} Add
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
-              </TabsContent>
+              ) : (
+                <Button variant="outline" className="w-full gap-2 h-10" onClick={() => setShowAddForm(true)}>
+                  <Plus className="h-4 w-4" /> Add Provider
+                </Button>
+              )}
             </motion.div>
           )}
 
-          {/* ── Embeddings Tab ───────────────────────────────────── */}
-          {tab === "embeddings" && (
-            <motion.div key="embeddings" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }}>
-              <TabsContent value="embeddings" forceMount className="mt-4 space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Embedding Provider</CardTitle>
-                    <CardDescription>Choose the embedding model for semantic search.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <RadioCards options={EMBEDDING_PROVIDERS} value={embeddingProvider} onChange={setEmbeddingProvider} />
-
-                    <AnimatePresence>
-                      {embeddingProvider === "openai" && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-                          className="pl-4 border-l-2 border-primary/30 space-y-3 overflow-hidden">
-                          <div className="space-y-1.5">
-                            <Label>Embedding Model</Label>
-                            <Select value={openaiEmbeddingModel} onValueChange={setOpenaiEmbeddingModel}>
-                              <SelectTrigger><SelectValue/></SelectTrigger>
-                              <SelectContent>{EMBEDDING_MODELS.map(m=><SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
-                            </Select>
+          {/* ── System Messages Tab ────────────────────────────────── */}
+          {tab === "system-messages" && (
+            <motion.div key="sm" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }} className="mt-4 space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>System Messages</CardTitle>
+                  <CardDescription>
+                    Per-task system prompts that define the AI&apos;s persona and behavior rules.
+                    These are the authoritative source — input templates only inject data.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  {Object.entries(systemMessages).map(([name, content]) => (
+                    <div key={name}>
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-semibold capitalize">
+                          {taskLabels[name] || name.replace(/_/g, " ")}
+                        </h3>
+                        {editingSm !== name && (
+                          <Button variant="outline" size="sm"
+                            onClick={() => { setEditingSm(name); setEditSmContent(content); }}>Edit</Button>
+                        )}
+                      </div>
+                      {editingSm === name ? (
+                        <div className="space-y-2">
+                          <Textarea value={editSmContent} onChange={(e) => setEditSmContent(e.target.value)}
+                            rows={8} className="font-mono text-xs resize-y" />
+                          <div className="flex gap-2 justify-end">
+                            <Button variant="ghost" size="sm" onClick={() => setEditingSm(null)}>Cancel</Button>
+                            <Button size="sm" onClick={() => saveSystemMessage(name)} disabled={smSaving}>
+                              {smSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1"/> : <Save className="h-3.5 w-3.5 mr-1"/>} Save
+                            </Button>
                           </div>
-                          <p className="text-xs text-muted-foreground">
-                            Uses the same OpenAI API key configured in the LLM tab.
-                          </p>
-                        </motion.div>
+                        </div>
+                      ) : (
+                        <pre className="text-xs font-mono bg-muted/50 rounded-lg p-3 whitespace-pre-wrap break-all max-h-28 overflow-y-auto border">{content}</pre>
                       )}
-                    </AnimatePresence>
-
-                    <AnimatePresence>
-                      {embeddingProvider === "custom" && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-                          className="pl-4 border-l-2 border-purple-400/30 space-y-3 overflow-hidden">
-                          <div className="space-y-1.5"><Label>API Base URL</Label>
-                            <Input value={embeddingCustomBaseUrl} onChange={(e) => setEmbeddingCustomBaseUrl(e.target.value)}
-                              placeholder="http://localhost:11434/v1" />
-                          </div>
-                          <KeyField label="API Key" value={embeddingCustomKey} savedMasked={settings?.embedding_custom_api_key}
-                            touched={embeddingCustomKeyTouched} onChange={(v) => { setEmbeddingCustomKey(v); setEmbeddingCustomKeyTouched(true); }}
-                            onFocus={() => { if (!embeddingCustomKeyTouched) setEmbeddingCustomKey(""); }} placeholder="ollama or your-key" />
-                          <div className="space-y-1.5"><Label>Model Name</Label>
-                            <Input value={embeddingCustomModel} onChange={(e) => setEmbeddingCustomModel(e.target.value)}
-                              placeholder="nomic-embed-text" />
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </CardContent>
-                </Card>
-              </TabsContent>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
             </motion.div>
           )}
 
-          {/* ── General Tab ──────────────────────────────────────── */}
+          {/* ── Input Templates Tab ────────────────────────────────── */}
+          {tab === "input-templates" && (
+            <motion.div key="it" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }} className="mt-4 space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Input Templates</CardTitle>
+                  <CardDescription>
+                    Pure data-injection wrappers. Use <code className="bg-muted px-1 rounded text-xs">{"{document}"}</code>,{" "}
+                    <code className="bg-muted px-1 rounded text-xs">{"{question}"}</code>,{" "}
+                    <code className="bg-muted px-1 rounded text-xs">{"{title}"}</code> as placeholders.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  {Object.entries(inputTemplates).map(([name, item]) => (
+                    <div key={name}>
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-semibold capitalize">
+                          {taskLabels[name] || name.replace(/_/g, " ")}
+                        </h3>
+                        {editingIt !== name && (
+                          <Button variant="outline" size="sm"
+                            onClick={() => { setEditingIt(name); setEditItTemplate(item.template); }}>Edit</Button>
+                        )}
+                      </div>
+                      {editingIt === name ? (
+                        <div className="space-y-2">
+                          <Textarea value={editItTemplate} onChange={(e) => setEditItTemplate(e.target.value)}
+                            rows={5} className="font-mono text-xs resize-y" />
+                          <div className="flex gap-2 justify-end">
+                            <Button variant="ghost" size="sm" onClick={() => setEditingIt(null)}>Cancel</Button>
+                            <Button size="sm" onClick={() => saveInputTemplate(name)} disabled={itSaving}>
+                              {itSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1"/> : <Save className="h-3.5 w-3.5 mr-1"/>} Save
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <pre className="text-xs font-mono bg-muted/50 rounded-lg p-3 whitespace-pre-wrap break-all max-h-24 overflow-y-auto border">{item.template}</pre>
+                      )}
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* ── Model Params Tab ───────────────────────────────────── */}
+          {tab === "model-params" && (
+            <motion.div key="mp" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }} className="mt-4 space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Model Parameters</CardTitle>
+                  <CardDescription>Control LLM output behavior. Changes take effect on the next request.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="flex gap-2">
+                    <span className="text-xs text-muted-foreground self-center mr-1">Presets:</span>
+                    {(["precise", "balanced", "creative"] as const).map((p) => (
+                      <Button key={p} variant="outline" size="sm" onClick={() => applyPreset(p)} className="text-xs capitalize h-7">{p}</Button>
+                    ))}
+                  </div>
+                  <SliderField label="Temperature" value={temperature} min={0} max={2} step={0.05}
+                    onChange={(v) => { setTemperature(v); setMpDirty(true); }} icon={Thermometer}
+                    hint="Lower = more deterministic. Higher = more creative/random." />
+                  <SliderField label="Top P" value={topP} min={0} max={1} step={0.01}
+                    onChange={(v) => { setTopP(v); setMpDirty(true); }} icon={Gauge}
+                    hint="Cumulative probability threshold for token selection." />
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1.5 text-sm"><Hash className="h-3.5 w-3.5 text-muted-foreground"/>Max Tokens</Label>
+                    <Input type="number" min={1} max={32768} value={maxTokens}
+                      onChange={(e) => { setMaxTokens(parseInt(e.target.value) || 2048); setMpDirty(true); }} className="w-36 font-mono" />
+                  </div>
+                  <SliderField label="Frequency Penalty" value={freqPenalty} min={-2} max={2} step={0.05}
+                    onChange={(v) => { setFreqPenalty(v); setMpDirty(true); }} icon={Sparkles}
+                    hint="Positive values discourage word repetition." />
+                  <SliderField label="Presence Penalty" value={presPenalty} min={-2} max={2} step={0.05}
+                    onChange={(v) => { setPresPenalty(v); setMpDirty(true); }} icon={Sparkles}
+                    hint="Positive values encourage topic diversity." />
+                  <div className="flex gap-2 justify-end pt-2">
+                    {mpDirty && (
+                      <Button variant="ghost" size="sm" onClick={() => {
+                        if (config) { setTemperature(config.temperature); setTopP(config.top_p); setMaxTokens(config.max_tokens); setFreqPenalty(config.frequency_penalty); setPresPenalty(config.presence_penalty); setMpDirty(false); }
+                      }}><RotateCcw className="h-3.5 w-3.5 mr-1"/> Reset</Button>
+                    )}
+                    <Button size="sm" onClick={saveModelParams} disabled={!mpDirty || mpSaving}>
+                      {mpSaving ? <Loader2 className="h-4 w-4 animate-spin mr-1"/> : <Save className="h-4 w-4 mr-1"/>} Save
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* ── General Tab ────────────────────────────────────────── */}
           {tab === "general" && (
             <motion.div key="general" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }}>
               <TabsContent value="general" forceMount className="mt-4 space-y-4">
@@ -627,6 +616,7 @@ export default function SettingsPage() {
                     </div>
                   </CardContent>
                 </Card>
+
                 <Card>
                   <CardHeader><CardTitle>Limits</CardTitle></CardHeader>
                   <CardContent>
@@ -637,7 +627,54 @@ export default function SettingsPage() {
                   </CardContent>
                 </Card>
 
-                {/* Server info */}
+                <Card>
+                  <CardHeader><CardTitle>PDF Parser Priority</CardTitle><CardDescription>Choose which parser to use for PDF documents.</CardDescription></CardHeader>
+                  <CardContent>
+                    <Select value={parserPriority} onValueChange={setParserPriority}>
+                      <SelectTrigger><SelectValue/></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="mineru_first">MinerU first (fallback: Docling → pypdf)</SelectItem>
+                        <SelectItem value="docling">Docling</SelectItem>
+                        <SelectItem value="pypdf">pypdf (built-in)</SelectItem>
+                        <SelectItem value="ocr">OCR (Tesseract)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </CardContent>
+                </Card>
+
+                {/* Installed Parsers */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Installed Parsers</CardTitle>
+                    <CardDescription>
+                      <Button variant="link" className="h-auto p-0 text-xs" onClick={() => { listParsers().then(setParsers).catch(() => {}); }}>
+                        Click to refresh
+                      </Button>
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {parsers.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Click &quot;refresh&quot; to load installed parsers…</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {parsers.map((p) => (
+                          <div key={p.key} className="flex items-start gap-3 p-3 rounded-lg border">
+                            <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${p.installed ? "bg-green-500" : "bg-muted-foreground/30"}`}/>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium">{p.name}</span>
+                                {p.version && <span className="text-[10px] text-muted-foreground font-mono">{p.version}</span>}
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-0.5">{p.description}</p>
+                              {p.install_cmd && <code className="text-[10px] bg-muted px-1.5 py-0.5 rounded mt-1.5 inline-block">{p.install_cmd}</code>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
                 <Card>
                   <CardHeader><CardTitle className="text-muted-foreground flex items-center gap-2"><Server className="h-4 w-4"/>Server</CardTitle></CardHeader>
                   <CardContent>
@@ -647,156 +684,49 @@ export default function SettingsPage() {
                     </div>
                   </CardContent>
                 </Card>
+
+                <div className="flex gap-2 justify-end">
+                  <Button size="sm" onClick={handleGeneralSave} disabled={saving}>
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1"/> : <Save className="h-4 w-4 mr-1"/>} Save
+                  </Button>
+                </div>
               </TabsContent>
             </motion.div>
           )}
 
-          {/* ── Parsers Tab ─────────────────────────────────────── */}
-          {tab === "parsers" && (
-            <motion.div key="parsers" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }}>
-              <TabsContent value="parsers" forceMount className="mt-4 space-y-4">
-                <Card>
-                  <CardHeader><CardTitle>PDF Parser Priority</CardTitle><CardDescription>Choose which parser to use for PDF documents. The pipeline auto-detects installed parsers.</CardDescription></CardHeader>
-                  <CardContent>
-                    <Select value={parserPriority} onValueChange={setParserPriority}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="mineru_first">MinerU (best quality, fallback to Docling → pypdf)</SelectItem>
-                        <SelectItem value="docling">Docling only (layout-aware, table extraction)</SelectItem>
-                        <SelectItem value="pypdf">pypdf only (built-in, no extra deps)</SelectItem>
-                        <SelectItem value="ocr">OCR-enhanced (pypdf + Tesseract)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader><CardTitle>Installed Parsers</CardTitle><CardDescription>Detection is automatic — install the Python package to enable each parser.</CardDescription></CardHeader>
-                  <CardContent>
-                    {parsers.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">Loading parser info...</p>
-                    ) : (
-                      <div className="space-y-3">
-                        {parsers.map((p) => (
-                          <div key={p.key} className={`flex items-start gap-3 p-3 rounded-md border text-sm ${p.installed ? "bg-success/5 border-success/20" : "bg-muted/30 border-border"}`}>
-                            {p.installed ? <CheckCircle2 className="h-5 w-5 text-success shrink-0 mt-0.5" /> : <AlertTriangle className="h-5 w-5 text-warning shrink-0 mt-0.5" />}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-medium">{p.name}</span>
-                                {p.version && <code className="text-[10px] bg-muted px-1 rounded">{p.version}</code>}
-                                <Badge variant={p.installed ? "default" : "secondary"} className="text-[10px]">{p.installed ? "Installed" : "Not installed"}</Badge>
-                              </div>
-                              <p className="text-muted-foreground mt-0.5">{p.description}</p>
-                              {!p.installed && p.install_cmd && (
-                                <div className="mt-2">
-                                  <code className="block text-[11px] bg-muted p-2 rounded whitespace-pre-wrap break-all">{p.install_cmd}</code>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </motion.div>
-          )}
-
-          {/* ── Skills Tab ─────────────────────────────────────── */}
-          {tab === "skills" && (
-            <motion.div key="skills" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }}>
-              <TabsContent value="skills" forceMount className="mt-4 space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>AI Skills Management</CardTitle>
-                    <CardDescription>Create, edit, delete, import, and export analysis skills. Skills define focused AI-powered extraction workflows.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <SkillManager
-                      skills={skillDefs}
-                      onSkillsChanged={() => { listSkills().then((s) => setSkillDefs(s.skills || [])).catch(() => {}); }}
-                    />
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </motion.div>
-          )}
         </AnimatePresence>
       </Tabs>
 
-      {/* Actions */}
-      <div className="flex gap-3 flex-wrap items-center">
-        <Button onClick={handleSave} disabled={saving} className="gap-2"><Save className="h-4 w-4"/>{saving?"Saving...":"Save Settings"}</Button>
-        <Button variant="outline" onClick={loadSettings} className="gap-2"><RotateCcw className="h-4 w-4"/>Reset</Button>
-        <Button variant="outline" onClick={handleExport} className="gap-2"><Download className="h-4 w-4"/>Export All</Button>
-        <label>
-          <Button variant="outline" className="gap-2 cursor-pointer" asChild><span><Upload className="h-4 w-4"/>Import All</span></Button>
-          <input type="file" accept=".json" className="hidden" onChange={handleImport}/>
-        </label>
-        <div className="w-full border-t my-1" />
-        <Button
-          variant="secondary"
-          onClick={async () => {
-            setTesting(true); setTestResult(null);
-            try {
-              const body: Record<string, unknown> = {
-                llm_provider: llmProvider, llm_custom_protocol: llmCustomProtocol,
-                llm_custom_base_url: llmCustomBaseUrl, llm_custom_model: llmCustomModel,
-                openai_model: openaiModel, anthropic_model: anthropicModel,
-                embedding_provider: embeddingProvider,
-                embedding_custom_base_url: embeddingCustomBaseUrl, embedding_custom_model: embeddingCustomModel,
-                openai_embedding_model: openaiEmbeddingModel,
-                use_mock_ai: mockAi,
-              };
-              if (llmCustomKeyTouched) body.llm_custom_api_key = llmCustomKey;
-              if (openaiKeyTouched) body.openai_api_key = openaiKey;
-              if (anthropicKeyTouched) body.anthropic_api_key = anthropicKey;
-              if (deepseekKeyTouched) body.deepseek_api_key = deepseekKey;
-              if (openrouterKeyTouched) body.openrouter_api_key = openrouterKey;
-              if (glmKeyTouched) body.glm_api_key = glmKey;
-              if (minimaxKeyTouched) body.minimax_api_key = minimaxKey;
-              if (mimoKeyTouched) body.mimo_api_key = mimoKey;
-              if (kimiKeyTouched) body.kimi_api_key = kimiKey;
-              if (embeddingCustomKeyTouched) body.embedding_custom_api_key = embeddingCustomKey;
-              const res = await fetch(`${API_BASE}/settings/test`, {
-                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-              });
-              const data = await res.json();
-              setTestResult(data);
-              if (data.all_ok) toast.success("All connections OK");
-              else toast.error("Some connections failed — see details below");
-            } catch (e: unknown) {
-              toast.error(e instanceof Error ? e.message : "Test failed");
-            } finally { setTesting(false); }
-          }}
-          disabled={testing}
-          className="gap-2">
-          {testing ? <Loader2 className="h-4 w-4 animate-spin"/> : <Wifi className="h-4 w-4"/>}
-          {testing ? "Testing..." : "Test Connection"}
-        </Button>
-      </div>
-
-      {/* Test result */}
-      <AnimatePresence>
-        {testResult && (
-          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            className={`p-4 rounded-lg border text-sm ${testResult.all_ok ? "bg-green-500/5 border-green-500/20" : "bg-destructive/5 border-destructive/20"}`}>
-            <p className={`font-semibold mb-2 ${testResult.all_ok ? "text-green-600" : "text-destructive"}`}>
-              {testResult.all_ok ? "✓ All connections successful" : "⚠ Some connections failed"}
-            </p>
-            {Object.entries(testResult.results).map(([name, r]) => (
-              <div key={name} className="flex items-start gap-2 py-1">
-                <span className={r.ok ? "text-green-500" : "text-destructive"}>{r.ok ? "✓" : "✗"}</span>
-                <div>
-                  <span className="font-medium capitalize">{name}</span>
-                  <span className="text-muted-foreground ml-2">{r.message}</span>
-                </div>
-              </div>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* ── Data Import/Export ─────────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Data</CardTitle>
+          <CardDescription>Export or import settings + articles as JSON.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex gap-3">
+          <Button variant="outline" className="gap-2" onClick={async () => {
+            const res = await fetch(`${API_BASE}/settings/export`);
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a"); a.href = url; a.download = "settings-export.json"; a.click();
+            URL.revokeObjectURL(url);
+          }}><Download className="h-4 w-4"/> Export</Button>
+          <Button variant="outline" className="gap-2" onClick={() => {
+            const input = document.createElement("input"); input.type = "file"; input.accept = ".json";
+            input.onchange = async (e) => {
+              const file = (e.target as HTMLInputElement).files?.[0]; if (!file) return;
+              const form = new FormData(); form.append("file", file);
+              try {
+                const res = await fetch(`${API_BASE}/settings/import`, { method: "POST", body: form });
+                if (!res.ok) throw new Error((await res.json()).detail || "Import failed");
+                toast.success("Settings imported — reloading page...");
+                setTimeout(() => window.location.reload(), 800);
+              } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Import failed"); }
+            };
+            input.click();
+          }}><Upload className="h-4 w-4"/> Import</Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }

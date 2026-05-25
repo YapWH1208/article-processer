@@ -56,7 +56,6 @@ class Settings(BaseSettings):
     # OpenAI keys (used when llm_provider = "openai" or embedding_provider = "openai")
     openai_api_key: str = ""
     openai_model: str = "gpt-4.1-mini"
-    openai_embedding_model: str = "text-embedding-3-small"
 
     # Anthropic keys (used when llm_provider = "anthropic")
     anthropic_api_key: str = ""
@@ -86,13 +85,6 @@ class Settings(BaseSettings):
     kimi_api_key: str = ""
     kimi_model: str = "moonshot-v1-8k"
     kimi_coding_model: str = ""
-
-    # ── Embedding Provider ───────────────────────────────────────────────
-    # "openai" | "custom"
-    embedding_provider: str = "openai"
-    embedding_custom_base_url: str = ""
-    embedding_custom_api_key: str = ""
-    embedding_custom_model: str = ""
 
     # ── Behaviour ─────────────────────────────────────────────────────────
     use_mock_ai: bool = True

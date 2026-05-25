@@ -109,10 +109,9 @@ export async function getArticleActiveJob(id: number) {
   );
 }
 
-export async function reprocessArticle(id: number, fullPipeline = true) {
-  const qs = fullPipeline ? "" : "?full_pipeline=false";
+export async function reprocessArticle(id: number, mode: "full" | "parse_only" | "extract_only" = "full") {
   return apiFetch<{ article_id: number; job_id: number; status: string }>(
-    `/articles/${id}/reprocess${qs}`,
+    `/articles/${id}/reprocess?mode=${mode}`,
     { method: "POST" }
   );
 }
@@ -133,6 +132,52 @@ export async function sendChatMessage(articleId: number, message: string) {
 export async function getChatHistory(articleId: number) {
   return apiFetch<import("./types").ChatHistoryResponse>(
     `/articles/${articleId}/chat`
+  );
+}
+
+export async function sendMultiArticleChatMessage(articleIds: number[], message: string) {
+  return apiFetch<import("./types").MultiArticleChatResponse>(
+    "/articles/chat",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ article_ids: articleIds, message }),
+    }
+  );
+}
+
+// ── Chat Sessions ─────────────────────────────────────────────────
+
+export async function listSessions() {
+  return apiFetch<{ sessions: import("./types").ChatSession[] }>("/articles/sessions");
+}
+
+export async function createSession(title?: string) {
+  return apiFetch<import("./types").ChatSession>("/articles/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: title || "New Chat" }),
+  });
+}
+
+export async function deleteSession(sessionId: number) {
+  return apiFetch<{ ok: boolean }>(`/articles/sessions/${sessionId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getSessionMessages(sessionId: number) {
+  return apiFetch<import("./types").ChatHistoryResponse>(`/articles/sessions/${sessionId}`);
+}
+
+export async function sendSessionMessage(sessionId: number, message: string, articleIds: number[] = []) {
+  return apiFetch<import("./types").SessionMessageResponse>(
+    `/articles/sessions/${sessionId}/messages`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, article_ids: articleIds }),
+    }
   );
 }
 
@@ -182,13 +227,51 @@ export async function runSkill(skillName: string, articleId: number) {
 // ── Parsers ──────────────────────────────────────────────────────
 
 export async function listParsers() {
-  return apiFetch<{ key: string; name: string; installed: boolean; version: string | null; description: string; install_cmd: string | null }[]>("/settings/parsers");
+  return apiFetch<import("./types").ParserInfo[]>("/settings/parsers");
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────
+
+export async function getDashboardMetrics(days = 30) {
+  return apiFetch<import("./types").DashboardMetrics>(
+    `/dashboard/metrics?days=${days}`
+  );
+}
+
+// ── Global Graph ───────────────────────────────────────────────────
+
+export async function getGlobalGraph(limit = 200) {
+  return apiFetch<import("./types").GlobalGraphData>(
+    `/articles/graph/global?limit=${limit}`
+  );
+}
+
+// ── Logs ──────────────────────────────────────────────────────────
+
+export async function getArticleLogs(articleId: number) {
+  return apiFetch<import("./types").ArticleLogs>(
+    `/articles/${articleId}/logs`
+  );
+}
+
+// ── Dev / Providers ──────────────────────────────────────────────
+
+export async function getDevConfig() {
+  return apiFetch<import("./types").DevConfig>("/dev");
+}
+
+export async function setActiveProvider(providerId: string) {
+  return apiFetch<{ active_provider_id: string }>("/dev/providers/active", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider_id: providerId }),
+  });
 }
 
 // ── Health ────────────────────────────────────────────────────────
 
 export async function healthCheck() {
-  return apiFetch<{ status: string; version: string; mock_ai: boolean }>(
+  return apiFetch<import("./types").HealthInfo>(
     "/health"
   );
 }
