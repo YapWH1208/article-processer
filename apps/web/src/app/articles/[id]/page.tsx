@@ -26,7 +26,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { sendChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, toggleArchiveArticle, deleteArticle } from "@/lib/api";
+import { sendChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, toggleArchiveArticle, deleteArticle, restoreArticle } from "@/lib/api";
 import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
 
@@ -73,6 +73,7 @@ export default function ArticleDetailPage() {
   const [chatting, setChatting] = useState(false);
   const [chatOpen, setChatOpen] = useState(true);
   const [contextText, setContextText] = useState("");
+  const [expandedMsgs, setExpandedMsgs] = useState<Set<number>>(new Set());
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Actions
@@ -172,16 +173,46 @@ export default function ArticleDetailPage() {
     setMessages((prev) => [...prev, userMsg]);
     setQuestion("");
     setContextText("");
-    try {
-      const res = await sendChatMessage(articleId, userMsg.content);
-      setMessages((prev) => [
-        ...prev.slice(0, -1),
-        { ...prev[prev.length - 1], prompt_tokens: res.prompt_tokens || 0 },
-        { role: "assistant", content: res.answer, citations_json: JSON.stringify(res.citations), prompt_tokens: 0, completion_tokens: res.completion_tokens || 0 },
-      ]);
-    } catch (e: unknown) {
-      setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${e instanceof Error ? e.message : "Chat failed"}` }]);
-    } finally { setChatting(false); }
+
+    // Placeholder assistant message for streaming
+    const assistantMsg: ChatMessage = { role: "assistant", content: "" };
+    setMessages((prev) => [...prev, assistantMsg]);
+
+    let streamedContent = "";
+
+    await streamChatMessage(
+      articleId,
+      userMsg.content,
+      // onToken: append each token to the streaming message
+      (token) => {
+        streamedContent += token;
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { ...updated[updated.length - 1], content: streamedContent };
+          return updated;
+        });
+      },
+      // onDone: streaming completed successfully
+      () => {
+        setChatting(false);
+      },
+      // onError: fall back to non-streaming endpoint
+      async (streamErr) => {
+        // Remove the empty streaming placeholder
+        setMessages((prev) => prev.slice(0, -1));
+        try {
+          const res = await sendChatMessage(articleId, userMsg.content);
+          setMessages((prev) => [
+            ...prev.slice(0, -1),
+            { ...prev[prev.length - 1], prompt_tokens: res.prompt_tokens || 0 },
+            { role: "assistant", content: res.answer, citations_json: JSON.stringify(res.citations), prompt_tokens: 0, completion_tokens: res.completion_tokens || 0 },
+          ]);
+        } catch {
+          setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${streamErr}` }]);
+        }
+        setChatting(false);
+      },
+    );
   };
 
   // Add text selection to chat context
@@ -224,7 +255,19 @@ export default function ArticleDetailPage() {
     setDeleting(true);
     try {
       await deleteArticle(articleId);
-      toast.success("Article deleted");
+      setDeleteOpen(false);
+      toast.success("Article trashed", {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            try {
+              await restoreArticle(articleId);
+              setArticle((prev) => prev ? { ...prev, status: prev.status } : null);
+              toast.success("Article restored");
+            } catch { toast.error("Restore failed"); }
+          },
+        },
+      });
       router.push("/articles");
     } catch { toast.error("Delete failed"); setDeleting(false); setDeleteOpen(false); }
   };
@@ -244,7 +287,11 @@ export default function ArticleDetailPage() {
   };
 
   if (loading) {
-    return <div className="space-y-4"><Skeleton className="h-8 w-64"/><Skeleton className="h-4 w-48"/><Skeleton className="h-[70vh] w-full"/></div>;
+    return (
+      <motion.div className="space-y-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}>
+        <Skeleton className="h-8 w-64"/><Skeleton className="h-4 w-48"/><Skeleton className="h-[70vh] w-full"/>
+      </motion.div>
+    );
   }
 
   if (!article) {
@@ -408,15 +455,24 @@ export default function ArticleDetailPage() {
                       <CardHeader className="shrink-0 pb-2 flex flex-row items-center justify-between">
                         <CardTitle className="text-sm font-medium text-muted-foreground">Document View</CardTitle>
                         {article.source_type === "pdf" && (
-                          <div className="flex rounded-md border border-border overflow-hidden">
-                            <button
-                              onClick={() => setReaderView("markdown")}
-                              className={`px-3 py-1 text-xs font-medium transition-colors ${readerView === "markdown" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
-                            >Markdown</button>
-                            <button
-                              onClick={() => setReaderView("pdf")}
-                              className={`px-3 py-1 text-xs font-medium transition-colors ${readerView === "pdf" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
-                            >PDF</button>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">View as:</span>
+                            <div className="flex rounded-md border border-border overflow-hidden">
+                              <button
+                                onClick={() => setReaderView("markdown")}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${readerView === "markdown" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+                                aria-label="View as Markdown"
+                              >
+                                <ScrollText className="h-3 w-3" /> Markdown
+                              </button>
+                              <button
+                                onClick={() => setReaderView("pdf")}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${readerView === "pdf" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+                                aria-label="View original PDF"
+                              >
+                                <FileText className="h-3 w-3" /> PDF
+                              </button>
+                            </div>
                           </div>
                         )}
                       </CardHeader>
@@ -450,7 +506,14 @@ export default function ArticleDetailPage() {
                       <CardHeader className="shrink-0 flex flex-row items-center justify-between">
                         <div><CardTitle className="text-lg">Extraction</CardTitle><CardDescription>AI-extracted info</CardDescription></div>
                         <div className="flex gap-2">
-                          {["json","markdown"].map(f=><a key={f} href={`${API_BASE}/articles/${articleId}/export/${f}`} target="_blank" rel="noopener noreferrer"><Button variant="outline" size="sm" className="gap-1"><Download className="h-3.5 w-3.5"/>Export {f.toUpperCase()}</Button></a>)
+                          {["json", "markdown"].map((f) => (
+                            <a key={f} href={`${API_BASE}/articles/${articleId}/export/${f}`} target="_blank" rel="noopener noreferrer">
+                              <Button variant="outline" size="sm" className="gap-1">
+                                <Download className="h-3.5 w-3.5" />
+                                Export {f.toUpperCase()}
+                              </Button>
+                            </a>
+                          ))}
                         </div>
                       </CardHeader>
                       <CardContent className="flex-1 min-h-0 p-4">
@@ -619,10 +682,10 @@ export default function ArticleDetailPage() {
                     )}
                   </CardTitle>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" className="h-7 w-7 md:hidden" onClick={() => setChatOpen(false)}>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 md:hidden" onClick={() => setChatOpen(false)} aria-label="Close chat panel">
                       <X className="h-3.5 w-3.5"/>
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 hidden md:flex" onClick={() => setChatOpen(false)} title="Collapse">
+                    <Button variant="ghost" size="icon" className="h-7 w-7 hidden md:flex" onClick={() => setChatOpen(false)} aria-label="Collapse chat panel">
                       <PanelRightClose className="h-3.5 w-3.5"/>
                     </Button>
                   </div>
@@ -643,7 +706,7 @@ export default function ArticleDetailPage() {
 
                 <CardContent className="flex-1 flex flex-col min-h-0 p-4 pt-0">
                   <ScrollArea className="flex-1 mb-3">
-                    <div className="space-y-3 pr-3">
+                    <div className="space-y-3 pr-3" role="log" aria-live="polite">
                       {messages.length === 0 && (
                         <p className="text-muted-foreground text-sm text-center py-8">
                           Select text and click <strong>Add to Chat</strong> to give the model context, or just ask a question.
@@ -654,7 +717,31 @@ export default function ArticleDetailPage() {
                           <motion.div key={i} initial={{ opacity: 0, y: 10, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.25 }}
                             className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                             <div className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
-                              <p className="whitespace-pre-wrap text-xs">{msg.content.slice(0, 600)}{msg.content.length > 600 ? "..." : ""}</p>
+                              <div className="whitespace-pre-wrap text-xs">
+                                {msg.content.length > 400 && !expandedMsgs.has(i) ? (
+                                  <>
+                                    {msg.content.slice(0, 400)}…
+                                    <button
+                                      onClick={() => setExpandedMsgs((prev) => { const next = new Set(prev); next.add(i); return next; })}
+                                      className="ml-1 text-primary hover:underline font-medium"
+                                    >
+                                      Show more
+                                    </button>
+                                  </>
+                                ) : msg.content.length > 400 ? (
+                                  <>
+                                    {msg.content}
+                                    <button
+                                      onClick={() => setExpandedMsgs((prev) => { const next = new Set(prev); next.delete(i); return next; })}
+                                      className="ml-1 text-primary hover:underline font-medium"
+                                    >
+                                      Show less
+                                    </button>
+                                  </>
+                                ) : (
+                                  msg.content
+                                )}
+                              </div>
                               <div className="flex items-center gap-2 mt-1 flex-wrap">
                                 {msg.role === "assistant" && citations(msg).length > 0 && (
                                   <div className="mt-1.5 pt-1.5 border-t border-border/50 w-full">

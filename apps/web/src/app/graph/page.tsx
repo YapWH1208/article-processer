@@ -608,7 +608,7 @@ export default function GraphPage() {
                   <GitBranch className="h-12 w-12 opacity-30" />
                   <p className="text-sm">Failed to load graph: {error}</p>
                 </div>
-              ) : nodes.length === 0 ? (
+              ) : nodes.length === 0 && (data?.entities?.length || 0) === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center text-muted-foreground gap-3">
                   <GitBranch className="h-16 w-16 opacity-20" />
                   <div className="text-center space-y-1">
@@ -624,6 +624,15 @@ export default function GraphPage() {
                   <p className="text-[11px] text-muted-foreground/50 mt-2">
                     Tip: Drag to pan · Scroll to zoom · Click node to open article
                   </p>
+                </div>
+              ) : nodes.length === 0 ? (
+                <div className="flex h-full flex-col items-center justify-center text-muted-foreground gap-3">
+                  <GitBranch className="h-12 w-12 opacity-30" />
+                  <p className="text-sm font-medium">No nodes match the selected filters</p>
+                  <p className="text-xs text-muted-foreground/70">Try enabling more entity types to see results.</p>
+                  <Button variant="outline" size="sm" onClick={() => setSelectedTypes(new Set(allTypes))} className="mt-2 gap-1.5">
+                    Reset Filters
+                  </Button>
                 </div>
               ) : graphSize.width > 0 && graphSize.height > 0 ? (
                 <GraphCanvas

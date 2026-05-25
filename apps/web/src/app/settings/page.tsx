@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -142,6 +143,7 @@ export default function SettingsPage() {
   const [providers, setProviders] = useState<ProviderEntry[]>([]);
   const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [deleteProviderId, setDeleteProviderId] = useState<string | null>(null);
   const [newProvider, setNewProvider] = useState({
     name: "", type: "openai", api_key: "", base_url: "", model: "", protocol: "openai",
   });
@@ -344,16 +346,7 @@ export default function SettingsPage() {
                             }}>Set Active</Button>
                         )}
                         <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                          onClick={async () => {
-                            if (!confirm(`Delete provider "${p.name}"?`)) return;
-                            try {
-                              const res = await authFetch(`/dev/providers/${p.id}`, { method: "DELETE" });
-                              if (!res.ok) throw new Error("Failed");
-                              setProviders((prev) => prev.filter((x) => x.id !== p.id));
-                              if (activeProviderId === p.id) setActiveProviderId(null);
-                              toast.success(`Deleted ${p.name}`);
-                            } catch { toast.error("Failed to delete"); }
-                          }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                          onClick={() => setDeleteProviderId(p.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
                       </div>
                     </div>
                   ))}
@@ -365,6 +358,34 @@ export default function SettingsPage() {
                   )}
                 </CardContent>
               </Card>
+
+              {/* Delete confirmation dialog */}
+              <Dialog open={!!deleteProviderId} onOpenChange={(open) => { if (!open) setDeleteProviderId(null); }}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Delete Provider</DialogTitle>
+                    <DialogDescription>
+                      Permanently delete this provider configuration? This cannot be undone.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setDeleteProviderId(null)}>Cancel</Button>
+                    <Button variant="destructive" onClick={async () => {
+                      if (!deleteProviderId) return;
+                      const pid = deleteProviderId;
+                      setDeleteProviderId(null);
+                      try {
+                        const res = await authFetch(`/dev/providers/${pid}`, { method: "DELETE" });
+                        if (!res.ok) throw new Error("Failed");
+                        setProviders((prev) => prev.filter((x) => x.id !== pid));
+                        if (activeProviderId === pid) setActiveProviderId(null);
+                        const deleted = providers.find((p) => p.id === pid);
+                        toast.success(`Deleted ${deleted?.name || pid}`);
+                      } catch { toast.error("Failed to delete"); }
+                    }}>Delete Permanently</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
 
               {/* ── Add Provider Form ─────────────────────────────── */}
               {showAddForm ? (

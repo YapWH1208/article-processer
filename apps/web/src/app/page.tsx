@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AnimatedCounter, PulseDot } from "@/components/ui/animated";
+import { OnboardingBanner } from "@/components/OnboardingBanner";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -400,6 +401,9 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
   const [globalQuery, setGlobalQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<{ id: number; title: string; original_filename: string; status: string }[]>([]);
+  const [showResults, setShowResults] = useState(false);
+  const [searching, setSearching] = useState(false);
 
   useEffect(() => {
     // Health check
@@ -422,6 +426,30 @@ export default function HomePage() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  // Debounced instant search
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!globalQuery.trim() || globalQuery.trim().length < 2) {
+      setSearchResults([]);
+      setShowResults(false);
+      return;
+    }
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await fetch(`${API_BASE}/articles?search=${encodeURIComponent(globalQuery.trim())}&limit=5`);
+        if (res.ok) {
+          const d = await res.json();
+          setSearchResults(d.articles || []);
+          setShowResults(true);
+        }
+      } catch { /* ignore */ }
+      finally { setSearching(false); }
+    }, 250);
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+  }, [globalQuery]);
 
   const features = [
     {
@@ -553,19 +581,52 @@ export default function HomePage() {
             className="mt-6 max-w-lg"
           >
             <div className="relative">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground z-10" />
               <Input
                 type="text"
                 value={globalQuery}
                 onChange={(e) => setGlobalQuery(e.target.value)}
+                onFocus={() => { if (searchResults.length > 0) setShowResults(true); }}
+                onBlur={() => setTimeout(() => setShowResults(false), 200)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && globalQuery.trim()) {
                     router.push(`/articles?search_content=${encodeURIComponent(globalQuery.trim())}`);
+                    setShowResults(false);
                   }
+                  if (e.key === "Escape") setShowResults(false);
                 }}
                 placeholder="Search across all article content..."
                 className="pl-10 h-12 text-base bg-background/70 backdrop-blur-sm border-primary/20 focus:border-primary/50 rounded-xl transition-shadow focus:shadow-lg focus:shadow-primary/10"
               />
+              {/* Instant results dropdown */}
+              {showResults && searchResults.length > 0 && (
+                <div className="absolute top-full mt-1 left-0 right-0 z-20 bg-card border rounded-xl shadow-xl overflow-hidden">
+                  {searchResults.map((a) => (
+                    <Link
+                      key={a.id}
+                      href={`/articles/${a.id}`}
+                      className="flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-accent transition-colors"
+                      onClick={() => setShowResults(false)}
+                    >
+                      <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <span className="truncate flex-1">{a.title || a.original_filename}</span>
+                      <ArrowRight className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+                    </Link>
+                  ))}
+                  <Link
+                    href={`/articles?search_content=${encodeURIComponent(globalQuery.trim())}`}
+                    className="flex items-center justify-center gap-1 px-4 py-2 text-xs text-primary hover:bg-accent border-t transition-colors"
+                    onClick={() => setShowResults(false)}
+                  >
+                    View all results <ArrowRight className="h-3 w-3" />
+                  </Link>
+                </div>
+              )}
+              {showResults && searching && searchResults.length === 0 && (
+                <div className="absolute top-full mt-1 left-0 right-0 z-20 bg-card border rounded-xl shadow-xl px-4 py-3 text-sm text-muted-foreground text-center">
+                  Searching…
+                </div>
+              )}
             </div>
           </motion.div>
 
@@ -607,6 +668,9 @@ export default function HomePage() {
           </motion.div>
         </div>
       </section>
+
+      {/* Onboarding for first-time users */}
+      <OnboardingBanner visible={!loading && stats.total === 0} />
 
       {/* ═══════════════════════════════════════════════════════════ PIPELINE (moved up — it's the core workflow) */}
       <ScrollReveal>

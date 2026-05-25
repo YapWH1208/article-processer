@@ -7,9 +7,10 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Toaster } from "sonner";
 import {
   FileText, Sun, Moon, Home, FileUp, MessageCircle,
-  GitBranch, BarChart3, Settings2, BookOpen,
+  GitBranch, BarChart3, Settings2, BookOpen, Menu, X, Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CommandPalette } from "@/components/CommandPalette";
 
 // ── Theme toggle ──────────────────────────────────────────────────────────
 
@@ -70,17 +71,55 @@ const navLinks = [
 
 function NavBar() {
   const pathname = usePathname();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [processingCount, setProcessingCount] = useState(0);
+  const PROCESSING_STATUSES = ["uploaded", "parsing", "extracting", "indexing"];
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
     return pathname.startsWith(href);
   };
 
+  const closeMobile = () => setMobileOpen(false);
+
+  // Poll for in-progress articles every 10s
+  useEffect(() => {
+    const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    const poll = async () => {
+      try {
+        // Query each non-terminal status and sum counts
+        let total = 0;
+        for (const status of PROCESSING_STATUSES) {
+          const res = await fetch(`${API_BASE}/articles?status=${status}&limit=1`);
+          if (res.ok) {
+            const data = await res.json();
+            total += data.total || 0;
+          }
+        }
+        setProcessingCount(total);
+      } catch { /* ignore poll errors */ }
+    };
+    poll();
+    const interval = setInterval(poll, 10_000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex h-16 items-center justify-between px-4">
+        {/* Mobile hamburger */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 md:hidden flex-shrink-0"
+          onClick={() => setMobileOpen(true)}
+          aria-label="Open navigation menu"
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
+
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2.5 group flex-shrink-0">
+        <Link href="/" className="flex items-center gap-2.5 group flex-shrink-0 ml-2 md:ml-0">
           <motion.div
             whileHover={{ rotate: 15, scale: 1.15 }}
             transition={{ type: "spring", stiffness: 400 }}
@@ -92,8 +131,8 @@ function NavBar() {
           </span>
         </Link>
 
-        {/* Center: nav links */}
-        <nav className="flex items-center gap-1 mx-4 overflow-x-auto">
+        {/* Center: nav links — hidden on mobile */}
+        <nav className="hidden md:flex items-center gap-1 mx-4 overflow-x-auto">
           {navLinks.map(({ href, label, icon: Icon }) => (
             <Link key={href} href={href}>
               <Button
@@ -110,7 +149,19 @@ function NavBar() {
 
         {/* Right */}
         <div className="flex items-center gap-2 flex-shrink-0">
-          <Link href="/settings">
+          {/* Processing indicator */}
+          {processingCount > 0 && (
+            <Link href="/articles">
+              <Button variant="ghost" size="sm" className="gap-1.5 h-8 text-xs">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+                </span>
+                <span className="hidden sm:inline">{processingCount} processing</span>
+              </Button>
+            </Link>
+          )}
+          <Link href="/settings" className="hidden md:inline-flex">
             <Button variant="ghost" size="icon" className="h-9 w-9" title="Settings">
               <Settings2 className="h-5 w-5" />
             </Button>
@@ -118,6 +169,63 @@ function NavBar() {
           <ThemeToggle />
         </div>
       </div>
+
+      {/* Mobile drawer overlay */}
+      <AnimatePresence>
+        {mobileOpen && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              className="fixed inset-0 z-50 bg-black/50 md:hidden"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={closeMobile}
+            />
+            {/* Drawer panel */}
+            <motion.div
+              className="fixed inset-y-0 left-0 z-50 w-72 bg-card border-r shadow-2xl md:hidden flex flex-col"
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "spring", stiffness: 400, damping: 35 }}
+            >
+              {/* Drawer header */}
+              <div className="flex items-center justify-between p-4 border-b">
+                <span className="text-lg font-bold tracking-tight">Article Processor</span>
+                <Button variant="ghost" size="icon" onClick={closeMobile} aria-label="Close menu">
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+
+              {/* Nav links */}
+              <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
+                {navLinks.map(({ href, label, icon: Icon }) => (
+                  <Link key={href} href={href} onClick={closeMobile}>
+                    <Button
+                      variant={isActive(href) ? "secondary" : "ghost"}
+                      className="w-full justify-start gap-3 h-11"
+                    >
+                      <Icon className="h-5 w-5" />
+                      <span>{label}</span>
+                    </Button>
+                  </Link>
+                ))}
+              </nav>
+
+              {/* Drawer footer */}
+              <div className="p-4 border-t">
+                <Link href="/settings" onClick={closeMobile}>
+                  <Button variant="outline" className="w-full justify-start gap-3 h-11">
+                    <Settings2 className="h-5 w-5" />
+                    <span>Settings</span>
+                  </Button>
+                </Link>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </header>
   );
 }
@@ -144,12 +252,27 @@ function PageTransition({ children }: { children: React.ReactNode }) {
 // ── Provider root ──────────────────────────────────────────────────────────
 
 export function Providers({ children }: { children: React.ReactNode }) {
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // Global Cmd+K / Ctrl+K listener
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   return (
     <>
       <NavBar />
       <main className="container mx-auto px-4 py-6">
         <PageTransition>{children}</PageTransition>
       </main>
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <Toaster
         position="bottom-right"
         toastOptions={{

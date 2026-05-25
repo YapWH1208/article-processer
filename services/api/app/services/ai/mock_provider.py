@@ -188,6 +188,21 @@ class MockLLMProvider(BaseLLMProvider):
 
         return ("\n".join(answer_parts), citations)
 
+    async def stream_answer(
+        self,
+        question: str,
+        article_title: str,
+        article_text: str | None = None,
+        chunks: list[Any] | None = None,
+    ):
+        """Simulate streaming by yielding mock answer word-by-word."""
+        import asyncio
+        answer, _ = await self.answer_question(question, article_title, article_text, chunks)
+        words = answer.split(" ")
+        for i, word in enumerate(words):
+            yield word + (" " if i < len(words) - 1 else "")
+            await asyncio.sleep(0.02)  # simulate streaming delay
+
     async def run_skill(self, skill: Any, article_markdown: str) -> dict:
         """Mock skill execution — extracts relevant section based on skill purpose."""
         skill_name = skill.name if hasattr(skill, 'name') else str(skill)

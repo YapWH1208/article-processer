@@ -308,8 +308,13 @@ export default function ChatPage() {
         citations: res.citations,
       };
       setMessages((prev) => [...prev, assistantBubble]);
-      // Refresh session list to update title/order
-      loadSessions();
+      // Optimistically move active session to top — avoid full re-fetch
+      setSessions((prev) => {
+        const idx = prev.findIndex((s) => s.id === sid);
+        if (idx <= 0) return prev;
+        const [moved] = prev.splice(idx, 1);
+        return [moved, ...prev];
+      });
     } catch (err: unknown) {
       const errBubble: BubbleData = {
         role: "assistant",
@@ -520,10 +525,10 @@ export default function ChatPage() {
         <Card className="flex-1 flex flex-col min-h-0 border-primary/10">
           <ScrollArea className="flex-1 p-4">
             {loadingMessages ? (
-              <div className="space-y-4">
+              <motion.div className="space-y-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}>
                 <Skeleton className="h-12 w-3/4" /><Skeleton className="h-12 w-2/3 ml-auto" />
                 <Skeleton className="h-20 w-1/2" />
-              </div>
+              </motion.div>
             ) : messages.length === 0 ? (
               <div className="flex items-center justify-center h-full text-center text-muted-foreground py-12">
                 <div>
@@ -536,7 +541,7 @@ export default function ChatPage() {
                 </div>
               </div>
             ) : (
-              <div className="space-y-5">
+              <div className="space-y-5" role="log" aria-live="polite">
                 <AnimatePresence initial={false}>
                   {messages.map((msg, i) => <MessageBubble key={i} msg={msg} />)}
                 </AnimatePresence>

@@ -85,15 +85,19 @@ function KpiCard({
 export default function DashboardPage() {
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState(30);
 
-  useEffect(() => {
+  const fetchMetrics = () => {
     setLoading(true);
+    setError(null);
     getDashboardMetrics(days)
       .then(setMetrics)
-      .catch(() => {})
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load metrics"))
       .finally(() => setLoading(false));
-  }, [days]);
+  };
+
+  useEffect(() => { fetchMetrics(); }, [days]);
 
   const modelData = (metrics?.token_usage_by_model || []).map((m) => ({
     name: m.model.length > 20 ? m.model.slice(0, 20) + "..." : m.model,
@@ -142,6 +146,25 @@ export default function DashboardPage() {
           </div>
         </div>
       </FadeIn>
+
+      {/* Error banner */}
+      {error && (
+        <FadeIn>
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-center justify-between gap-3 p-4 rounded-lg bg-destructive/10 border border-destructive/20"
+          >
+            <div className="flex items-center gap-2 text-sm text-destructive min-w-0">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span className="truncate">{error}</span>
+            </div>
+            <Button variant="outline" size="sm" onClick={fetchMetrics} className="shrink-0">
+              Retry
+            </Button>
+          </motion.div>
+        </FadeIn>
+      )}
 
       {/* KPI Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

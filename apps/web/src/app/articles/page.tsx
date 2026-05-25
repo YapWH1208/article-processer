@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight, ArrowUpDown, CheckSquare, Square, Trash2, ArchiveRestore, X, FileType, Globe, FileCode } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { StaggerContainer, StaggerItem, HoverCard, FadeIn } from "@/components/ui/animated";
-import { deleteArticle, toggleArchiveArticle } from "@/lib/api";
+import { deleteArticle, toggleArchiveArticle, restoreArticle } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 const TERMINAL_ARTICLE_STATUSES = new Set(["completed", "failed", "needs_review"]);
@@ -80,9 +81,9 @@ export default function ArticlesPage() {
       }
     }
     if (failed > 0) {
-      toast.warning(`${ok} updated, ${failed} failed`);
+      toast.warning(`${ok} archived, ${failed} failed`);
     } else {
-      toast.success(`${ok} article(s) updated`);
+      toast.success(`${ok} article(s) archived`);
     }
     setSelected(new Set());
     setBatchAction(null);
@@ -92,21 +93,44 @@ export default function ArticlesPage() {
   const handleBatchDelete = async () => {
     setDeleteOpen(false);
     setBatchAction("delete");
-    let ok = 0;
+    const deletedIds: number[] = [];
     let failed = 0;
     for (const id of selected) {
       try {
-        await deleteArticle(id);
-        ok++;
+        const result = await deleteArticle(id);
+        if (result?.deleted) {
+          deletedIds.push(id);
+        } else {
+          failed++;
+          console.error(`Delete API returned deleted=false for article ${id}`);
+        }
       } catch (e) {
         failed++;
         console.error(`Failed to delete article ${id}:`, e);
       }
     }
+    const count = deletedIds.length;
+    const msg = failed > 0 ? `${count} trashed, ${failed} failed` : `${count} article(s) trashed`;
     if (failed > 0) {
-      toast.warning(`${ok} deleted, ${failed} failed`);
+      toast.warning(msg, {
+        action: count > 0 ? { label: "Undo", onClick: async () => {
+          let restored = 0;
+          for (const id of deletedIds) {
+            try { await restoreArticle(id); restored++; } catch {}
+          }
+          if (restored > 0) { toast.success(`${restored} article(s) restored`); setRefreshKey((k) => k + 1); }
+        }} : undefined,
+      });
     } else {
-      toast.success(`${ok} article(s) deleted`);
+      toast.success(msg, {
+        action: count > 0 ? { label: "Undo", onClick: async () => {
+          let restored = 0;
+          for (const id of deletedIds) {
+            try { await restoreArticle(id); restored++; } catch {}
+          }
+          if (restored > 0) { toast.success(`${restored} article(s) restored`); setRefreshKey((k) => k + 1); }
+        }} : undefined,
+      });
     }
     setSelected(new Set());
     setBatchAction(null);
@@ -135,6 +159,30 @@ export default function ArticlesPage() {
 
   // Reset to page 1 when filters change (but NOT on refreshKey bump)
   useEffect(() => { setPage(1); }, [search, statusFilter, includeArchived, searchContent, sortBy, sortOrder]);
+
+  // Keyboard navigation: j/k to move through articles, Enter to open
+  const router = useRouter();
+  const [focusedIdx, setFocusedIdx] = useState(-1);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Ignore when typing in inputs
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === "j" || e.key === "J") {
+        e.preventDefault();
+        setFocusedIdx((prev) => Math.min(prev + 1, articles.length - 1));
+      } else if (e.key === "k" || e.key === "K") {
+        e.preventDefault();
+        setFocusedIdx((prev) => Math.max(prev - 1, 0));
+      } else if (e.key === "Enter" && focusedIdx >= 0 && focusedIdx < articles.length) {
+        e.preventDefault();
+        router.push(`/articles/${articles[focusedIdx].id}`);
+      } else if (e.key === "Escape") {
+        setFocusedIdx(-1);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [articles, focusedIdx, router]);
 
   const statusVariant = (s: string) => {
     if (s === "completed") return "default" as const;
@@ -246,7 +294,7 @@ export default function ArticlesPage() {
       {/* Select all checkbox */}
       {articles.length > 0 && (
         <div className="flex items-center gap-2 px-1">
-          <button onClick={toggleSelectAll} className="text-muted-foreground hover:text-foreground transition-colors" title="Select all on page">
+          <button onClick={toggleSelectAll} className="text-muted-foreground hover:text-foreground transition-colors" aria-label="Select all articles on page">
             {selected.size === articles.length ? <CheckSquare className="h-4 w-4 text-primary"/> : <Square className="h-4 w-4"/>}
           </button>
           <span className="text-xs text-muted-foreground">
@@ -284,14 +332,14 @@ export default function ArticlesPage() {
         </FadeIn>
       ) : (
         <StaggerContainer className="space-y-2">
-          {articles.map((a) => (
+          {articles.map((a, idx) => (
             <StaggerItem key={a.id}>
               <HoverCard>
-                <Card className={`hover:bg-accent/50 transition-colors group ${a.is_archived === 1 ? "opacity-60" : ""} ${selected.has(a.id) ? "ring-2 ring-primary/30 bg-primary/5" : ""}`}>
+                <Card className={`hover:bg-accent/50 transition-colors group ${a.is_archived === 1 ? "opacity-60" : ""} ${selected.has(a.id) ? "ring-2 ring-primary/30 bg-primary/5" : ""} ${idx === focusedIdx ? "ring-2 ring-primary/50 bg-accent" : ""}`}>
                   <CardContent className="flex items-center py-4 gap-3">
                     {/* Checkbox */}
                     <button onClick={(e) => { e.preventDefault(); toggleSelect(a.id); }}
-                      className="shrink-0 text-muted-foreground hover:text-foreground transition-colors" title="Select">
+                      className="shrink-0 text-muted-foreground hover:text-foreground transition-colors" aria-label={`Select ${a.title || a.original_filename}`}>
                       {selected.has(a.id) ? <CheckSquare className="h-4 w-4 text-primary"/> : <Square className="h-4 w-4"/>}
                     </button>
                     {/* Content */}

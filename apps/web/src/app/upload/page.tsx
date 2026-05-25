@@ -1,17 +1,47 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileText, CheckCircle2, AlertCircle, Inbox, Sparkles, Brain } from "lucide-react";
+import { Upload, FileText, CheckCircle2, AlertCircle, Inbox, Sparkles, Brain, Loader2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { uploadFile } from "@/lib/api";
+import { uploadFile, getArticleActiveJob } from "@/lib/api";
 import { FadeIn } from "@/components/ui/animated";
+
+interface ProcessingFile {
+  filename: string;
+  articleId: number;
+  step: string | null;
+  status: string;
+  error: string | null;
+}
+
+const STEP_ORDER = ["uploaded", "parsing", "extracting", "embedding", "graph"] as const;
+const TERMINAL_STEPS = new Set(["completed", "failed", "needs_review"]);
+
+function stepLabel(step: string | null): string {
+  if (!step) return "Starting…";
+  const labels: Record<string, string> = {
+    uploaded: "Uploaded",
+    parsing: "Parsing document…",
+    extracting: "AI extracting…",
+    embedding: "Building embeddings…",
+    graph: "Building graph…",
+  };
+  return labels[step] || step;
+}
+
+function stepProgress(step: string | null): number {
+  if (!step) return 5;
+  const idx = STEP_ORDER.indexOf(step as typeof STEP_ORDER[number]);
+  if (idx === -1) return 50;
+  return Math.round(((idx + 1) / STEP_ORDER.length) * 100);
+}
 
 export default function UploadPage() {
   const router = useRouter();
@@ -19,14 +49,22 @@ export default function UploadPage() {
   const [runAI, setRunAI] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [results, setResults] = useState<{ filename: string; article_id: number }[]>([]);
+  const [processingFiles, setProcessingFiles] = useState<ProcessingFile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showSparkle, setShowSparkle] = useState(false);
+  const pollIntervalsRef = useRef<Map<number, ReturnType<typeof setInterval>>>(new Map());
   const [modelInfo, setModelInfo] = useState<{
     llmProvider: string; llmModel: string; llmProtocol: string | null;
     llmProviderName?: string;
     mock: boolean;
   } | null>(null);
+
+  // Cleanup polling intervals on unmount
+  useEffect(() => {
+    return () => {
+      pollIntervalsRef.current.forEach((interval) => clearInterval(interval));
+    };
+  }, []);
 
   useEffect(() => {
     const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -42,24 +80,58 @@ export default function UploadPage() {
       .catch(() => {});
   }, []);
 
+  const startPolling = useCallback((articleId: number, filename: string) => {
+    // Set initial processing state
+    setProcessingFiles((prev) => [...prev, { filename, articleId, step: null, status: "processing", error: null }]);
+
+    const poll = async () => {
+      try {
+        const { job } = await getArticleActiveJob(articleId);
+        setProcessingFiles((prev) =>
+          prev.map((f) =>
+            f.articleId === articleId
+              ? {
+                  ...f,
+                  step: job?.current_step || f.step,
+                  status: job?.status === "completed" ? "completed"
+                    : job?.status === "failed" ? "failed"
+                    : "processing",
+                  error: job?.error || null,
+                }
+              : f
+          )
+        );
+        // Stop polling when terminal
+        if (job && (job.status === "completed" || job.status === "failed")) {
+          const interval = pollIntervalsRef.current.get(articleId);
+          if (interval) { clearInterval(interval); pollIntervalsRef.current.delete(articleId); }
+        }
+      } catch {
+        // keep polling on transient errors
+      }
+    };
+
+    poll(); // immediate first poll
+    const interval = setInterval(poll, 2000);
+    pollIntervalsRef.current.set(articleId, interval);
+  }, []);
+
   const handleUpload = useCallback(async (files: FileList | File[]) => {
     setUploading(true); setError(null); setProgress(0);
     const arr = Array.from(files);
-    const res: { filename: string; article_id: number }[] = [];
 
     for (let i = 0; i < arr.length; i++) {
       try {
         const r = await uploadFile(arr[i], runAI);
-        res.push({ filename: arr[i].name, article_id: r.article_id });
+        startPolling(r.article_id, arr[i].name);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Upload failed");
       }
       setProgress(Math.round(((i + 1) / arr.length) * 100));
     }
-    setResults((prev) => [...prev, ...res]);
     setUploading(false);
-    if (res.length > 0) { setShowSparkle(true); setTimeout(() => setShowSparkle(false), 2500); }
-  }, [runAI]);
+    if (arr.length > 0) { setShowSparkle(true); setTimeout(() => setShowSparkle(false), 2500); }
+  }, [runAI, startPolling]);
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
@@ -195,26 +267,56 @@ export default function UploadPage() {
         )}
       </AnimatePresence>
 
-      {/* Results */}
+      {/* Per-file processing progress */}
       <AnimatePresence>
-        {results.length > 0 && (
+        {processingFiles.length > 0 && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  Uploaded {results.length} file{results.length > 1 ? "s" : ""}
+                  {processingFiles.every((f) => f.status === "completed") ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <Loader2 className="h-4 w-4 text-primary animate-spin" />
+                  )}
+                  Processing {processingFiles.length} file{processingFiles.length > 1 ? "s" : ""}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
-                {results.map((r, i) => (
-                  <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }}
-                    className="flex items-center justify-between py-2 px-3 rounded-md bg-accent/50">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <span className="text-sm truncate">{r.filename}</span>
+              <CardContent className="space-y-3">
+                {processingFiles.map((f) => (
+                  <motion.div
+                    key={f.articleId}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="py-2 px-3 rounded-md bg-accent/50 space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {f.status === "completed" ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                        ) : f.status === "failed" ? (
+                          <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
+                        ) : (
+                          <Loader2 className="h-4 w-4 text-primary animate-spin shrink-0" />
+                        )}
+                        <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="text-sm truncate">{f.filename}</span>
+                      </div>
+                      {f.status !== "processing" && (
+                        <Button variant="link" size="sm" onClick={() => router.push(`/articles/${f.articleId}`)}>
+                          View →
+                        </Button>
+                      )}
                     </div>
-                    <Button variant="link" size="sm" onClick={() => router.push(`/articles/${r.article_id}`)}>View →</Button>
+                    <div className="flex items-center gap-2">
+                      <Progress
+                        value={f.status === "completed" ? 100 : f.status === "failed" ? 100 : stepProgress(f.step)}
+                        className={f.status === "failed" ? "[&>div]:bg-destructive" : f.status === "completed" ? "[&>div]:bg-green-500" : ""}
+                      />
+                    </div>
+                    <p className={`text-xs ${f.status === "failed" ? "text-destructive" : "text-muted-foreground"}`}>
+                      {f.status === "completed" ? "Complete" : f.status === "failed" ? f.error || "Failed" : stepLabel(f.step)}
+                    </p>
                   </motion.div>
                 ))}
               </CardContent>

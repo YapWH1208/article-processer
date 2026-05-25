@@ -75,12 +75,20 @@ export async function uploadFile(file: File, runAi = true) {
 
 // ── Articles ──────────────────────────────────────────────────────
 
+export async function restoreArticle(id: number) {
+  return apiFetch<{ article_id: number; restored: boolean }>(
+    `/articles/${id}/restore`,
+    { method: "POST" }
+  );
+}
+
 export async function listArticles(params?: {
   status?: string;
   search?: string;
   search_content?: string;
   sort_by?: string;
   sort_order?: string;
+  include_deleted?: boolean;
   skip?: number;
   limit?: number;
 }) {
@@ -88,6 +96,7 @@ export async function listArticles(params?: {
   if (params?.status) searchParams.set("status", params.status);
   if (params?.search) searchParams.set("search", params.search);
   if (params?.search_content) searchParams.set("search_content", params.search_content);
+  if (params?.include_deleted) searchParams.set("include_deleted", "true");
   if (params?.sort_by) searchParams.set("sort_by", params.sort_by);
   if (params?.sort_order) searchParams.set("sort_order", params.sort_order);
   if (params?.skip != null) searchParams.set("skip", String(params.skip));
@@ -169,6 +178,72 @@ export async function sendChatMessage(articleId: number, message: string) {
       body: JSON.stringify({ message }),
     }
   );
+}
+
+/** Stream a chat answer token-by-token. Calls `onToken` for each token, `onDone` when complete. */
+export async function streamChatMessage(
+  articleId: number,
+  message: string,
+  onToken: (token: string) => void,
+  onDone: (fullAnswer: string) => void,
+  onError: (error: string) => void,
+): Promise<void> {
+  const url = `${API_BASE}/articles/${articleId}/chat/stream`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      let detail = body;
+      try { detail = JSON.parse(body).detail || body; } catch {}
+      throw new Error(detail || `HTTP ${res.status}`);
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("No response body");
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let fullAnswer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.token) {
+              fullAnswer += data.token;
+              onToken(data.token);
+            } else if (data.done) {
+              onDone(data.answer || fullAnswer);
+            } else if (data.error) {
+              onError(data.error);
+            }
+          } catch {}
+        }
+      }
+    }
+    // Final flush
+    if (buffer.startsWith("data: ")) {
+      try {
+        const data = JSON.parse(buffer.slice(6));
+        if (data.done) onDone(data.answer || fullAnswer);
+      } catch {}
+    }
+  } catch (e: unknown) {
+    onError(e instanceof Error ? e.message : "Stream failed");
+  }
 }
 
 export async function getChatHistory(articleId: number) {

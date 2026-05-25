@@ -1,12 +1,13 @@
 """Articles router — list, detail, markdown, extraction, graph, reprocess, archive, delete."""
 
+import datetime
 import json
 import logging
 import os
 import shutil
 import mimetypes
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -49,13 +50,14 @@ def list_articles(
     search: str | None = None,
     search_content: str | None = None,
     include_archived: bool = False,
+    include_deleted: bool = False,
     sort_by: str = "created_at",
     sort_order: str = "desc",
     skip: int = 0,
     limit: int = 50,
     db: Session = Depends(get_db),
 ):
-    """List articles with optional filtering. Archived articles hidden by default.
+    """List articles with optional filtering. Archived and soft-deleted hidden by default.
 
     - `search`: matches title and filename (fast metadata search).
     - `search_content`: matches inside the parsed Markdown body (full-text search,
@@ -64,6 +66,10 @@ def list_articles(
     - `sort_order`: asc or desc.
     """
     q = db.query(Article)
+
+    # Exclude soft-deleted articles by default
+    if not include_deleted:
+        q = q.filter(Article.deleted_at.is_(None))
 
     if not include_archived:
         q = q.filter(Article.is_archived == 0)
@@ -449,33 +455,29 @@ def update_article(article_id: int, body: dict, db: Session = Depends(get_db), u
 
 @router.delete("/{article_id}")
 def delete_article(article_id: int, db: Session = Depends(get_db), user=Depends(require_user)):
-    """Hard-delete an article and its storage files."""
+    """Soft-delete an article — marks it as trashed without removing data."""
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
 
-    # Collect paths to clean up
-    paths_to_remove: list[str] = []
-    if article.storage_path and os.path.exists(article.storage_path):
-        paths_to_remove.append(article.storage_path)
-    if article.markdown_path and os.path.exists(article.markdown_path):
-        paths_to_remove.append(article.markdown_path)
-
-    # Delete from DB (cascade removes everything)
-    db.delete(article)
+    article.deleted_at = datetime.datetime.utcnow()
     db.commit()
 
-    # Clean up files on disk
-    for path in paths_to_remove:
-        try:
-            if os.path.isfile(path):
-                os.remove(path)
-            elif os.path.isdir(path):
-                shutil.rmtree(path)
-        except OSError as e:
-            logger.warning(f"Failed to remove {path}: {e}")
-
     return {"article_id": article_id, "deleted": True}
+
+
+@router.post("/{article_id}/restore")
+def restore_article(article_id: int, db: Session = Depends(get_db), user=Depends(require_user)):
+    """Restore a soft-deleted article."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+    if not article.deleted_at:
+        raise HTTPException(status_code=400, detail="Article is not deleted")
+
+    article.deleted_at = None
+    db.commit()
+    return {"article_id": article_id, "restored": True}
 
 
 @router.get("/{article_id}/logs")

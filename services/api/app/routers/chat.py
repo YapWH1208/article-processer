@@ -4,6 +4,7 @@ import json
 import logging
 import datetime
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.auth_deps import require_user
@@ -96,6 +97,95 @@ async def chat_with_article(
         created_at=assistant_msg.created_at,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
+    )
+
+
+@router.post("/{article_id}/chat/stream")
+async def chat_with_article_stream(
+    article_id: int,
+    request: ChatRequest,
+    db: Session = Depends(get_db),
+):
+    """Stream a chat answer token-by-token via Server-Sent Events."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    if not article.markdown_text:
+        raise HTTPException(status_code=400, detail="Article has not been processed yet")
+
+    llm = get_llm_provider()
+
+    async def event_stream():
+        full_answer = ""
+        citations: list[dict] = []
+        try:
+            async for token in llm.stream_answer(
+                question=request.message,
+                article_title=article.title or article.original_filename,
+                article_text=article.markdown_text,
+            ):
+                full_answer += token
+                yield f"data: {json.dumps({'token': token})}\n\n"
+
+            # Compute citations for streamed answer so behavior matches non-streaming chat.
+            try:
+                _, citations = await llm.answer_question(
+                    question=request.message,
+                    article_title=article.title or article.original_filename,
+                    article_text=article.markdown_text,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to compute citations for streamed chat: {e}")
+                citations = []
+
+            # Send completion event with full answer + citations
+            yield f"data: {json.dumps({'done': True, 'answer': full_answer, 'citations': citations})}\n\n"
+
+        except Exception as e:
+            logger.error(f"Streaming chat failed: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            return
+
+        # Save messages to DB after streaming completes
+        try:
+            prompt_tokens = max(1, len(request.message) // 4)
+            completion_tokens = max(1, len(full_answer) // 4)
+            if llm.last_usage and llm.last_usage.total_tokens > 0:
+                prompt_tokens = llm.last_usage.prompt_tokens
+                completion_tokens = llm.last_usage.completion_tokens
+
+            user_msg = ChatMessage(
+                article_id=article_id, role="user", content=request.message,
+                prompt_tokens=prompt_tokens, completion_tokens=0,
+            )
+            assistant_msg = ChatMessage(
+                article_id=article_id, role="assistant", content=full_answer,
+                citations_json=json.dumps(citations),
+                prompt_tokens=0, completion_tokens=completion_tokens,
+            )
+            db.add(user_msg)
+            db.add(assistant_msg)
+            if llm.last_usage and llm.last_usage.total_tokens > 0:
+                db.add(TokenUsage(
+                    article_id=article_id, step="chat",
+                    model=llm.last_usage.model, provider=llm.last_usage.provider,
+                    prompt_tokens=llm.last_usage.prompt_tokens,
+                    completion_tokens=llm.last_usage.completion_tokens,
+                    total_tokens=llm.last_usage.total_tokens,
+                ))
+            db.commit()
+        except Exception as e:
+            logger.error(f"Failed to save streamed chat messages: {e}")
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
