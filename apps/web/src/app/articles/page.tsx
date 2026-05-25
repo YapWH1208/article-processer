@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight, ArrowUpDown, CheckSquare, Square, Trash2, ArchiveRestore, X, FileType, Globe, FileCode } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -136,6 +137,30 @@ export default function ArticlesPage() {
 
   // Reset to page 1 when filters change (but NOT on refreshKey bump)
   useEffect(() => { setPage(1); }, [search, statusFilter, includeArchived, searchContent, sortBy, sortOrder]);
+
+  // Keyboard navigation: j/k to move through articles, Enter to open
+  const router = useRouter();
+  const [focusedIdx, setFocusedIdx] = useState(-1);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Ignore when typing in inputs
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === "j" || e.key === "J") {
+        e.preventDefault();
+        setFocusedIdx((prev) => Math.min(prev + 1, articles.length - 1));
+      } else if (e.key === "k" || e.key === "K") {
+        e.preventDefault();
+        setFocusedIdx((prev) => Math.max(prev - 1, 0));
+      } else if (e.key === "Enter" && focusedIdx >= 0 && focusedIdx < articles.length) {
+        e.preventDefault();
+        router.push(`/articles/${articles[focusedIdx].id}`);
+      } else if (e.key === "Escape") {
+        setFocusedIdx(-1);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [articles, focusedIdx, router]);
 
   const statusVariant = (s: string) => {
     if (s === "completed") return "default" as const;
@@ -285,10 +310,10 @@ export default function ArticlesPage() {
         </FadeIn>
       ) : (
         <StaggerContainer className="space-y-2">
-          {articles.map((a) => (
+          {articles.map((a, idx) => (
             <StaggerItem key={a.id}>
               <HoverCard>
-                <Card className={`hover:bg-accent/50 transition-colors group ${a.is_archived === 1 ? "opacity-60" : ""} ${selected.has(a.id) ? "ring-2 ring-primary/30 bg-primary/5" : ""}`}>
+                <Card className={`hover:bg-accent/50 transition-colors group ${a.is_archived === 1 ? "opacity-60" : ""} ${selected.has(a.id) ? "ring-2 ring-primary/30 bg-primary/5" : ""} ${idx === focusedIdx ? "ring-2 ring-primary/50 bg-accent" : ""}`}>
                   <CardContent className="flex items-center py-4 gap-3">
                     {/* Checkbox */}
                     <button onClick={(e) => { e.preventDefault(); toggleSelect(a.id); }}

@@ -10,6 +10,7 @@ import {
   GitBranch, BarChart3, Settings2, BookOpen, Menu, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CommandPalette } from "@/components/CommandPalette";
 
 // ── Theme toggle ──────────────────────────────────────────────────────────
 
@@ -215,12 +216,27 @@ function PageTransition({ children }: { children: React.ReactNode }) {
 // ── Provider root ──────────────────────────────────────────────────────────
 
 export function Providers({ children }: { children: React.ReactNode }) {
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // Global Cmd+K / Ctrl+K listener
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   return (
     <>
       <NavBar />
       <main className="container mx-auto px-4 py-6">
         <PageTransition>{children}</PageTransition>
       </main>
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <Toaster
         position="bottom-right"
         toastOptions={{
