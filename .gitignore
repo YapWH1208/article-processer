@@ -38,3 +38,4 @@ storage/exports/*
 !storage/markdown/.gitkeep
 !storage/exports/.gitkeep
 /data
+/storage/images
