@@ -225,7 +225,7 @@ class ExtractionService:
                 parts = re.split(r"\s*;\s*", text)
             elif re.search(r"\s+and\s+", text, flags=re.IGNORECASE):
                 parts = re.split(r"\s+and\s+", text, flags=re.IGNORECASE)
-            elif re.search(r",\s+[A-Z][a-z]", text):
+            elif re.search(r",\s+[A-Z][a-z]", text) and not re.search(r",\s*[A-Z]\.", text):
                 parts = re.split(r",\s+", text)
             else:
                 parts = [text]

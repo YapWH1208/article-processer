@@ -97,7 +97,8 @@ def _build_provider_from_entry(entry: dict) -> BaseLLMProvider:
     """Build a provider instance from a dev_config provider entry."""
     provider_type = str(entry.get("type", "custom")).strip().lower()
     api_key = entry.get("api_key", "")
-    base_url = entry.get("base_url", "")
+    raw_base_url = entry.get("base_url", "")
+    base_url = raw_base_url
     model = entry.get("model", "")
     protocol = str(entry.get("protocol", "openai")).strip().lower()
 
@@ -110,21 +111,19 @@ def _build_provider_from_entry(entry: dict) -> BaseLLMProvider:
 
     if protocol == "anthropic" or provider_type == "anthropic":
         from app.services.ai.anthropic_provider import AnthropicProvider, CustomAnthropicProvider
-        if provider_type == "anthropic" and not base_url.startswith("http"):
+        if provider_type == "anthropic" and not raw_base_url:
             # Native Anthropic — use env key if provider key is empty
             key = api_key or settings.anthropic_api_key
             if not key:
                 from app.services.ai.mock_provider import MockLLMProvider
                 return MockLLMProvider()
             return AnthropicProvider(api_key=key, model=model or settings.anthropic_model)
-        else:
-            from app.services.ai.anthropic_provider import CustomAnthropicProvider
-            return CustomAnthropicProvider(
-                api_key=api_key or settings.llm_custom_api_key or "not-needed",
-                base_url=base_url or settings.llm_custom_base_url,
-                model=model or settings.llm_custom_model,
-                provider_name=provider_type,
-            )
+        return CustomAnthropicProvider(
+            api_key=api_key or settings.llm_custom_api_key or "not-needed",
+            base_url=base_url or settings.llm_custom_base_url,
+            model=model or settings.llm_custom_model,
+            provider_name=provider_type,
+        )
     else:
         # OpenAI-compatible (covers openai, deepseek, openrouter, glm, minimax, mimo, kimi, custom)
         from app.services.ai.openai_provider import CustomOpenAIProvider, OpenAIProvider

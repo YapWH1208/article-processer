@@ -355,3 +355,7 @@ class TestExtractionEdgeCases:
         assert normalized["graph_entities"][1]["type"] == "Keyword"
         assert normalized["graph_relationships"][0]["type"] == "EVALUATES_ON"
         assert normalized["graph_relationships"][0]["confidence"] == 0.5
+
+    def test_split_authors_preserves_citation_style_initials(self):
+        parts = ExtractionService._split_list_text("Ryan, R. M., Deci, E. L.", "authors")
+        assert parts == ["Ryan, R. M., Deci, E. L."]

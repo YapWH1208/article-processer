@@ -59,7 +59,10 @@ class AnthropicProvider(BaseLLMProvider):
             f"{protected_text}\n\n"
             f"Respond with a JSON object only, no other text."
         )
-        parsed, _ = await self._call_claude(prompt, "extraction", max_tokens=8000)
+        try:
+            parsed, _ = await self._call_claude(prompt, "extraction", max_tokens=8000)
+        except Exception as e:
+            return None, [f"Provider error: {e}"], 0.0
         if not isinstance(parsed, dict):
             return None, ["JSON parse error"], 0.0
 
@@ -137,8 +140,6 @@ class AnthropicProvider(BaseLLMProvider):
 
         except Exception as e:
             logger.error(f"Anthropic {task} failed: {e}")
-            if task == "extraction":
-                return None, 0.0
             raise
 
     @staticmethod
@@ -167,9 +168,13 @@ class AnthropicProvider(BaseLLMProvider):
     def _format_chunk_for_context(chunk: Any) -> str:
         text = chunk.text if hasattr(chunk, 'text') else str(chunk)
         section = chunk.section_title if hasattr(chunk, 'section_title') else None
-        page = f"pp. {chunk.page_start}-{chunk.page_end}" if hasattr(chunk, 'page_start') and chunk.page_start else ""
+        page = (
+            f', Page: {chunk.page_start}-{chunk.page_end}'
+            if hasattr(chunk, 'page_start') and chunk.page_start
+            else ""
+        )
         idx = chunk.chunk_index if hasattr(chunk, 'chunk_index') else 0
-        return f'[Chunk {idx}, Section: "{section or "N/A"}", {page}]\n{text}'
+        return f'[Chunk {idx}, Section: "{section or "N/A"}"{page}]\n{text}'
 
 
 class CustomAnthropicProvider(AnthropicProvider):
