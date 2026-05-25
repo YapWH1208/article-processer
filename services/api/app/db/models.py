@@ -79,6 +79,7 @@ class Article(Base):
     processing_error = Column(Text, nullable=True)
     needs_review = Column(Integer, default=0)
     is_archived = Column(Integer, default=0)  # 0 = active, 1 = archived
+    deleted_at = Column(DateTime, nullable=True)  # soft-delete timestamp
 
     # Relationships
     metadata_items = relationship("ArticleMetadata", back_populates="article", uselist=False, cascade="all, delete-orphan")

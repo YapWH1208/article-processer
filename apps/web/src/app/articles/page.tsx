@@ -83,14 +83,32 @@ export default function ArticlesPage() {
   const handleBatchDelete = async () => {
     setDeleteOpen(false);
     setBatchAction("delete");
-    let ok = 0;
+    const deletedIds: number[] = [];
     for (const id of selected) {
       try {
         await fetch(`${API_BASE}/articles/${id}`, { method: "DELETE" });
-        ok++;
+        deletedIds.push(id);
       } catch { /* skip */ }
     }
-    toast.success(`${ok} article(s) deleted`);
+    const count = deletedIds.length;
+    toast.success(`${count} article(s) trashed`, {
+      action: count > 0 ? {
+        label: "Undo",
+        onClick: async () => {
+          let restored = 0;
+          for (const id of deletedIds) {
+            try {
+              await fetch(`${API_BASE}/articles/${id}/restore`, { method: "POST" });
+              restored++;
+            } catch { /* skip */ }
+          }
+          if (restored > 0) {
+            toast.success(`${restored} article(s) restored`);
+            setRefreshKey((k) => k + 1);
+          }
+        },
+      } : undefined,
+    });
     setSelected(new Set());
     setBatchAction(null);
     setRefreshKey((k) => k + 1);

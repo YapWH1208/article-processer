@@ -224,10 +224,25 @@ export default function ArticleDetailPage() {
 
   const handleDelete = async () => {
     setDeleting(true);
+    const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
     try {
       const res = await fetch(`${API_BASE}/articles/${articleId}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
-      toast.success("Article deleted");
+      setDeleteOpen(false);
+      toast.success("Article trashed", {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            try {
+              const restoreRes = await fetch(`${API_BASE}/articles/${articleId}/restore`, { method: "POST" });
+              if (restoreRes.ok) {
+                setArticle((prev) => prev ? { ...prev, status: prev.status } : null);
+                toast.success("Article restored");
+              }
+            } catch { toast.error("Restore failed"); }
+          },
+        },
+      });
       router.push("/articles");
     } catch { toast.error("Delete failed"); setDeleting(false); setDeleteOpen(false); }
   };
