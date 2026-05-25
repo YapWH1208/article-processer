@@ -66,15 +66,23 @@ export default function ArticlesPage() {
   const handleBatchArchive = async () => {
     setBatchAction("archive");
     let ok = 0;
+    let failed = 0;
     for (const id of selected) {
       try {
         const a = articles.find((x) => x.id === id);
         const url = a?.is_archived ? "unarchive" : "archive";
         await fetch(`${API_BASE}/articles/${id}/${url}`, { method: "POST" });
         ok++;
-      } catch { /* skip */ }
+      } catch (e) {
+        failed++;
+        console.error(`Failed to update article ${id}:`, e);
+      }
     }
-    toast.success(`${ok} article(s) updated`);
+    if (failed > 0) {
+      toast.warning(`${ok} updated, ${failed} failed`);
+    } else {
+      toast.success(`${ok} article(s) updated`);
+    }
     setSelected(new Set());
     setBatchAction(null);
     setRefreshKey((k) => k + 1);
@@ -84,13 +92,21 @@ export default function ArticlesPage() {
     setDeleteOpen(false);
     setBatchAction("delete");
     let ok = 0;
+    let failed = 0;
     for (const id of selected) {
       try {
         await fetch(`${API_BASE}/articles/${id}`, { method: "DELETE" });
         ok++;
-      } catch { /* skip */ }
+      } catch (e) {
+        failed++;
+        console.error(`Failed to delete article ${id}:`, e);
+      }
     }
-    toast.success(`${ok} article(s) deleted`);
+    if (failed > 0) {
+      toast.warning(`${ok} deleted, ${failed} failed`);
+    } else {
+      toast.success(`${ok} article(s) deleted`);
+    }
     setSelected(new Set());
     setBatchAction(null);
     setRefreshKey((k) => k + 1);

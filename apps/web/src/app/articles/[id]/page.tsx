@@ -123,8 +123,10 @@ export default function ArticleDetailPage() {
       listSkills().then((s) => setSkills(s.skills || [])).catch(() => {});
       // Load job history
       getArticleJobs(articleId).then((j) => setJobs(Array.isArray(j) ? j : [])).catch(() => {});
-    } catch { /* handled */ }
-    finally { setLoading(false); }
+    } catch (e) {
+      console.error("Failed to load article data:", e);
+      toast.error("Failed to load article. Check your connection and try again.");
+    } finally { setLoading(false); }
   }, [articleId]);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -152,7 +154,7 @@ export default function ArticleDetailPage() {
         if (isTerminalArticleStatus(res.article_status)) {
           loadData();
         }
-      } catch { /* ignore poll errors */ }
+      } catch { /* ignore poll errors — will retry on next interval */ }
     };
     poll(); // immediate first poll
     const interval = setInterval(poll, 2000);

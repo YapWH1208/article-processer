@@ -2,13 +2,34 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
+/** Read the stored JWT token — same key that AuthProvider writes to. */
+function getAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("auth_token");
+}
+
+/** Paths that should NOT receive an auth header (login, register, health). */
+const AUTH_EXEMPT_PREFIXES = ["/auth/login", "/auth/register", "/health"];
+
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${path}`;
+
+  // Build headers — attach auth token for protected endpoints
+  const headers: Record<string, string> = {
+    ...(options?.headers as Record<string, string> || {}),
+  };
+
+  const isAuthExempt = AUTH_EXEMPT_PREFIXES.some((p) => path.startsWith(p));
+  if (!isAuthExempt) {
+    const token = getAuthToken();
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+  }
+
   const res = await fetch(url, {
     ...options,
-    headers: {
-      ...(options?.headers || {}),
-    },
+    headers,
   });
 
   if (!res.ok) {
