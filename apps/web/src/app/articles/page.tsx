@@ -272,7 +272,7 @@ export default function ArticlesPage() {
       {/* Select all checkbox */}
       {articles.length > 0 && (
         <div className="flex items-center gap-2 px-1">
-          <button onClick={toggleSelectAll} className="text-muted-foreground hover:text-foreground transition-colors" title="Select all on page">
+          <button onClick={toggleSelectAll} className="text-muted-foreground hover:text-foreground transition-colors" aria-label="Select all articles on page">
             {selected.size === articles.length ? <CheckSquare className="h-4 w-4 text-primary"/> : <Square className="h-4 w-4"/>}
           </button>
           <span className="text-xs text-muted-foreground">
@@ -317,7 +317,7 @@ export default function ArticlesPage() {
                   <CardContent className="flex items-center py-4 gap-3">
                     {/* Checkbox */}
                     <button onClick={(e) => { e.preventDefault(); toggleSelect(a.id); }}
-                      className="shrink-0 text-muted-foreground hover:text-foreground transition-colors" title="Select">
+                      className="shrink-0 text-muted-foreground hover:text-foreground transition-colors" aria-label={`Select ${a.title || a.original_filename}`}>
                       {selected.has(a.id) ? <CheckSquare className="h-4 w-4 text-primary"/> : <Square className="h-4 w-4"/>}
                     </button>
                     {/* Content */}

@@ -536,7 +536,7 @@ export default function ChatPage() {
                 </div>
               </div>
             ) : (
-              <div className="space-y-5">
+              <div className="space-y-5" role="log" aria-live="polite">
                 <AnimatePresence initial={false}>
                   {messages.map((msg, i) => <MessageBubble key={i} msg={msg} />)}
                 </AnimatePresence>
