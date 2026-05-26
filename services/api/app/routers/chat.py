@@ -20,6 +20,12 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# ── History window ────────────────────────────────────────────────────────
+
+# Maximum number of prior message pairs to include as conversation context.
+# Each pair is one user message + one assistant response.
+MAX_HISTORY_TURNS = 10
+
 
 @router.post("/{article_id}/chat", response_model=ChatResponse)
 async def chat_with_article(
@@ -503,10 +509,29 @@ async def send_session_message(
         context_title = f"Library ({len(articles)} articles)"
         request.article_ids = [a.id for a in articles]
 
+    # ── Load conversation history from this session ──────────────────
+    prior_messages = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at.desc())
+        .limit(MAX_HISTORY_TURNS * 2)  # N user+assistant pairs
+        .all()
+    )
+    # Reverse to chronological order (oldest first) for the LLM
+    prior_messages.reverse()
+
+    history: list[dict] = []
+    for msg in prior_messages:
+        history.append({
+            "role": msg.role,
+            "content": msg.content,
+        })
+
     answer, citations = await llm.answer_question(
         question=request.message,
         article_title=context_title,
         article_text=article_text,
+        history=history,
     )
 
     if llm.last_usage and llm.last_usage.total_tokens > 0:
