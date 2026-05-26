@@ -567,3 +567,133 @@ async def send_session_message(
         prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
         session_id=session_id,
     )
+
+
+@router.post("/sessions/{session_id}/messages/stream")
+async def stream_session_message(
+    session_id: int,
+    request: SessionMessageRequest,
+    db: Session = Depends(get_db),
+):
+    """Stream a chat answer token-by-token via SSE for a session.
+
+    Loads conversation history from the session so the LLM has multi-turn
+    context, then streams tokens as Server-Sent Events.
+    """
+    session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    llm = get_llm_provider()
+
+    # ── Build article context ──────────────────────────────────────────
+    if request.article_ids:
+        articles = db.query(Article).filter(Article.id.in_(request.article_ids)).all()
+        if not articles:
+            raise HTTPException(status_code=404, detail="No articles found")
+        combined_parts = []
+        for a in articles:
+            if a.markdown_text:
+                title = a.title or a.original_filename
+                combined_parts.append(f"### {title} (ID: {a.id})\n\n{a.markdown_text}")
+        if not combined_parts:
+            raise HTTPException(status_code=400, detail="No processed articles found")
+        article_text = "\n\n---\n\n".join(combined_parts)
+        primary_title = articles[0].title or articles[0].original_filename
+        context_title = f"{len(articles)} articles including '{primary_title}'"
+    else:
+        articles = db.query(Article).filter(
+            Article.markdown_text.isnot(None), Article.markdown_text != ""
+        ).all()
+        if not articles:
+            raise HTTPException(status_code=400, detail="No processed articles available")
+        summaries = []
+        for a in articles:
+            title = a.title or a.original_filename
+            preview = (a.markdown_text or "")[:800]
+            summaries.append(f"## {title} (ID: {a.id})\n{preview}...\n")
+        article_text = (
+            f"Below are summaries of {len(articles)} available articles:\n\n"
+            + "\n---\n".join(summaries)
+        )
+        context_title = f"Library ({len(articles)} articles)"
+        request.article_ids = [a.id for a in articles]
+
+    # ── Load conversation history ──────────────────────────────────────
+    prior_messages = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at.desc())
+        .limit(MAX_HISTORY_TURNS * 2)
+        .all()
+    )
+    prior_messages.reverse()
+    history = [{"role": m.role, "content": m.content} for m in prior_messages]
+
+    async def event_stream():
+        full_answer = ""
+        try:
+            async for token in llm.stream_answer(
+                question=request.message,
+                article_title=context_title,
+                article_text=article_text,
+                history=history,
+            ):
+                full_answer += token
+                yield f"data: {json.dumps({'token': token})}\n\n"
+
+            # Compute citations
+            citations: list[dict] = []
+            try:
+                _, citations = await llm.answer_question(
+                    question=request.message,
+                    article_title=context_title,
+                    article_text=article_text,
+                    history=history,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to compute citations for streamed session: {e}")
+
+            yield f"data: {json.dumps({'done': True, 'answer': full_answer, 'citations': citations})}\n\n"
+
+        except Exception as e:
+            logger.error(f"Streaming session chat failed: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            return
+
+        # Save messages after streaming
+        try:
+            prompt_tokens = max(1, len(request.message) // 4)
+            completion_tokens = max(1, len(full_answer) // 4)
+            if llm.last_usage and llm.last_usage.total_tokens > 0:
+                prompt_tokens = llm.last_usage.prompt_tokens
+                completion_tokens = llm.last_usage.completion_tokens
+
+            citations_json = json.dumps(citations)
+            db.add(ChatMessage(
+                session_id=session_id, role="user", content=request.message,
+                prompt_tokens=prompt_tokens, completion_tokens=0,
+            ))
+            db.add(ChatMessage(
+                session_id=session_id, role="assistant", content=full_answer,
+                citations_json=citations_json, prompt_tokens=0, completion_tokens=completion_tokens,
+            ))
+            session.updated_at = datetime.datetime.utcnow()
+            msg_count = db.query(ChatMessage).filter(
+                ChatMessage.session_id == session_id, ChatMessage.role == "user"
+            ).count()
+            if msg_count <= 1:
+                session.title = request.message[:80] + ("..." if len(request.message) > 80 else "")
+            db.commit()
+        except Exception as e:
+            logger.error(f"Failed to save streamed session messages: {e}")
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
