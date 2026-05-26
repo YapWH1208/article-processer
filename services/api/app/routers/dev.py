@@ -3,10 +3,9 @@
 import json
 import logging
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core.auth_deps import require_user
 from app.core.config import settings, DOTENV_PATH, reload_settings
 from app.services.ai.prompts import DEFAULT_EXTRACTION_SYSTEM_MESSAGE
 
@@ -262,7 +261,7 @@ def get_system_messages():
 
 
 @router.put("/system-messages/{name}", response_model=SystemMessageItem)
-def update_system_message(name: str, update: SystemMessageUpdate, user=Depends(require_user)):
+def update_system_message(name: str, update: SystemMessageUpdate):
     """Update a specific system message by task name."""
     config = _load_dev_config()
     if "system_messages" not in config:
@@ -290,7 +289,7 @@ def get_input_templates():
 
 
 @router.put("/input-templates/{name}", response_model=InputTemplateItem)
-def update_input_template(name: str, update: InputTemplateUpdate, user=Depends(require_user)):
+def update_input_template(name: str, update: InputTemplateUpdate):
     """Update a specific input template by name."""
     config = _load_dev_config()
     if "input_templates" not in config:
@@ -328,7 +327,7 @@ def get_model_params():
 
 
 @router.put("/model-params", response_model=ModelParamsResponse)
-def update_model_params(update: ModelParamsUpdate, user=Depends(require_user)):
+def update_model_params(update: ModelParamsUpdate):
     """Update model parameters (temperature, top_p, max_tokens, etc.)."""
     config = _load_dev_config()
     if update.temperature is not None:
@@ -392,7 +391,7 @@ def list_providers():
 
 
 @router.post("/providers", response_model=ProviderResponse)
-def create_provider(provider: ProviderCreate, user=Depends(require_user)):
+def create_provider(provider: ProviderCreate):
     """Add a new LLM provider."""
     config = _load_dev_config()
     if "providers" not in config:
@@ -427,7 +426,7 @@ def create_provider(provider: ProviderCreate, user=Depends(require_user)):
 
 
 @router.put("/providers/active", response_model=dict)
-def set_active_provider(update: ActiveProviderUpdate, user=Depends(require_user)):
+def set_active_provider(update: ActiveProviderUpdate):
     """Set the active LLM provider by id. Must be defined before /providers/{provider_id} to avoid route conflict."""
     config = _load_dev_config()
     if update.provider_id is not None:
@@ -443,7 +442,7 @@ def set_active_provider(update: ActiveProviderUpdate, user=Depends(require_user)
 
 
 @router.put("/providers/{provider_id}", response_model=ProviderResponse)
-def update_provider(provider_id: str, update: ProviderUpdate, user=Depends(require_user)):
+def update_provider(provider_id: str, update: ProviderUpdate):
     """Update an existing provider. Only provided fields are changed."""
     config = _load_dev_config()
     providers = config.get("providers", [])
@@ -481,7 +480,7 @@ def update_provider(provider_id: str, update: ProviderUpdate, user=Depends(requi
 
 
 @router.delete("/providers/{provider_id}")
-def delete_provider(provider_id: str, user=Depends(require_user)):
+def delete_provider(provider_id: str):
     """Delete a provider. Clears active_provider_id if it was active."""
     config = _load_dev_config()
     providers = config.get("providers", [])

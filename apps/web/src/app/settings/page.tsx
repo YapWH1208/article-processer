@@ -7,7 +7,7 @@ import {
   Settings2, Server, Download, Upload, Loader2, FileCode,
   Save, RotateCcw, Thermometer, Gauge, Hash, Sparkles,
   Plus, Trash2, Brain, CheckCircle2, MessageSquare,
-  SlidersHorizontal, SwitchCamera,
+  SlidersHorizontal, SwitchCamera, Maximize2,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -148,6 +148,12 @@ export default function SettingsPage() {
     name: "", type: "openai", api_key: "", base_url: "", model: "", protocol: "openai",
   });
   const [provSaving, setProvSaving] = useState(false);
+
+  // Enlarged view dialog
+  const [enlarged, setEnlarged] = useState<{ title: string; name: string; content: string; kind: "system-message" | "input-template" } | null>(null);
+  const [enlargedEditing, setEnlargedEditing] = useState(false);
+  const [enlargedContent, setEnlargedContent] = useState("");
+  const [enlargedSaving, setEnlargedSaving] = useState(false);
 
   useEffect(() => {
     Promise.all([loadSettings(), loadDevConfig()]).finally(() => setLoading(false));
@@ -504,10 +510,10 @@ export default function SettingsPage() {
                         <h3 className="text-sm font-semibold capitalize">
                           {taskLabels[name] || name.replace(/_/g, " ")}
                         </h3>
-                        {editingSm !== name && (
-                          <Button variant="outline" size="sm"
-                            onClick={() => { setEditingSm(name); setEditSmContent(content); }}>Edit</Button>
-                        )}
+                        <Button variant="ghost" size="icon" className="h-7 w-7"
+                          onClick={() => { setEnlarged({ title: taskLabels[name] || name.replace(/_/g, " "), name, content, kind: "system-message" }); setEnlargedEditing(false); }}>
+                          <Maximize2 className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
                       {editingSm === name ? (
                         <div className="space-y-2">
@@ -549,10 +555,10 @@ export default function SettingsPage() {
                         <h3 className="text-sm font-semibold capitalize">
                           {taskLabels[name] || name.replace(/_/g, " ")}
                         </h3>
-                        {editingIt !== name && (
-                          <Button variant="outline" size="sm"
-                            onClick={() => { setEditingIt(name); setEditItTemplate(item.template); }}>Edit</Button>
-                        )}
+                        <Button variant="ghost" size="icon" className="h-7 w-7"
+                          onClick={() => { setEnlarged({ title: taskLabels[name] || name.replace(/_/g, " "), name, content: item.template, kind: "input-template" }); setEnlargedEditing(false); }}>
+                          <Maximize2 className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
                       {editingIt === name ? (
                         <div className="space-y-2">
@@ -746,6 +752,67 @@ export default function SettingsPage() {
           }}><Upload className="h-4 w-4"/> Import</Button>
         </CardContent>
       </Card>
+
+      {/* Enlarged view dialog */}
+      <Dialog open={!!enlarged} onOpenChange={(open) => { if (!open) { setEnlarged(null); setEnlargedEditing(false); } }}>
+        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>{enlarged?.title || "View"}</DialogTitle>
+            <DialogDescription>
+              {enlargedEditing ? "Edit the content below and save." : "Full content — scroll to read. Close when done."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2 -mt-2 mb-2">
+            {!enlargedEditing ? (
+              <Button variant="outline" size="sm" onClick={() => { setEnlargedEditing(true); setEnlargedContent(enlarged?.content || ""); }}>
+                Edit
+              </Button>
+            ) : (
+              <>
+                <Button variant="ghost" size="sm" onClick={() => setEnlargedEditing(false)}>Cancel</Button>
+                <Button size="sm" onClick={async () => {
+                  if (!enlarged) return;
+                  setEnlargedSaving(true);
+                  try {
+                    const endpoint = enlarged.kind === "system-message"
+                      ? `/dev/system-messages/${enlarged.name}`
+                      : `/dev/input-templates/${enlarged.name}`;
+                    const body = enlarged.kind === "system-message"
+                      ? { content: enlargedContent }
+                      : { template: enlargedContent };
+                    const res = await authFetch(endpoint, {
+                      method: "PUT", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(body),
+                    });
+                    if (!res.ok) throw new Error((await res.json()).detail || "Save failed");
+                    if (enlarged.kind === "system-message") {
+                      setSystemMessages((prev) => ({ ...prev, [enlarged.name]: enlargedContent }));
+                    } else {
+                      setInputTemplates((prev) => ({ ...prev, [enlarged.name]: { ...prev[enlarged.name], template: enlargedContent } }));
+                    }
+                    setEnlarged({ ...enlarged, content: enlargedContent });
+                    setEnlargedEditing(false);
+                    toast.success(`Saved "${enlarged.title}"`);
+                  } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Save failed"); }
+                  finally { setEnlargedSaving(false); }
+                }} disabled={enlargedSaving}>
+                  {enlargedSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1"/> : <Save className="h-3.5 w-3.5 mr-1"/>} Save
+                </Button>
+              </>
+            )}
+          </div>
+          <pre
+            contentEditable={enlargedEditing}
+            suppressContentEditableWarning
+            onInput={(e) => setEnlargedContent(e.currentTarget.textContent || "")}
+            className={`flex-1 overflow-y-auto text-xs font-mono bg-muted/50 rounded-lg p-4 whitespace-pre-wrap break-all border outline-none ${
+              enlargedEditing ? "ring-2 ring-ring" : ""
+            }`}
+          >
+            {enlargedEditing ? enlargedContent : (enlarged?.content || "")}
+          </pre>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

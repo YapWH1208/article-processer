@@ -792,6 +792,26 @@ export default function ArticleDetailPage() {
 
 // ── Sub-components ────────────────────────────────────────────────────────
 
+function slugify(children: React.ReactNode): string {
+  if (typeof children === "string") return children.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  if (Array.isArray(children)) return children.map(c => (typeof c === "string" ? c : "")).join(" ").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  return "";
+}
+
+const mdComponents = {
+  h1: ({ children, ...props }: any) => <h1 id={slugify(children)} className="text-2xl font-bold mt-6 mb-3 border-b pb-1 scroll-mt-20" {...props}>{children}</h1>,
+  h2: ({ children, ...props }: any) => <h2 id={slugify(children)} className="text-xl font-bold mt-5 mb-2 border-b pb-0.5 scroll-mt-20" {...props}>{children}</h2>,
+  h3: ({ children, ...props }: any) => <h3 id={slugify(children)} className="text-lg font-semibold mt-4 mb-2 scroll-mt-20" {...props}>{children}</h3>,
+  h4: ({ children, ...props }: any) => <h4 id={slugify(children)} className="text-base font-semibold mt-3 mb-1 scroll-mt-20" {...props}>{children}</h4>,
+  h5: ({ children, ...props }: any) => <h5 id={slugify(children)} className="text-sm font-semibold mt-3 mb-1 scroll-mt-20" {...props}>{children}</h5>,
+  h6: ({ children, ...props }: any) => <h6 id={slugify(children)} className="text-xs font-semibold mt-3 mb-1 uppercase tracking-wide scroll-mt-20" {...props}>{children}</h6>,
+  img: ({ src, alt, ...props }: any) => (
+    <span className="flex justify-center my-4 block">
+      <img src={src} alt={alt} className="rounded-lg max-w-full" {...props} />
+    </span>
+  ),
+};
+
 /** Renders Markdown via react-markdown with text-selection "Add to Chat" support. */
 function MarkdownReader({ text, onSelect }: { text: string; onSelect: (t: string, src: string) => void }) {
   const [selected, setSelected] = useState("");
@@ -820,6 +840,7 @@ function MarkdownReader({ text, onSelect }: { text: string; onSelect: (t: string
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]}
+          components={mdComponents}
         >
           {text}
         </ReactMarkdown>

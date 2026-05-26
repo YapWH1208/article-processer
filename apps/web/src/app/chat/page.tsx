@@ -108,6 +108,19 @@ function MessageBubble({ msg }: { msg: BubbleData }) {
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]}
+            components={{
+              h1: ({ children, ...props }: any) => <h1 className="text-xl font-bold mt-5 mb-2 border-b pb-0.5" {...props}>{children}</h1>,
+              h2: ({ children, ...props }: any) => <h2 className="text-lg font-bold mt-4 mb-1.5 border-b pb-0.5" {...props}>{children}</h2>,
+              h3: ({ children, ...props }: any) => <h3 className="text-base font-semibold mt-3 mb-1" {...props}>{children}</h3>,
+              h4: ({ children, ...props }: any) => <h4 className="text-sm font-semibold mt-2 mb-1" {...props}>{children}</h4>,
+              h5: ({ children, ...props }: any) => <h5 className="text-xs font-semibold mt-2 mb-0.5" {...props}>{children}</h5>,
+              h6: ({ children, ...props }: any) => <h6 className="text-[11px] font-semibold mt-2 mb-0.5 uppercase tracking-wide" {...props}>{children}</h6>,
+              img: ({ src, alt, ...props }: any) => (
+                <span className="flex justify-center my-3 block">
+                  <img src={src} alt={alt} className="rounded-lg max-w-full" {...props} />
+                </span>
+              ),
+            }}
           >
             {msg.content}
           </ReactMarkdown>
