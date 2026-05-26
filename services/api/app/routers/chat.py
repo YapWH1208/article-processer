@@ -15,6 +15,7 @@ from app.schemas.chat import (
     Citation, MultiArticleChatRequest, MultiArticleChatResponse,
 )
 from app.services.ai.base import get_llm_provider
+from app.services.pipeline.processor import compute_token_cost
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,11 @@ async def chat_with_article(
             prompt_tokens=llm.last_usage.prompt_tokens,
             completion_tokens=llm.last_usage.completion_tokens,
             total_tokens=llm.last_usage.total_tokens,
+            cost=compute_token_cost(
+                llm.last_usage.model,
+                llm.last_usage.prompt_tokens,
+                llm.last_usage.completion_tokens,
+            ),
         ))
 
     db.commit()
@@ -179,6 +185,11 @@ async def chat_with_article_stream(
                     prompt_tokens=llm.last_usage.prompt_tokens,
                     completion_tokens=llm.last_usage.completion_tokens,
                     total_tokens=llm.last_usage.total_tokens,
+                    cost=compute_token_cost(
+                        llm.last_usage.model,
+                        llm.last_usage.prompt_tokens,
+                        llm.last_usage.completion_tokens,
+                    ),
                 ))
             db.commit()
         except Exception as e:

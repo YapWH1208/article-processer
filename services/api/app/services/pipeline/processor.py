@@ -34,6 +34,55 @@ logger = logging.getLogger(__name__)
 storage = LocalStorage()
 
 
+# ── Token Cost Estimation ──────────────────────────────────────────────────
+
+# Approximate per-token pricing in USD (per 1M tokens). Prompt / completion.
+_MODEL_PRICING: dict[str, tuple[float, float]] = {
+    # OpenAI
+    "gpt-4.1-mini": (0.15, 0.60),
+    "gpt-4.1": (2.00, 8.00),
+    "gpt-4o": (2.50, 10.00),
+    "gpt-4o-mini": (0.15, 0.60),
+    "gpt-4-turbo": (10.00, 30.00),
+    # Anthropic
+    "claude-sonnet-4-20250514": (3.00, 15.00),
+    "claude-3.5-sonnet": (3.00, 15.00),
+    "claude-3-opus": (15.00, 75.00),
+    "claude-3-haiku": (0.25, 1.25),
+    # DeepSeek
+    "deepseek-chat": (0.14, 0.28),
+    "deepseek-reasoner": (0.55, 2.19),
+    # OpenRouter defaults
+    "openai/gpt-4.1-mini": (0.15, 0.60),
+    # GLM
+    "glm-4-plus": (1.00, 1.00),
+    # MiniMax
+    "MiniMax-Text-01": (0.20, 1.10),
+    # Kimi
+    "moonshot-v1-8k": (0.60, 0.60),
+}
+_DEFAULT_PRICING = (1.00, 4.00)  # conservative fallback
+
+
+def compute_token_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
+    """Estimate API cost in USD from token counts and known model pricing."""
+    prompt_price, completion_price = _MODEL_PRICING.get(model, _DEFAULT_PRICING)
+    return round((prompt_tokens / 1_000_000) * prompt_price + (completion_tokens / 1_000_000) * completion_price, 6)
+
+
+# ── Pipeline Retry ─────────────────────────────────────────────────────────
+
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY = 1.0  # seconds
+
+
+def _retry_delay(attempt: int) -> float:
+    """Jittered exponential backoff: base * 2^attempt with ±25% jitter."""
+    import random
+    base = _RETRY_BASE_DELAY * (2 ** attempt)
+    return base * (0.75 + random.random() * 0.5)
+
+
 # Parser registry — instantiate once, select at call time based on priority setting
 _mineru = MinerUAdapter()
 _docling = DoclingAdapter()
@@ -225,13 +274,39 @@ async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "
         article.status = ArticleStatus.EXTRACTING.value
         db.commit()
 
-        add_log("extracting", "Running AI extraction...")
-        llm = get_llm_provider()
+        # ── AI Extraction with retry ───────────────────────────────────
+        extraction_result = None
+        validation_errors = None
+        confidence = 0.0
 
-        extraction_result, validation_errors, confidence = await llm.extract_structured(
-            markdown=markdown,
-            article_title=article.title,
-        )
+        for attempt in range(_MAX_RETRIES + 1):
+            add_log("extracting", f"Running AI extraction... (attempt {attempt + 1})")
+            llm = get_llm_provider()
+
+            try:
+                extraction_result, validation_errors, confidence = await llm.extract_structured(
+                    markdown=markdown,
+                    article_title=article.title,
+                )
+            except Exception as extract_err:
+                validation_errors = [str(extract_err)]
+                extraction_result = None
+
+            if extraction_result is not None and (validation_errors is None or len(validation_errors) == 0):
+                break  # success
+
+            if attempt < _MAX_RETRIES:
+                delay = _retry_delay(attempt)
+                logger.warning(
+                    f"Extraction attempt {attempt + 1} failed for article {article_id} "
+                    f"(errors: {validation_errors}). Retrying in {delay:.1f}s..."
+                )
+                import asyncio
+                await asyncio.sleep(delay)
+                # Reset job error for retry
+                job.error = None
+                job.retry_count = attempt + 1
+                db.commit()
 
         # Delete old extractions
         db.query(ArticleExtraction).filter(
@@ -257,6 +332,11 @@ async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "
                 prompt_tokens=llm.last_usage.prompt_tokens,
                 completion_tokens=llm.last_usage.completion_tokens,
                 total_tokens=llm.last_usage.total_tokens,
+                cost=compute_token_cost(
+                    llm.last_usage.model,
+                    llm.last_usage.prompt_tokens,
+                    llm.last_usage.completion_tokens,
+                ),
             ))
 
         if extraction_result is None:
@@ -265,6 +345,8 @@ async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "
             article.status = ArticleStatus.FAILED.value
             article.processing_error = failure_message
             job.status = JobStatus.FAILED.value
+            job.last_error = failure_message
+            job.retry_count = _MAX_RETRIES
             job.completed_at = datetime.datetime.utcnow()
             add_log("extracting", failure_message, error=True)
             logger.warning(f"Pipeline extraction failed for article {article_id}: {failure_message}")

@@ -201,6 +201,8 @@ class ProcessingJob(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
+    retry_count = Column(Integer, default=0)
+    last_error = Column(Text, nullable=True)
 
     article = relationship("Article", back_populates="jobs")
 
@@ -246,6 +248,7 @@ class TokenUsage(Base):
     prompt_tokens = Column(Integer, default=0)
     completion_tokens = Column(Integer, default=0)
     total_tokens = Column(Integer, default=0)
+    cost = Column(Float, default=0.0)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     article = relationship("Article", back_populates="token_usage")

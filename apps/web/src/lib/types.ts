@@ -238,12 +238,18 @@ export interface DashboardMetrics {
   total_prompt_tokens: number;
   total_completion_tokens: number;
   total_tokens: number;
+  total_cost: number;
   token_usage_by_model: {
     model: string;
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
     message_count: number;
+  }[];
+  cost_by_model: {
+    model: string;
+    provider: string;
+    cost: number;
   }[];
   top_articles_by_tokens: {
     article_id: number;
