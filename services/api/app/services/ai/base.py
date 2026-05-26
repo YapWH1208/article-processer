@@ -31,6 +31,33 @@ class BaseLLMProvider(ABC):
     def __init__(self) -> None:
         self.last_usage = TokenUsage()
 
+    # ── History helpers ──────────────────────────────────────────────────
+
+    @staticmethod
+    def _truncate_history(
+        history: list[dict] | None,
+        max_turns: int = 10,
+        max_chars: int = 24_000,
+    ) -> list[dict]:
+        """Truncate conversation history to fit within context budget.
+
+        Keeps the most recent turns and caps total character length.
+        Subclasses can override if the model has different limits.
+        """
+        if not history:
+            return []
+
+        # Keep only the last N turns (N pairs of user+assistant)
+        trimmed = history[-max_turns * 2:]
+
+        # Cap total character length — drop oldest messages first
+        total = sum(len(m.get("content", "")) for m in trimmed)
+        while total > max_chars and len(trimmed) > 2:
+            removed = trimmed.pop(0)
+            total -= len(removed.get("content", ""))
+
+        return trimmed
+
     @abstractmethod
     async def extract_structured(
         self, markdown: str, article_title: str,
@@ -44,7 +71,17 @@ class BaseLLMProvider(ABC):
         article_title: str,
         article_text: str | None = None,
         chunks: list[Any] | None = None,
+        history: list[dict] | None = None,
     ) -> tuple[str, list[dict]]:
+        """Answer a question with optional conversation history.
+
+        Args:
+            question: The user's current question.
+            article_title: Title of the article being discussed.
+            article_text: Full article Markdown text.
+            chunks: Optional pre-chunked article segments.
+            history: Optional list of prior messages as {"role": "user"|"assistant", "content": "..."}.
+        """
         ...
 
     async def stream_answer(
@@ -53,10 +90,13 @@ class BaseLLMProvider(ABC):
         article_title: str,
         article_text: str | None = None,
         chunks: list[Any] | None = None,
+        history: list[dict] | None = None,
     ):
         """Stream an answer token-by-token. Default: yield full answer as one chunk."""
         from collections.abc import AsyncGenerator
-        answer, _ = await self.answer_question(question, article_title, article_text, chunks)
+        answer, _ = await self.answer_question(
+            question, article_title, article_text, chunks, history=history,
+        )
         # Yield in word-sized chunks to simulate streaming
         words = answer.split(" ")
         for i, word in enumerate(words):
