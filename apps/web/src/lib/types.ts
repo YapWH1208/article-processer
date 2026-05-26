@@ -310,6 +310,22 @@ export interface ArticleLogs {
   token_usage: TokenUsageLog[];
 }
 
+// ── Related Articles ──────────────────────────────────────────
+
+export interface RelatedArticle {
+  id: number;
+  title: string;
+  status: string;
+  source_type: string;
+  similarity: number;
+  shared_entities: string[];
+}
+
+export interface RelatedArticlesResponse {
+  article_id: number;
+  related: RelatedArticle[];
+}
+
 // ── Health ──────────────────────────────────────────────────
 
 export interface HealthInfo {

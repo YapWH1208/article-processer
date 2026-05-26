@@ -26,7 +26,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { sendChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, toggleArchiveArticle, deleteArticle, restoreArticle } from "@/lib/api";
+import { sendChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, toggleArchiveArticle, deleteArticle, restoreArticle, getRelatedArticles } from "@/lib/api";
 import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
 
@@ -652,6 +652,13 @@ export default function ArticleDetailPage() {
                                 </div>
                               </>
                             )}
+
+                            {/* Related Articles */}
+                            <Separator />
+                            <div>
+                              <h4 className="font-semibold text-sm mb-2">Related Articles</h4>
+                              <RelatedArticles articleId={articleId} />
+                            </div>
                           </div>
                         </ScrollArea>
                       </CardContent>
@@ -919,6 +926,49 @@ function SkillResultView({ result }: { result: unknown }) {
                 : String(value ?? "—")}
           </span>
         </div>
+      ))}
+    </div>
+  );
+}
+
+function RelatedArticles({ articleId }: { articleId: number }) {
+  const [related, setRelated] = useState<Array<{ id: number; title: string; status: string; source_type: string; similarity: number; shared_entities: string[] }>>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getRelatedArticles(articleId)
+      .then((r) => setRelated(r.related))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [articleId]);
+
+  if (loading) {
+    return <p className="text-xs text-muted-foreground">Loading related articles...</p>;
+  }
+
+  if (related.length === 0) {
+    return <p className="text-xs text-muted-foreground">No related articles found. Process more articles to discover connections.</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {related.map((r) => (
+        <Link key={r.id} href={`/articles/${r.id}`} className="block p-2 rounded-md bg-muted/50 hover:bg-muted transition-colors">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium truncate">{r.title}</span>
+            <Badge variant="secondary" className="text-[10px] shrink-0">{Math.round(r.similarity * 100)}%</Badge>
+          </div>
+          {r.shared_entities.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1">
+              {r.shared_entities.slice(0, 4).map((e, i) => (
+                <Badge key={i} variant="outline" className="text-[9px] px-1 py-0">{e}</Badge>
+              ))}
+              {r.shared_entities.length > 4 && (
+                <Badge variant="outline" className="text-[9px] px-1 py-0">+{r.shared_entities.length - 4}</Badge>
+              )}
+            </div>
+          )}
+        </Link>
       ))}
     </div>
   );

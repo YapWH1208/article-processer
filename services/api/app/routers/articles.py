@@ -531,3 +531,87 @@ def get_article_logs(article_id: int, db: Session = Depends(get_db)):
             for t in token_rows
         ],
     }
+
+
+# ── Related Articles ───────────────────────────────────────────────────────
+
+@router.get("/{article_id}/related")
+def get_related_articles(
+    article_id: int,
+    limit: int = 5,
+    db: Session = Depends(get_db),
+):
+    """Find articles related to this one via shared graph entities.
+
+    Uses Jaccard similarity on entity names (case-insensitive). Returns the
+    top ``limit`` articles with the most overlapping concepts.
+    """
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    # Get this article's entity names
+    own_entities = (
+        db.query(GraphEntity.name)
+        .filter(GraphEntity.article_id == article_id)
+        .all()
+    )
+    own_names = {e.name.lower() for e in own_entities if e.name}
+
+    if not own_names:
+        return {"article_id": article_id, "related": []}
+
+    # Find other articles that share at least one entity name
+    other_entities = (
+        db.query(GraphEntity.article_id, GraphEntity.name)
+        .filter(
+            GraphEntity.article_id != article_id,
+            GraphEntity.name.isnot(None),
+        )
+        .all()
+    )
+
+    # Group entity names by article_id
+    from collections import defaultdict
+    other_names_by_article: dict[int, set[str]] = defaultdict(set)
+    for oe in other_entities:
+        other_names_by_article[oe.article_id].add(oe.name.lower())
+
+    # Compute Jaccard similarity for each candidate
+    scored: list[tuple[int, float, str, set[str]]] = []
+    for other_id, other_names in other_names_by_article.items():
+        intersection = own_names & other_names
+        if not intersection:
+            continue
+        union = own_names | other_names
+        jaccard = len(intersection) / len(union) if union else 0.0
+        scored.append((other_id, jaccard, intersection))
+
+    # Sort by Jaccard similarity descending
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    # Fetch article details for top results
+    top_ids = [s[0] for s in scored[:limit]]
+    if not top_ids:
+        return {"article_id": article_id, "related": []}
+
+    articles_map: dict[int, Article] = {}
+    arts = db.query(Article).filter(Article.id.in_(top_ids)).all()
+    for a in arts:
+        articles_map[a.id] = a
+
+    return {
+        "article_id": article_id,
+        "related": [
+            {
+                "id": aid,
+                "title": articles_map[aid].title or articles_map[aid].original_filename,
+                "status": articles_map[aid].status,
+                "source_type": articles_map[aid].source_type,
+                "similarity": round(score, 3),
+                "shared_entities": sorted(list(intersection))[:10],
+            }
+            for aid, score, intersection in scored[:limit]
+            if aid in articles_map
+        ],
+    }

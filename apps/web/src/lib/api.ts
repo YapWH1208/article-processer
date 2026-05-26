@@ -355,6 +355,14 @@ export async function getDashboardMetrics(days = 30) {
   );
 }
 
+// ── Related Articles ──────────────────────────────────────────────
+
+export async function getRelatedArticles(articleId: number, limit = 5) {
+  return apiFetch<import("./types").RelatedArticlesResponse>(
+    `/articles/${articleId}/related?limit=${limit}`
+  );
+}
+
 // ── Global Graph ───────────────────────────────────────────────────
 
 export async function getGlobalGraph(limit = 200) {
