@@ -286,8 +286,14 @@ class OpenAIProvider(BaseLLMProvider):
         article_title: str,
         article_text: str | None = None,
         chunks: list[Any] | None = None,
+        history: list[dict] | None = None,
     ) -> tuple[str, list[dict]]:
-        """Answer a question using the full article text via OpenAI."""
+        """Answer a question using the full article text via OpenAI.
+
+        When ``history`` is provided, prior turns are injected between the
+        system prompt and the current user message so the model has conversation
+        context spanning multiple turns.
+        """
         if chunks:
             article_text = "\n\n---\n\n".join(
                 self._format_chunk_for_context(chunk)
@@ -302,10 +308,13 @@ class OpenAIProvider(BaseLLMProvider):
             question=question,
         )
 
-        messages = [
-            {"role": "system", "content": QA_SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ]
+        messages = [{"role": "system", "content": QA_SYSTEM_PROMPT}]
+
+        # Inject conversation history between system and latest user message
+        for msg in self._truncate_history(history):
+            messages.append(msg)
+
+        messages.append({"role": "user", "content": user_content})
 
         try:
             response = await self.client.chat.completions.create(
@@ -332,6 +341,7 @@ class OpenAIProvider(BaseLLMProvider):
         article_title: str,
         article_text: str | None = None,
         chunks: list[Any] | None = None,
+        history: list[dict] | None = None,
     ):
         """Stream answer tokens using OpenAI's native streaming API."""
         if chunks:
@@ -348,10 +358,13 @@ class OpenAIProvider(BaseLLMProvider):
             question=question,
         )
 
-        messages = [
-            {"role": "system", "content": QA_SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ]
+        messages = [{"role": "system", "content": QA_SYSTEM_PROMPT}]
+
+        # Inject conversation history between system and latest user message
+        for msg in self._truncate_history(history):
+            messages.append(msg)
+
+        messages.append({"role": "user", "content": user_content})
 
         try:
             stream = await self.client.chat.completions.create(

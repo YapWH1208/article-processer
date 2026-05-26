@@ -37,6 +37,14 @@ export interface UploadResponse {
   status: string;
 }
 
+export interface UrlImportResponse {
+  article_id: number;
+  job_id: number;
+  filename: string;
+  source_type: string;
+  url: string;
+}
+
 // ── Extraction types ─────────────────────────────────────────────
 
 export interface Evidence {
@@ -238,12 +246,18 @@ export interface DashboardMetrics {
   total_prompt_tokens: number;
   total_completion_tokens: number;
   total_tokens: number;
+  total_cost: number;
   token_usage_by_model: {
     model: string;
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
     message_count: number;
+  }[];
+  cost_by_model: {
+    model: string;
+    provider: string;
+    cost: number;
   }[];
   top_articles_by_tokens: {
     article_id: number;
@@ -308,6 +322,22 @@ export interface ArticleLogs {
   status: string;
   jobs: JobLog[];
   token_usage: TokenUsageLog[];
+}
+
+// ── Related Articles ──────────────────────────────────────────
+
+export interface RelatedArticle {
+  id: number;
+  title: string;
+  status: string;
+  source_type: string;
+  similarity: number;
+  shared_entities: string[];
+}
+
+export interface RelatedArticlesResponse {
+  article_id: number;
+  related: RelatedArticle[];
 }
 
 // ── Health ──────────────────────────────────────────────────

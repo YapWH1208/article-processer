@@ -125,6 +125,7 @@ class MockLLMProvider(BaseLLMProvider):
         article_title: str,
         article_text: str | None = None,
         chunks: list[Any] | None = None,
+        history: list[dict] | None = None,
     ) -> tuple[str, list[dict]]:
         """Mock Q&A — returns a response based on keyword matching in article text."""
         question_lower = question.lower()
@@ -194,10 +195,13 @@ class MockLLMProvider(BaseLLMProvider):
         article_title: str,
         article_text: str | None = None,
         chunks: list[Any] | None = None,
+        history: list[dict] | None = None,
     ):
         """Simulate streaming by yielding mock answer word-by-word."""
         import asyncio
-        answer, _ = await self.answer_question(question, article_title, article_text, chunks)
+        answer, _ = await self.answer_question(
+            question, article_title, article_text, chunks, history=history,
+        )
         words = answer.split(" ")
         for i, word in enumerate(words):
             yield word + (" " if i < len(words) - 1 else "")

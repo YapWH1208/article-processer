@@ -217,6 +217,104 @@ class TestMockEmbeddings:
         assert abs(norm - 1.0) < 0.01
 
 
+class TestMockQAWithHistory:
+    """Tests for multi-turn conversation history in mock Q&A."""
+
+    @pytest.mark.asyncio
+    async def test_answer_question_accepts_history(self):
+        """Mock provider should accept and handle a history parameter."""
+        provider = MockLLMProvider()
+
+        history = [
+            {"role": "user", "content": "What methodology was used?"},
+            {"role": "assistant", "content": "The study used a controlled experiment with 50 developers."},
+        ]
+
+        answer, citations = await provider.answer_question(
+            question="What were the results?",
+            article_title="Test Article",
+            article_text="Results: TDD improved code quality by 30%.",
+            history=history,
+        )
+
+        assert isinstance(answer, str)
+        assert len(answer) > 0
+        assert isinstance(citations, list)
+
+    @pytest.mark.asyncio
+    async def test_answer_question_without_history_still_works(self):
+        """Backward compatibility: calling without history should still work."""
+        provider = MockLLMProvider()
+
+        answer, citations = await provider.answer_question(
+            question="What were the results?",
+            article_title="Test Article",
+            article_text="Results: TDD improved code quality by 30%.",
+        )
+
+        assert isinstance(answer, str)
+        assert len(answer) > 0
+
+    @pytest.mark.asyncio
+    async def test_stream_answer_accepts_history(self):
+        """Mock streaming should accept and forward history."""
+        provider = MockLLMProvider()
+
+        history = [
+            {"role": "user", "content": "What methodology was used?"},
+            {"role": "assistant", "content": "The study used a controlled experiment."},
+        ]
+
+        tokens = []
+        async for token in provider.stream_answer(
+            question="What were the results?",
+            article_title="Test Article",
+            article_text="Results: TDD improved code quality by 30%.",
+            history=history,
+        ):
+            tokens.append(token)
+
+        assert len(tokens) > 0
+        full = "".join(tokens)
+        assert "30%" in full or "TDD" in full or "improved" in full.lower()
+
+
+class TestHistoryTruncation:
+    """Tests for the _truncate_history helper on BaseLLMProvider."""
+
+    def test_empty_history_returns_empty(self):
+        assert MockLLMProvider._truncate_history(None) == []
+        assert MockLLMProvider._truncate_history([]) == []
+
+    def test_keeps_most_recent_turns(self):
+        history = [
+            {"role": "user", "content": "Q1"},
+            {"role": "assistant", "content": "A1"},
+            {"role": "user", "content": "Q2"},
+            {"role": "assistant", "content": "A2"},
+            {"role": "user", "content": "Q3"},
+            {"role": "assistant", "content": "A3"},
+        ]
+        result = MockLLMProvider._truncate_history(history, max_turns=2)
+        # Should keep only the last 2 turns (4 messages)
+        assert len(result) == 4
+        assert result[0]["content"] == "Q2"
+
+    def test_truncates_by_char_limit(self):
+        long_content = "x" * 10_000
+        history = [
+            {"role": "user", "content": long_content},
+            {"role": "assistant", "content": long_content},
+            {"role": "user", "content": "short question"},
+            {"role": "assistant", "content": "short answer"},
+        ]
+        result = MockLLMProvider._truncate_history(history, max_turns=10, max_chars=100)
+        # Only the last 2 short messages should remain
+        assert len(result) == 2
+        assert result[0]["content"] == "short question"
+        assert result[1]["content"] == "short answer"
+
+
 def _make_chunk(idx: int, sec: str, pg_start: int, pg_end: int, txt: str):
     """Helper to create a chunk-like object for testing."""
     class FakeChunk:

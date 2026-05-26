@@ -67,6 +67,7 @@ def get_dashboard_metrics(
         func.coalesce(func.sum(TokenUsage.prompt_tokens), 0).label("pt"),
         func.coalesce(func.sum(TokenUsage.completion_tokens), 0).label("ct"),
         func.coalesce(func.sum(TokenUsage.total_tokens), 0).label("tt"),
+        func.coalesce(func.sum(TokenUsage.cost), 0.0).label("cost"),
     ).join(Article).filter(
         Article.is_archived == 0,
         TokenUsage.created_at >= cutoff,
@@ -75,6 +76,7 @@ def get_dashboard_metrics(
     total_prompt_tokens = int(token_agg.pt) if token_agg else 0
     total_completion_tokens = int(token_agg.ct) if token_agg else 0
     total_tokens = int(token_agg.tt) if token_agg else (total_prompt_tokens + total_completion_tokens)
+    total_cost = round(float(token_agg.cost) if token_agg else 0.0, 4)
 
     # Also include chat-message estimates as a fallback for older data
     chat_q = db.query(ChatMessage).join(Article).filter(
@@ -112,6 +114,31 @@ def get_dashboard_metrics(
             "call_count": row.calls,
         }
         for row in token_by_model_rows
+    ]
+
+    # ── Cost by model ────────────────────────────────────────────────
+    cost_by_model_rows = (
+        db.query(
+            TokenUsage.model.label("model"),
+            TokenUsage.provider.label("provider"),
+            func.sum(TokenUsage.cost).label("cost"),
+        )
+        .join(Article)
+        .filter(
+            Article.is_archived == 0,
+            TokenUsage.created_at >= cutoff,
+        )
+        .group_by(TokenUsage.model, TokenUsage.provider)
+        .order_by(text("cost DESC"))
+        .all()
+    )
+    cost_by_model = [
+        {
+            "model": row.model or "unknown",
+            "provider": row.provider or "unknown",
+            "cost": round(float(row.cost) if row.cost else 0.0, 4),
+        }
+        for row in cost_by_model_rows
     ]
 
     # ── Top articles by token usage (from TokenUsage) ─────────────────
@@ -188,7 +215,9 @@ def get_dashboard_metrics(
         "total_prompt_tokens": total_prompt_tokens,
         "total_completion_tokens": total_completion_tokens,
         "total_tokens": total_tokens,
+        "total_cost": total_cost,
         "token_usage_by_model": token_usage_by_model,
+        "cost_by_model": cost_by_model,
         "top_articles_by_tokens": top_articles_by_tokens,
         "total_graph_entities": total_entities,
         "total_graph_relationships": total_relationships,

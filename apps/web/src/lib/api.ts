@@ -61,6 +61,16 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return res.text() as unknown as T;
 }
 
+// ── URL Import ────────────────────────────────────────────────────
+
+export async function importFromUrl(url: string, runAi = true) {
+  return apiFetch<import("./types").UrlImportResponse>("/imports/url", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, run_ai: runAi }),
+  });
+}
+
 // ── Uploads ───────────────────────────────────────────────────────
 
 export async function uploadFile(file: File, runAi = true) {
@@ -352,6 +362,14 @@ export async function listParsers() {
 export async function getDashboardMetrics(days = 30) {
   return apiFetch<import("./types").DashboardMetrics>(
     `/dashboard/metrics?days=${days}`
+  );
+}
+
+// ── Related Articles ──────────────────────────────────────────────
+
+export async function getRelatedArticles(articleId: number, limit = 5) {
+  return apiFetch<import("./types").RelatedArticlesResponse>(
+    `/articles/${articleId}/related?limit=${limit}`
   );
 }
 

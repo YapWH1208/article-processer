@@ -27,11 +27,25 @@ from app.services.parsers.mineru_adapter import MinerUAdapter
 from app.services.pipeline.markdown_normalizer import normalize_markdown
 from app.services.pipeline.chunking import chunk_markdown, estimate_tokens
 from app.services.ai.base import get_llm_provider
+from app.services.ai.cost import compute_token_cost
 from app.services.graph.builder import GraphBuilder
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 storage = LocalStorage()
+
+
+# ── Pipeline Retry ─────────────────────────────────────────────────────────
+
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY = 1.0  # seconds
+
+
+def _retry_delay(attempt: int) -> float:
+    """Jittered exponential backoff: base * 2^attempt with ±25% jitter."""
+    import random
+    base = _RETRY_BASE_DELAY * (2 ** attempt)
+    return base * (0.75 + random.random() * 0.5)
 
 
 # Parser registry — instantiate once, select at call time based on priority setting
@@ -225,13 +239,39 @@ async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "
         article.status = ArticleStatus.EXTRACTING.value
         db.commit()
 
-        add_log("extracting", "Running AI extraction...")
-        llm = get_llm_provider()
+        # ── AI Extraction with retry ───────────────────────────────────
+        extraction_result = None
+        validation_errors = None
+        confidence = 0.0
 
-        extraction_result, validation_errors, confidence = await llm.extract_structured(
-            markdown=markdown,
-            article_title=article.title,
-        )
+        for attempt in range(_MAX_RETRIES + 1):
+            add_log("extracting", f"Running AI extraction... (attempt {attempt + 1})")
+            llm = get_llm_provider()
+
+            try:
+                extraction_result, validation_errors, confidence = await llm.extract_structured(
+                    markdown=markdown,
+                    article_title=article.title,
+                )
+            except Exception as extract_err:
+                validation_errors = [str(extract_err)]
+                extraction_result = None
+
+            if extraction_result is not None and (validation_errors is None or len(validation_errors) == 0):
+                break  # success
+
+            if attempt < _MAX_RETRIES:
+                delay = _retry_delay(attempt)
+                logger.warning(
+                    f"Extraction attempt {attempt + 1} failed for article {article_id} "
+                    f"(errors: {validation_errors}). Retrying in {delay:.1f}s..."
+                )
+                import asyncio
+                await asyncio.sleep(delay)
+                # Reset job error for retry
+                job.error = None
+                job.retry_count = attempt + 1
+                db.commit()
 
         # Delete old extractions
         db.query(ArticleExtraction).filter(
@@ -257,6 +297,11 @@ async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "
                 prompt_tokens=llm.last_usage.prompt_tokens,
                 completion_tokens=llm.last_usage.completion_tokens,
                 total_tokens=llm.last_usage.total_tokens,
+                cost=compute_token_cost(
+                    llm.last_usage.model,
+                    llm.last_usage.prompt_tokens,
+                    llm.last_usage.completion_tokens,
+                ),
             ))
 
         if extraction_result is None:
@@ -265,6 +310,8 @@ async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "
             article.status = ArticleStatus.FAILED.value
             article.processing_error = failure_message
             job.status = JobStatus.FAILED.value
+            job.last_error = failure_message
+            job.retry_count = _MAX_RETRIES
             job.completed_at = datetime.datetime.utcnow()
             add_log("extracting", failure_message, error=True)
             logger.warning(f"Pipeline extraction failed for article {article_id}: {failure_message}")

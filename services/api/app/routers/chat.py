@@ -3,6 +3,7 @@
 import json
 import logging
 import datetime
+import re
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -15,10 +16,43 @@ from app.schemas.chat import (
     Citation, MultiArticleChatRequest, MultiArticleChatResponse,
 )
 from app.services.ai.base import get_llm_provider
+from app.services.ai.cost import compute_token_cost
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# ── History window ────────────────────────────────────────────────────────
+
+# Maximum number of prior message pairs to include as conversation context.
+# Each pair is one user message + one assistant response.
+MAX_HISTORY_TURNS = 10
+_INLINE_CITATION_RE = re.compile(
+    r'\[Chunk\s+(\d+)(?:,\s*Section:\s*"([^"]*)")?(?:\s*\(Pages?\s*(\d+)(?:-(\d+))?\))?\]',
+    re.IGNORECASE,
+)
+
+
+def _extract_inline_citations(answer: str) -> list[dict]:
+    citations: list[dict] = []
+    seen: set[int] = set()
+    for match in _INLINE_CITATION_RE.finditer(answer or ""):
+        chunk_id = int(match.group(1))
+        if chunk_id in seen:
+            continue
+        seen.add(chunk_id)
+        page_start = int(match.group(3)) if match.group(3) else None
+        page_end = int(match.group(4)) if match.group(4) else page_start
+        citations.append(
+            {
+                "chunk_id": chunk_id,
+                "section_title": match.group(2),
+                "page_start": page_start,
+                "page_end": page_end,
+                "snippet": None,
+            }
+        )
+    return citations
 
 
 @router.post("/{article_id}/chat", response_model=ChatResponse)
@@ -85,6 +119,11 @@ async def chat_with_article(
             prompt_tokens=llm.last_usage.prompt_tokens,
             completion_tokens=llm.last_usage.completion_tokens,
             total_tokens=llm.last_usage.total_tokens,
+            cost=compute_token_cost(
+                llm.last_usage.model,
+                llm.last_usage.prompt_tokens,
+                llm.last_usage.completion_tokens,
+            ),
         ))
 
     db.commit()
@@ -173,6 +212,11 @@ async def chat_with_article_stream(
                     prompt_tokens=llm.last_usage.prompt_tokens,
                     completion_tokens=llm.last_usage.completion_tokens,
                     total_tokens=llm.last_usage.total_tokens,
+                    cost=compute_token_cost(
+                        llm.last_usage.model,
+                        llm.last_usage.prompt_tokens,
+                        llm.last_usage.completion_tokens,
+                    ),
                 ))
             db.commit()
         except Exception as e:
@@ -503,10 +547,29 @@ async def send_session_message(
         context_title = f"Library ({len(articles)} articles)"
         request.article_ids = [a.id for a in articles]
 
+    # ── Load conversation history from this session ──────────────────
+    prior_messages = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at.desc())
+        .limit(MAX_HISTORY_TURNS * 2)  # N user+assistant pairs
+        .all()
+    )
+    # Reverse to chronological order (oldest first) for the LLM
+    prior_messages.reverse()
+
+    history: list[dict] = []
+    for msg in prior_messages:
+        history.append({
+            "role": msg.role,
+            "content": msg.content,
+        })
+
     answer, citations = await llm.answer_question(
         question=request.message,
         article_title=context_title,
         article_text=article_text,
+        history=history,
     )
 
     if llm.last_usage and llm.last_usage.total_tokens > 0:
@@ -541,4 +604,125 @@ async def send_session_message(
         answer=answer, citations=citations,
         prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
         session_id=session_id,
+    )
+
+
+@router.post("/sessions/{session_id}/messages/stream")
+async def stream_session_message(
+    session_id: int,
+    request: SessionMessageRequest,
+    db: Session = Depends(get_db),
+    user=Depends(require_user),
+):
+    """Stream a chat answer token-by-token via SSE for a session.
+
+    Loads conversation history from the session so the LLM has multi-turn
+    context, then streams tokens as Server-Sent Events.
+    """
+    session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    llm = get_llm_provider()
+
+    # ── Build article context ──────────────────────────────────────────
+    if request.article_ids:
+        articles = db.query(Article).filter(Article.id.in_(request.article_ids)).all()
+        if not articles:
+            raise HTTPException(status_code=404, detail="No articles found")
+        combined_parts = []
+        for a in articles:
+            if a.markdown_text:
+                title = a.title or a.original_filename
+                combined_parts.append(f"### {title} (ID: {a.id})\n\n{a.markdown_text}")
+        if not combined_parts:
+            raise HTTPException(status_code=400, detail="No processed articles found")
+        article_text = "\n\n---\n\n".join(combined_parts)
+        primary_title = articles[0].title or articles[0].original_filename
+        context_title = f"{len(articles)} articles including '{primary_title}'"
+    else:
+        articles = db.query(Article).filter(
+            Article.markdown_text.isnot(None), Article.markdown_text != ""
+        ).all()
+        if not articles:
+            raise HTTPException(status_code=400, detail="No processed articles available")
+        summaries = []
+        for a in articles:
+            title = a.title or a.original_filename
+            preview = (a.markdown_text or "")[:800]
+            summaries.append(f"## {title} (ID: {a.id})\n{preview}...\n")
+        article_text = (
+            f"Below are summaries of {len(articles)} available articles:\n\n"
+            + "\n---\n".join(summaries)
+        )
+        context_title = f"Library ({len(articles)} articles)"
+        request.article_ids = [a.id for a in articles]
+
+    # ── Load conversation history ──────────────────────────────────────
+    prior_messages = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at.desc())
+        .limit(MAX_HISTORY_TURNS * 2)
+        .all()
+    )
+    prior_messages.reverse()
+    history = [{"role": m.role, "content": m.content} for m in prior_messages]
+
+    async def event_stream():
+        full_answer = ""
+        try:
+            async for token in llm.stream_answer(
+                question=request.message,
+                article_title=context_title,
+                article_text=article_text,
+                history=history,
+            ):
+                full_answer += token
+                yield f"data: {json.dumps({'token': token})}\n\n"
+
+            citations = _extract_inline_citations(full_answer)
+
+            yield f"data: {json.dumps({'done': True, 'answer': full_answer, 'citations': citations})}\n\n"
+
+        except Exception as e:
+            logger.error(f"Streaming session chat failed: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            return
+
+        # Save messages after streaming
+        try:
+            prompt_tokens = max(1, len(request.message) // 4)
+            completion_tokens = max(1, len(full_answer) // 4)
+            if llm.last_usage and llm.last_usage.total_tokens > 0:
+                prompt_tokens = llm.last_usage.prompt_tokens
+                completion_tokens = llm.last_usage.completion_tokens
+
+            citations_json = json.dumps(citations)
+            db.add(ChatMessage(
+                session_id=session_id, role="user", content=request.message,
+                prompt_tokens=prompt_tokens, completion_tokens=0,
+            ))
+            db.add(ChatMessage(
+                session_id=session_id, role="assistant", content=full_answer,
+                citations_json=citations_json, prompt_tokens=0, completion_tokens=completion_tokens,
+            ))
+            session.updated_at = datetime.datetime.utcnow()
+            msg_count = db.query(ChatMessage).filter(
+                ChatMessage.session_id == session_id, ChatMessage.role == "user"
+            ).count()
+            if msg_count <= 1:
+                session.title = request.message[:80] + ("..." if len(request.message) > 80 else "")
+            db.commit()
+        except Exception as e:
+            logger.error(f"Failed to save streamed session messages: {e}")
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )

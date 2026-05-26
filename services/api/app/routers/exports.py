@@ -2,8 +2,9 @@
 
 import json
 import logging
+import datetime
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse, JSONResponse
 from sqlalchemy.orm import Session
 
@@ -176,17 +177,50 @@ def export_markdown(article_id: int, db: Session = Depends(get_db)):
 # ── Batch Export ─────────────────────────────────────────────────────────
 
 @router.post("/export")
-def export_articles(body: dict, db: Session = Depends(get_db), user=Depends(require_user)):
-    """Export multiple articles as a JSON array. Body: {"article_ids": [1, 2, 3]} or {"all": true}."""
+def export_articles(
+    body: dict,
+    status: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    db: Session = Depends(get_db),
+    user=Depends(require_user),
+):
+    """Export multiple articles as a JSON array.
+
+    Body: ``{"article_ids": [1, 2, 3]}`` or ``{"all": true}``.
+
+    Optional query params:
+    - ``status``: filter by article status (completed, failed, etc.)
+    - ``date_from`` / ``date_to``: ISO date range filter on created_at
+    """
     article_ids = body.get("article_ids")
     export_all = body.get("all", False)
 
+    q = db.query(Article)
+
     if export_all:
-        articles = db.query(Article).all()
+        pass  # no ID filter
     elif article_ids and isinstance(article_ids, list):
-        articles = db.query(Article).filter(Article.id.in_(article_ids)).all()
+        q = q.filter(Article.id.in_(article_ids))
     else:
         raise HTTPException(status_code=400, detail="Provide 'article_ids' list or 'all': true")
+
+    if status:
+        q = q.filter(Article.status == status)
+    if date_from:
+        try:
+            dt_from = datetime.datetime.fromisoformat(date_from)
+            q = q.filter(Article.created_at >= dt_from)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date_from format (use ISO 8601)")
+    if date_to:
+        try:
+            dt_to = datetime.datetime.fromisoformat(date_to)
+            q = q.filter(Article.created_at <= dt_to)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date_to format (use ISO 8601)")
+
+    articles = q.all()
 
     result = []
     for article in articles:

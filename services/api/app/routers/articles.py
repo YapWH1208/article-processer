@@ -9,6 +9,7 @@ import mimetypes
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.auth_deps import require_user
@@ -190,6 +191,29 @@ def get_article_file(article_id: int, db: Session = Depends(get_db)):
     )
 
 
+def _build_toc_from_chunks(article_id: int, db: Session) -> list[dict]:
+    """Build a page-indexed table of contents from article chunks."""
+    from app.db.models import ArticleChunk
+    chunks = (
+        db.query(ArticleChunk)
+        .filter(ArticleChunk.article_id == article_id)
+        .order_by(ArticleChunk.chunk_index)
+        .all()
+    )
+    toc: list[dict] = []
+    seen_headings: set[str] = set()
+    for c in chunks:
+        title = c.section_title
+        if title and title not in seen_headings:
+            seen_headings.add(title)
+            toc.append({
+                "heading": title,
+                "page": c.page_start,
+                "chunk_index": c.chunk_index,
+            })
+    return toc
+
+
 def _rewrite_markdown_image_urls(markdown: str) -> str:
     """Rewrite relative image URLs to absolute API URLs.
 
@@ -224,12 +248,14 @@ def get_article_markdown(article_id: int, db: Session = Depends(get_db)):
     if article.markdown_text:
         from app.services.pipeline.markdown_normalizer import normalize_markdown
         cleaned = normalize_markdown(article.markdown_text)
-        return {"markdown": _rewrite_markdown_image_urls(cleaned)}
+        toc = _build_toc_from_chunks(article_id, db)
+        return {"markdown": _rewrite_markdown_image_urls(cleaned), "toc": toc}
 
     if article.markdown_path:
         try:
             with open(article.markdown_path, "r", encoding="utf-8") as f:
-                return {"markdown": _rewrite_markdown_image_urls(f.read())}
+                toc = _build_toc_from_chunks(article_id, db)
+                return {"markdown": _rewrite_markdown_image_urls(f.read()), "toc": toc}
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="Markdown file not found on disk")
 
@@ -529,5 +555,290 @@ def get_article_logs(article_id: int, db: Session = Depends(get_db)):
                 "created_at": t.created_at.isoformat() if t.created_at else None,
             }
             for t in token_rows
+        ],
+    }
+
+
+# ── Citation Network ───────────────────────────────────────────────────────
+
+@router.get("/{article_id}/cited-by")
+def get_cited_by(article_id: int, db: Session = Depends(get_db)):
+    """Find articles that cite this article via extraction reference matching.
+
+    Looks for other articles whose extracted references contain a DOI or
+    title that matches the current article.
+    """
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    # Get this article's title and DOI from extraction
+    extraction = (
+        db.query(ArticleExtraction)
+        .filter(ArticleExtraction.article_id == article_id)
+        .order_by(ArticleExtraction.created_at.desc())
+        .first()
+    )
+
+    article_doi = None
+    article_title = article.title or article.original_filename
+    if extraction and extraction.extraction_json:
+        try:
+            data = json.loads(extraction.extraction_json)
+            article_doi = data.get("doi")
+            article_title = data.get("title") or article_title
+        except json.JSONDecodeError:
+            pass
+
+    # Search other articles' extractions for matching references
+    other_extractions = (
+        db.query(ArticleExtraction)
+        .filter(ArticleExtraction.article_id != article_id)
+        .all()
+    )
+
+    citing: list[dict] = []
+    for oe in other_extractions:
+        if not oe.extraction_json:
+            continue
+        try:
+            data = json.loads(oe.extraction_json)
+        except json.JSONDecodeError:
+            continue
+
+        refs = data.get("references") or []
+        matched = False
+        for ref in refs:
+            if not isinstance(ref, dict):
+                continue
+            ref_doi = ref.get("doi", "")
+            ref_title = ref.get("title", "")
+            # Match by DOI (exact) or title (fuzzy)
+            if article_doi and ref_doi and article_doi.lower() == ref_doi.lower():
+                matched = True
+                break
+            if article_title and ref_title and len(article_title) > 10 and len(ref_title) > 10:
+                # Simple fuzzy: check if one contains the other or high word overlap
+                a_words = set(article_title.lower().split())
+                r_words = set(ref_title.lower().split())
+                overlap = len(a_words & r_words)
+                if overlap >= 0.7 * min(len(a_words), len(r_words)):
+                    matched = True
+                    break
+
+        if matched:
+            citing_article = db.query(Article).filter(Article.id == oe.article_id).first()
+            if citing_article:
+                citing.append({
+                    "id": citing_article.id,
+                    "title": citing_article.title or citing_article.original_filename,
+                    "status": citing_article.status,
+                    "source_type": citing_article.source_type,
+                })
+
+    return {
+        "article_id": article_id,
+        "title": article_title,
+        "doi": article_doi,
+        "cited_by": citing,
+        "cited_by_count": len(citing),
+    }
+
+
+@router.get("/{article_id}/references")
+def get_article_references(article_id: int, db: Session = Depends(get_db)):
+    """Get the references extracted from this article, with resolved links to articles in the library."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    extraction = (
+        db.query(ArticleExtraction)
+        .filter(ArticleExtraction.article_id == article_id)
+        .order_by(ArticleExtraction.created_at.desc())
+        .first()
+    )
+
+    references: list[dict] = []
+    if extraction and extraction.extraction_json:
+        try:
+            data = json.loads(extraction.extraction_json)
+            references = data.get("references") or []
+        except json.JSONDecodeError:
+            pass
+
+    # Try to resolve references to articles in the library
+    resolved = []
+    for ref in references:
+        if not isinstance(ref, dict):
+            continue
+        item = dict(ref)
+        item["resolved_article_id"] = None
+        # Try DOI match
+        doi = ref.get("doi", "")
+        if doi:
+            escaped_doi = doi.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            match = (
+                db.query(ArticleExtraction)
+                .filter(ArticleExtraction.extraction_json.ilike(f"%{escaped_doi}%", escape="\\"))
+                .first()
+            )
+            if match and match.article_id != article_id:
+                item["resolved_article_id"] = match.article_id
+        resolved.append(item)
+
+    return {"article_id": article_id, "references": resolved}
+
+
+# ── Tag Management ─────────────────────────────────────────────────────────
+
+@router.get("/tags/list")
+def list_tags(db: Session = Depends(get_db)):
+    """Return all unique tags across articles with counts, for a tag cloud."""
+    extractions = db.query(ArticleExtraction).filter(
+        ArticleExtraction.extraction_json.isnot(None)
+    ).all()
+
+    from collections import Counter
+    tag_counts: Counter = Counter()
+
+    for ext in extractions:
+        try:
+            data = json.loads(ext.extraction_json)
+            tags = data.get("tags") or []
+            for tag in tags:
+                if isinstance(tag, str):
+                    tag_counts[tag.lower()] += 1
+        except json.JSONDecodeError:
+            pass
+
+    return {
+        "tags": [
+            {"name": tag, "count": count}
+            for tag, count in tag_counts.most_common(100)
+        ],
+        "total_unique": len(tag_counts),
+    }
+
+
+@router.put("/{article_id}/tags")
+def update_article_tags(article_id: int, body: dict, db: Session = Depends(get_db), user=Depends(require_user)):
+    """Update the tags for an article. Body: {"tags": ["tag1", "tag2", ...]}.
+
+    Updates the tags in the latest extraction's extraction_json.
+    """
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    tags = body.get("tags")
+    if not isinstance(tags, list):
+        raise HTTPException(status_code=400, detail="'tags' must be a list of strings")
+    if any(not isinstance(tag, str) for tag in tags):
+        raise HTTPException(status_code=400, detail="'tags' must be a list of strings")
+
+    extraction = (
+        db.query(ArticleExtraction)
+        .filter(ArticleExtraction.article_id == article_id)
+        .order_by(ArticleExtraction.created_at.desc())
+        .first()
+    )
+
+    if not extraction or not extraction.extraction_json:
+        raise HTTPException(status_code=400, detail="Article has no extraction data yet")
+
+    try:
+        data = json.loads(extraction.extraction_json)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Extraction data is corrupt")
+
+    data["tags"] = tags
+    extraction.extraction_json = json.dumps(data)
+    db.commit()
+
+    return {"article_id": article_id, "tags": tags}
+
+
+# ── Related Articles ───────────────────────────────────────────────────────
+
+@router.get("/{article_id}/related")
+def get_related_articles(
+    article_id: int,
+    limit: int = 5,
+    db: Session = Depends(get_db),
+):
+    """Find articles related to this one via shared graph entities.
+
+    Uses Jaccard similarity on entity names (case-insensitive). Returns the
+    top ``limit`` articles with the most overlapping concepts.
+    """
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    # Get this article's entity names
+    own_entities = (
+        db.query(GraphEntity.name)
+        .filter(GraphEntity.article_id == article_id)
+        .all()
+    )
+    own_names = {e.name.lower() for e in own_entities if e.name}
+
+    if not own_names:
+        return {"article_id": article_id, "related": []}
+
+    # Find other articles that share at least one entity name
+    other_entities = (
+        db.query(GraphEntity.article_id, GraphEntity.name)
+        .filter(
+            GraphEntity.article_id != article_id,
+            GraphEntity.name.isnot(None),
+            func.lower(GraphEntity.name).in_(own_names),
+        )
+        .all()
+    )
+
+    # Group entity names by article_id
+    from collections import defaultdict
+    other_names_by_article: dict[int, set[str]] = defaultdict(set)
+    for oe in other_entities:
+        other_names_by_article[oe.article_id].add(oe.name.lower())
+
+    # Compute Jaccard similarity for each candidate
+    scored: list[tuple[int, float, set[str]]] = []
+    for other_id, other_names in other_names_by_article.items():
+        intersection = own_names & other_names
+        if not intersection:
+            continue
+        union = own_names | other_names
+        jaccard = len(intersection) / len(union) if union else 0.0
+        scored.append((other_id, jaccard, intersection))
+
+    # Sort by Jaccard similarity descending
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    # Fetch article details for top results
+    top_ids = [s[0] for s in scored[:limit]]
+    if not top_ids:
+        return {"article_id": article_id, "related": []}
+
+    articles_map: dict[int, Article] = {}
+    arts = db.query(Article).filter(Article.id.in_(top_ids)).all()
+    for a in arts:
+        articles_map[a.id] = a
+
+    return {
+        "article_id": article_id,
+        "related": [
+            {
+                "id": aid,
+                "title": articles_map[aid].title or articles_map[aid].original_filename,
+                "status": articles_map[aid].status,
+                "source_type": articles_map[aid].source_type,
+                "similarity": round(score, 3),
+                "shared_entities": sorted(list(intersection))[:10],
+            }
+            for aid, score, intersection in scored[:limit]
+            if aid in articles_map
         ],
     }
