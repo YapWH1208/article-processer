@@ -240,6 +240,11 @@ export default function UploadPage() {
         </Card>
       </FadeIn>
 
+      {/* URL Import */}
+      <FadeIn delay={0.15}>
+        <UrlImportCard onImported={(articleId, filename) => startPolling(articleId, filename)} />
+      </FadeIn>
+
       {/* Upload progress */}
       <AnimatePresence>
         {uploading && (
@@ -343,5 +348,65 @@ export default function UploadPage() {
         </Card>
       </FadeIn>
     </div>
+  );
+}
+
+// ── URL Import Card ──────────────────────────────────────────────────────
+
+function UrlImportCard({ onImported }: { onImported: (articleId: number, filename: string) => void }) {
+  const [importUrl, setImportUrl] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [urlError, setUrlError] = useState<string | null>(null);
+  const [runAI, setRunAI] = useState(true);
+
+  const handleUrlImport = async () => {
+    const trimmed = importUrl.trim();
+    if (!trimmed) return;
+    setImporting(true);
+    setUrlError(null);
+    try {
+      const { importFromUrl } = await import("@/lib/api");
+      const r = await importFromUrl(trimmed, runAI);
+      onImported(r.article_id, r.filename);
+      setImportUrl("");
+    } catch (e: unknown) {
+      setUrlError(e instanceof Error ? e.message : "Import failed");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Import from URL</CardTitle>
+        <CardDescription>Paste an arXiv, DOI, or direct PDF link</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex gap-2">
+          <input
+            type="url"
+            value={importUrl}
+            onChange={(e) => setImportUrl(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleUrlImport()}
+            placeholder="https://arxiv.org/abs/2301.12345"
+            className="flex-1 px-3 py-2 rounded-md border bg-background text-sm"
+            disabled={importing}
+          />
+          <Button size="sm" onClick={handleUrlImport} disabled={importing || !importUrl.trim()}>
+            {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Import"}
+          </Button>
+        </div>
+        <div className="flex items-center gap-2 mt-2">
+          <Switch id="url-run-ai" checked={runAI} onCheckedChange={setRunAI} disabled={importing} />
+          <Label htmlFor="url-run-ai" className="text-xs text-muted-foreground cursor-pointer">
+            Run AI pipeline after import
+          </Label>
+        </div>
+        {urlError && (
+          <p className="text-xs text-destructive mt-2">{urlError}</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
