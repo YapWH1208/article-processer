@@ -190,6 +190,29 @@ def get_article_file(article_id: int, db: Session = Depends(get_db)):
     )
 
 
+def _build_toc_from_chunks(article_id: int, db: Session) -> list[dict]:
+    """Build a page-indexed table of contents from article chunks."""
+    from app.db.models import ArticleChunk
+    chunks = (
+        db.query(ArticleChunk)
+        .filter(ArticleChunk.article_id == article_id)
+        .order_by(ArticleChunk.chunk_index)
+        .all()
+    )
+    toc: list[dict] = []
+    seen_headings: set[str] = set()
+    for c in chunks:
+        title = c.section_title
+        if title and title not in seen_headings:
+            seen_headings.add(title)
+            toc.append({
+                "heading": title,
+                "page": c.page_start,
+                "chunk_index": c.chunk_index,
+            })
+    return toc
+
+
 def _rewrite_markdown_image_urls(markdown: str) -> str:
     """Rewrite relative image URLs to absolute API URLs.
 
@@ -224,12 +247,14 @@ def get_article_markdown(article_id: int, db: Session = Depends(get_db)):
     if article.markdown_text:
         from app.services.pipeline.markdown_normalizer import normalize_markdown
         cleaned = normalize_markdown(article.markdown_text)
-        return {"markdown": _rewrite_markdown_image_urls(cleaned)}
+        toc = _build_toc_from_chunks(article_id, db)
+        return {"markdown": _rewrite_markdown_image_urls(cleaned), "toc": toc}
 
     if article.markdown_path:
         try:
             with open(article.markdown_path, "r", encoding="utf-8") as f:
-                return {"markdown": _rewrite_markdown_image_urls(f.read())}
+                toc = _build_toc_from_chunks(article_id, db)
+                return {"markdown": _rewrite_markdown_image_urls(f.read()), "toc": toc}
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="Markdown file not found on disk")
 
