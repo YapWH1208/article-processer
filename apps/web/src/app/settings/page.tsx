@@ -7,7 +7,7 @@ import {
   Settings2, Server, Download, Upload, Loader2, FileCode,
   Save, RotateCcw, Thermometer, Gauge, Hash, Sparkles,
   Plus, Trash2, Brain, CheckCircle2, MessageSquare,
-  SlidersHorizontal, SwitchCamera, Maximize2,
+  SlidersHorizontal, SwitchCamera, Maximize2, Database,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -198,7 +197,7 @@ export default function SettingsPage() {
   const handleGeneralSave = async () => {
     setSaving(true);
     try {
-      const body: Record<string, unknown> = { use_mock_ai: mockAi, max_upload_mb: maxUploadMb, parser_priority: parserPriority };
+      const body: Record<string, unknown> = { max_upload_mb: maxUploadMb, parser_priority: parserPriority };
       const res = await authFetch("/settings", {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
@@ -297,6 +296,7 @@ export default function SettingsPage() {
           <TabsTrigger value="input-templates" className="gap-1.5"><FileCode className="h-4 w-4"/>Templates</TabsTrigger>
           <TabsTrigger value="model-params" className="gap-1.5"><SlidersHorizontal className="h-4 w-4"/>Model Params</TabsTrigger>
           <TabsTrigger value="general" className="gap-1.5"><Settings2 className="h-4 w-4"/>General</TabsTrigger>
+          <TabsTrigger value="data" className="gap-1.5"><Database className="h-4 w-4"/>Data</TabsTrigger>
         </TabsList>
 
         <AnimatePresence mode="wait">
@@ -633,16 +633,6 @@ export default function SettingsPage() {
             <motion.div key="general" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }}>
               <TabsContent value="general" forceMount className="mt-4 space-y-4">
                 <Card>
-                  <CardHeader><CardTitle>Behaviour</CardTitle></CardHeader>
-                  <CardContent>
-                    <div className="flex items-center justify-between">
-                      <div><p className="text-sm font-medium">Mock AI Mode</p><p className="text-xs text-muted-foreground">Offline regex extraction — no API key needed.</p></div>
-                      <Switch checked={mockAi} onCheckedChange={setMockAi}/>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
                   <CardHeader><CardTitle>Limits</CardTitle></CardHeader>
                   <CardContent>
                     <div className="space-y-1.5">
@@ -719,39 +709,43 @@ export default function SettingsPage() {
             </motion.div>
           )}
 
+          {/* ── Data Tab ──────────────────────────────────────────── */}
+          {tab === "data" && (
+            <motion.div key="data" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }} className="mt-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Data</CardTitle>
+                  <CardDescription>Export or import settings + articles as JSON.</CardDescription>
+                </CardHeader>
+                <CardContent className="flex gap-3">
+                  <Button variant="outline" className="gap-2" onClick={async () => {
+                    const res = await authFetch("/settings/export");
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a"); a.href = url; a.download = "settings-export.json"; a.click();
+                    URL.revokeObjectURL(url);
+                  }}><Download className="h-4 w-4"/> Export</Button>
+                  <Button variant="outline" className="gap-2" onClick={() => {
+                    const input = document.createElement("input"); input.type = "file"; input.accept = ".json";
+                    input.onchange = async (e) => {
+                      const file = (e.target as HTMLInputElement).files?.[0]; if (!file) return;
+                      const form = new FormData(); form.append("file", file);
+                      try {
+                        const res = await authFetch("/settings/import", { method: "POST", body: form });
+                        if (!res.ok) throw new Error((await res.json()).detail || "Import failed");
+                        toast.success("Settings imported — reloading page...");
+                        setTimeout(() => window.location.reload(), 800);
+                      } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Import failed"); }
+                    };
+                    input.click();
+                  }}><Upload className="h-4 w-4"/> Import</Button>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
         </AnimatePresence>
       </Tabs>
-
-      {/* ── Data Import/Export ─────────────────────────────────────── */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Data</CardTitle>
-          <CardDescription>Export or import settings + articles as JSON.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex gap-3">
-          <Button variant="outline" className="gap-2" onClick={async () => {
-            const res = await authFetch("/settings/export");
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a"); a.href = url; a.download = "settings-export.json"; a.click();
-            URL.revokeObjectURL(url);
-          }}><Download className="h-4 w-4"/> Export</Button>
-          <Button variant="outline" className="gap-2" onClick={() => {
-            const input = document.createElement("input"); input.type = "file"; input.accept = ".json";
-            input.onchange = async (e) => {
-              const file = (e.target as HTMLInputElement).files?.[0]; if (!file) return;
-              const form = new FormData(); form.append("file", file);
-              try {
-                const res = await authFetch("/settings/import", { method: "POST", body: form });
-                if (!res.ok) throw new Error((await res.json()).detail || "Import failed");
-                toast.success("Settings imported — reloading page...");
-                setTimeout(() => window.location.reload(), 800);
-              } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Import failed"); }
-            };
-            input.click();
-          }}><Upload className="h-4 w-4"/> Import</Button>
-        </CardContent>
-      </Card>
 
       {/* Enlarged view dialog */}
       <Dialog open={!!enlarged} onOpenChange={(open) => { if (!open) { setEnlarged(null); setEnlargedEditing(false); } }}>
