@@ -37,6 +37,14 @@ export interface UploadResponse {
   status: string;
 }
 
+export interface UrlImportResponse {
+  article_id: number;
+  job_id: number;
+  filename: string;
+  source_type: string;
+  url: string;
+}
+
 // ── Extraction types ─────────────────────────────────────────────
 
 export interface Evidence {

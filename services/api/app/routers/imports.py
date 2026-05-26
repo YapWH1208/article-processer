@@ -8,10 +8,13 @@ import re
 import tempfile
 import urllib.request
 import urllib.error
+import urllib.parse
 import shutil
+import socket
+import ipaddress
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.auth_deps import require_user
@@ -41,11 +44,6 @@ class UrlImportResponse(BaseModel):
 
 # ── URL Import ─────────────────────────────────────────────────────────────
 
-# arXiv URL patterns
-_ARXIV_ABS_RE = re.compile(r'arxiv\.org/abs/(\d{4}\.\d{4,}(?:v\d+)?)')
-_ARXIV_PDF_RE = re.compile(r'arxiv\.org/pdf/(\d{4}\.\d{4,}(?:v\d+)?)(?:\.pdf)?')
-# DOI patterns
-_DOI_RE = re.compile(r'doi\.org/(10\.\d{4,}/[^\s?#]+)')
 # File extension patterns for direct URLs
 _PDF_URL_RE = re.compile(r'\.pdf(\?|#|$)', re.IGNORECASE)
 
@@ -53,31 +51,107 @@ _PDF_URL_RE = re.compile(r'\.pdf(\?|#|$)', re.IGNORECASE)
 _ARXIV_PDF_BASE = "https://export.arxiv.org/pdf/"
 
 
+class UnsafeUrlError(ValueError):
+    """Raised when a URL is not safe for server-side fetching."""
+
+
+def _validate_public_http_url(url: str) -> urllib.parse.ParseResult:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme.lower() not in {"http", "https"}:
+        raise UnsafeUrlError("Only http/https URLs are allowed")
+    if not parsed.hostname:
+        raise UnsafeUrlError("URL must include a hostname")
+
+    hostname = parsed.hostname.lower()
+    if hostname in {"localhost"} or hostname.endswith(".localhost"):
+        raise UnsafeUrlError("Localhost URLs are not allowed")
+
+    try:
+        host_as_ip = ipaddress.ip_address(hostname)
+        addresses = [host_as_ip]
+    except ValueError:
+        try:
+            infos = socket.getaddrinfo(hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
+        except socket.gaierror:
+            raise UnsafeUrlError("Could not resolve URL hostname")
+        addresses = []
+        for info in infos:
+            addr = info[4][0]
+            try:
+                addresses.append(ipaddress.ip_address(addr))
+            except ValueError:
+                continue
+
+    for addr in addresses:
+        if (
+            addr.is_private
+            or addr.is_loopback
+            or addr.is_link_local
+            or addr.is_multicast
+            or addr.is_reserved
+            or addr.is_unspecified
+        ):
+            raise UnsafeUrlError("URL resolves to a non-public address")
+
+    return parsed
+
+
 def _detect_url_type(url: str) -> tuple[str, str | None]:
     """Detect the type of URL and extract an identifier.
 
     Returns (type, identifier) where type is one of 'arxiv', 'doi', 'direct-pdf', 'unknown'.
     """
-    m = _ARXIV_ABS_RE.search(url) or _ARXIV_PDF_RE.search(url)
-    if m:
-        return ("arxiv", m.group(1))
+    parsed = urllib.parse.urlparse(url)
+    host = (parsed.hostname or "").lower()
+    path = parsed.path or ""
 
-    m = _DOI_RE.search(url)
-    if m:
-        return ("doi", m.group(1))
+    if host.endswith("arxiv.org"):
+        m = re.search(r"^/abs/(\d{4}\.\d{4,}(?:v\d+)?)$", path) or re.search(r"^/pdf/(\d{4}\.\d{4,}(?:v\d+)?)(?:\.pdf)?$", path)
+        if m:
+            return ("arxiv", m.group(1))
 
-    if url.lower().endswith(".pdf") or _PDF_URL_RE.search(url):
+    if host == "doi.org":
+        m = re.search(r"^/(10\.\d{4,}/[^\s?#]+)$", path)
+        if m:
+            return ("doi", m.group(1))
+
+    if path.lower().endswith(".pdf") or _PDF_URL_RE.search(url):
         return ("direct-pdf", url)
 
     return ("unknown", None)
 
 
-def _download_file(url: str, dest_path: Path, timeout: int = 60) -> None:
+def _download_file(url: str, dest_path: Path, max_bytes: int, timeout: int = 60) -> None:
     """Download a file from a URL with progress tracking."""
+    _validate_public_http_url(url)
     req = urllib.request.Request(url, headers={"User-Agent": "ArticleProcessor/1.0"})
     with urllib.request.urlopen(req, timeout=timeout) as response:
+        final_url = response.geturl()
+        _validate_public_http_url(final_url)
+        content_length = response.headers.get("Content-Length")
+        if content_length:
+            try:
+                if int(content_length) > max_bytes:
+                    raise ValueError(f"Downloaded file exceeds max size ({settings.max_upload_mb}MB)")
+            except ValueError as e:
+                if "max size" in str(e):
+                    raise
         with open(dest_path, "wb") as f:
-            shutil.copyfileobj(response, f)
+            total = 0
+            while True:
+                chunk = response.read(64 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    raise ValueError(f"Downloaded file exceeds max size ({settings.max_upload_mb}MB)")
+                f.write(chunk)
+
+
+def _is_pdf_file(path: Path) -> bool:
+    with open(path, "rb") as f:
+        head = f.read(1024).lstrip()
+    return head.startswith(b"%PDF-")
 
 
 @router.post("/url", response_model=UrlImportResponse)
@@ -93,6 +167,10 @@ async def import_from_url(
     and starts the processing pipeline.
     """
     url = body.url.strip()
+    try:
+        _validate_public_http_url(url)
+    except UnsafeUrlError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     url_type, identifier = _detect_url_type(url)
 
@@ -125,13 +203,24 @@ async def import_from_url(
     temp_file = temp_dir / f"{datetime.datetime.utcnow().timestamp()}_{filename}"
 
     try:
-        _download_file(download_url, temp_file, timeout=120)
+        _download_file(download_url, temp_file, max_bytes=settings.max_upload_bytes, timeout=120)
     except urllib.error.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"Failed to download from {url_type} URL: HTTP {e.code}")
     except urllib.error.URLError as e:
         raise HTTPException(status_code=502, detail=f"Failed to reach {url_type} URL: {e.reason}")
+    except UnsafeUrlError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=413, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Download failed: {e}")
+
+    if not _is_pdf_file(temp_file):
+        try:
+            os.remove(temp_file)
+        except OSError:
+            pass
+        raise HTTPException(status_code=400, detail="Downloaded file is not a valid PDF")
 
     # Move to permanent storage
     storage_dir = settings.uploads_path / datetime.datetime.utcnow().strftime("%y%m%d%H%M%S")

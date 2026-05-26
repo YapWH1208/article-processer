@@ -3,6 +3,7 @@
 import json
 import logging
 import datetime
+import re
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -15,7 +16,7 @@ from app.schemas.chat import (
     Citation, MultiArticleChatRequest, MultiArticleChatResponse,
 )
 from app.services.ai.base import get_llm_provider
-from app.services.pipeline.processor import compute_token_cost
+from app.services.ai.cost import compute_token_cost
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,32 @@ router = APIRouter()
 # Maximum number of prior message pairs to include as conversation context.
 # Each pair is one user message + one assistant response.
 MAX_HISTORY_TURNS = 10
+_INLINE_CITATION_RE = re.compile(
+    r'\[Chunk\s+(\d+)(?:,\s*Section:\s*"([^"]*)")?(?:\s*\(Pages?\s*(\d+)(?:-(\d+))?\))?\]',
+    re.IGNORECASE,
+)
+
+
+def _extract_inline_citations(answer: str) -> list[dict]:
+    citations: list[dict] = []
+    seen: set[int] = set()
+    for match in _INLINE_CITATION_RE.finditer(answer or ""):
+        chunk_id = int(match.group(1))
+        if chunk_id in seen:
+            continue
+        seen.add(chunk_id)
+        page_start = int(match.group(3)) if match.group(3) else None
+        page_end = int(match.group(4)) if match.group(4) else page_start
+        citations.append(
+            {
+                "chunk_id": chunk_id,
+                "section_title": match.group(2),
+                "page_start": page_start,
+                "page_end": page_end,
+                "snippet": None,
+            }
+        )
+    return citations
 
 
 @router.post("/{article_id}/chat", response_model=ChatResponse)
@@ -585,6 +612,7 @@ async def stream_session_message(
     session_id: int,
     request: SessionMessageRequest,
     db: Session = Depends(get_db),
+    user=Depends(require_user),
 ):
     """Stream a chat answer token-by-token via SSE for a session.
 
@@ -653,17 +681,7 @@ async def stream_session_message(
                 full_answer += token
                 yield f"data: {json.dumps({'token': token})}\n\n"
 
-            # Compute citations
-            citations: list[dict] = []
-            try:
-                _, citations = await llm.answer_question(
-                    question=request.message,
-                    article_title=context_title,
-                    article_text=article_text,
-                    history=history,
-                )
-            except Exception as e:
-                logger.warning(f"Failed to compute citations for streamed session: {e}")
+            citations = _extract_inline_citations(full_answer)
 
             yield f"data: {json.dumps({'done': True, 'answer': full_answer, 'citations': citations})}\n\n"
 

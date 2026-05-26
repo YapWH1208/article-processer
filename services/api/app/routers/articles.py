@@ -9,6 +9,7 @@ import mimetypes
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.auth_deps import require_user
@@ -676,9 +677,10 @@ def get_article_references(article_id: int, db: Session = Depends(get_db)):
         # Try DOI match
         doi = ref.get("doi", "")
         if doi:
+            escaped_doi = doi.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             match = (
                 db.query(ArticleExtraction)
-                .filter(ArticleExtraction.extraction_json.ilike(f"%{doi}%"))
+                .filter(ArticleExtraction.extraction_json.ilike(f"%{escaped_doi}%", escape="\\"))
                 .first()
             )
             if match and match.article_id != article_id:
@@ -705,7 +707,8 @@ def list_tags(db: Session = Depends(get_db)):
             data = json.loads(ext.extraction_json)
             tags = data.get("tags") or []
             for tag in tags:
-                tag_counts[tag.lower()] += 1
+                if isinstance(tag, str):
+                    tag_counts[tag.lower()] += 1
         except json.JSONDecodeError:
             pass
 
@@ -730,6 +733,8 @@ def update_article_tags(article_id: int, body: dict, db: Session = Depends(get_d
 
     tags = body.get("tags")
     if not isinstance(tags, list):
+        raise HTTPException(status_code=400, detail="'tags' must be a list of strings")
+    if any(not isinstance(tag, str) for tag in tags):
         raise HTTPException(status_code=400, detail="'tags' must be a list of strings")
 
     extraction = (
@@ -788,6 +793,7 @@ def get_related_articles(
         .filter(
             GraphEntity.article_id != article_id,
             GraphEntity.name.isnot(None),
+            func.lower(GraphEntity.name).in_(own_names),
         )
         .all()
     )
@@ -799,7 +805,7 @@ def get_related_articles(
         other_names_by_article[oe.article_id].add(oe.name.lower())
 
     # Compute Jaccard similarity for each candidate
-    scored: list[tuple[int, float, str, set[str]]] = []
+    scored: list[tuple[int, float, set[str]]] = []
     for other_id, other_names in other_names_by_article.items():
         intersection = own_names & other_names
         if not intersection:
