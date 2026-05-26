@@ -533,6 +533,202 @@ def get_article_logs(article_id: int, db: Session = Depends(get_db)):
     }
 
 
+# ── Citation Network ───────────────────────────────────────────────────────
+
+@router.get("/{article_id}/cited-by")
+def get_cited_by(article_id: int, db: Session = Depends(get_db)):
+    """Find articles that cite this article via extraction reference matching.
+
+    Looks for other articles whose extracted references contain a DOI or
+    title that matches the current article.
+    """
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    # Get this article's title and DOI from extraction
+    extraction = (
+        db.query(ArticleExtraction)
+        .filter(ArticleExtraction.article_id == article_id)
+        .order_by(ArticleExtraction.created_at.desc())
+        .first()
+    )
+
+    article_doi = None
+    article_title = article.title or article.original_filename
+    if extraction and extraction.extraction_json:
+        try:
+            data = json.loads(extraction.extraction_json)
+            article_doi = data.get("doi")
+            article_title = data.get("title") or article_title
+        except json.JSONDecodeError:
+            pass
+
+    # Search other articles' extractions for matching references
+    other_extractions = (
+        db.query(ArticleExtraction)
+        .filter(ArticleExtraction.article_id != article_id)
+        .all()
+    )
+
+    citing: list[dict] = []
+    for oe in other_extractions:
+        if not oe.extraction_json:
+            continue
+        try:
+            data = json.loads(oe.extraction_json)
+        except json.JSONDecodeError:
+            continue
+
+        refs = data.get("references") or []
+        matched = False
+        for ref in refs:
+            if not isinstance(ref, dict):
+                continue
+            ref_doi = ref.get("doi", "")
+            ref_title = ref.get("title", "")
+            # Match by DOI (exact) or title (fuzzy)
+            if article_doi and ref_doi and article_doi.lower() == ref_doi.lower():
+                matched = True
+                break
+            if article_title and ref_title and len(article_title) > 10 and len(ref_title) > 10:
+                # Simple fuzzy: check if one contains the other or high word overlap
+                a_words = set(article_title.lower().split())
+                r_words = set(ref_title.lower().split())
+                overlap = len(a_words & r_words)
+                if overlap >= 0.7 * min(len(a_words), len(r_words)):
+                    matched = True
+                    break
+
+        if matched:
+            citing_article = db.query(Article).filter(Article.id == oe.article_id).first()
+            if citing_article:
+                citing.append({
+                    "id": citing_article.id,
+                    "title": citing_article.title or citing_article.original_filename,
+                    "status": citing_article.status,
+                    "source_type": citing_article.source_type,
+                })
+
+    return {
+        "article_id": article_id,
+        "title": article_title,
+        "doi": article_doi,
+        "cited_by": citing,
+        "cited_by_count": len(citing),
+    }
+
+
+@router.get("/{article_id}/references")
+def get_article_references(article_id: int, db: Session = Depends(get_db)):
+    """Get the references extracted from this article, with resolved links to articles in the library."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    extraction = (
+        db.query(ArticleExtraction)
+        .filter(ArticleExtraction.article_id == article_id)
+        .order_by(ArticleExtraction.created_at.desc())
+        .first()
+    )
+
+    references: list[dict] = []
+    if extraction and extraction.extraction_json:
+        try:
+            data = json.loads(extraction.extraction_json)
+            references = data.get("references") or []
+        except json.JSONDecodeError:
+            pass
+
+    # Try to resolve references to articles in the library
+    resolved = []
+    for ref in references:
+        if not isinstance(ref, dict):
+            continue
+        item = dict(ref)
+        item["resolved_article_id"] = None
+        # Try DOI match
+        doi = ref.get("doi", "")
+        if doi:
+            match = (
+                db.query(ArticleExtraction)
+                .filter(ArticleExtraction.extraction_json.ilike(f"%{doi}%"))
+                .first()
+            )
+            if match and match.article_id != article_id:
+                item["resolved_article_id"] = match.article_id
+        resolved.append(item)
+
+    return {"article_id": article_id, "references": resolved}
+
+
+# ── Tag Management ─────────────────────────────────────────────────────────
+
+@router.get("/tags/list")
+def list_tags(db: Session = Depends(get_db)):
+    """Return all unique tags across articles with counts, for a tag cloud."""
+    extractions = db.query(ArticleExtraction).filter(
+        ArticleExtraction.extraction_json.isnot(None)
+    ).all()
+
+    from collections import Counter
+    tag_counts: Counter = Counter()
+
+    for ext in extractions:
+        try:
+            data = json.loads(ext.extraction_json)
+            tags = data.get("tags") or []
+            for tag in tags:
+                tag_counts[tag.lower()] += 1
+        except json.JSONDecodeError:
+            pass
+
+    return {
+        "tags": [
+            {"name": tag, "count": count}
+            for tag, count in tag_counts.most_common(100)
+        ],
+        "total_unique": len(tag_counts),
+    }
+
+
+@router.put("/{article_id}/tags")
+def update_article_tags(article_id: int, body: dict, db: Session = Depends(get_db), user=Depends(require_user)):
+    """Update the tags for an article. Body: {"tags": ["tag1", "tag2", ...]}.
+
+    Updates the tags in the latest extraction's extraction_json.
+    """
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    tags = body.get("tags")
+    if not isinstance(tags, list):
+        raise HTTPException(status_code=400, detail="'tags' must be a list of strings")
+
+    extraction = (
+        db.query(ArticleExtraction)
+        .filter(ArticleExtraction.article_id == article_id)
+        .order_by(ArticleExtraction.created_at.desc())
+        .first()
+    )
+
+    if not extraction or not extraction.extraction_json:
+        raise HTTPException(status_code=400, detail="Article has no extraction data yet")
+
+    try:
+        data = json.loads(extraction.extraction_json)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Extraction data is corrupt")
+
+    data["tags"] = tags
+    extraction.extraction_json = json.dumps(data)
+    db.commit()
+
+    return {"article_id": article_id, "tags": tags}
+
+
 # ── Related Articles ───────────────────────────────────────────────────────
 
 @router.get("/{article_id}/related")
