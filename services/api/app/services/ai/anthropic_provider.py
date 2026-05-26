@@ -76,7 +76,13 @@ class AnthropicProvider(BaseLLMProvider):
         article_title: str,
         article_text: str | None = None,
         chunks: list[Any] | None = None,
+        history: list[dict] | None = None,
     ) -> tuple[str, list[dict]]:
+        """Answer a question with optional conversation history.
+
+        When ``history`` is provided, prior turns are injected between the
+        system prompt and the current user message.
+        """
         if chunks:
             article_text = "\n\n---\n\n".join(
                 self._format_chunk_for_context(chunk)
@@ -91,7 +97,15 @@ class AnthropicProvider(BaseLLMProvider):
             question=question,
         )
 
-        prompt = f"{QA_SYSTEM_PROMPT}\n\n{user_content}"
+        # Build conversation with history
+        parts = [f"{QA_SYSTEM_PROMPT}\n\n"]
+        for msg in self._truncate_history(history):
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            parts.append(f"[{role.upper()}]\n{content}\n\n")
+        parts.append(f"[USER]\n{user_content}")
+
+        prompt = "".join(parts)
         answer, _ = await self._call_claude(prompt, "qa")
         citations = self._extract_citations(answer, chunks or [])
         return answer, citations
