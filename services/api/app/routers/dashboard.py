@@ -9,9 +9,69 @@ from sqlalchemy import func, case, text
 
 from app.db.session import get_db
 from app.db.models import Article, ChatMessage, GraphEntity, GraphRelationship, ProcessingJob, TokenUsage
+from app.schemas.jobs import JobQueueResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _queue_state(status: str) -> str:
+    if status == "running":
+        return "active"
+    if status == "pending":
+        return "queued"
+    if status == "failed":
+        return "failed"
+    return "completed"
+
+
+def _job_queue_item(job: ProcessingJob, article: Article | None, now: datetime.datetime) -> dict:
+    end = job.completed_at or now
+    age_seconds = max(0, int((end - job.created_at).total_seconds())) if job.created_at else 0
+    state = _queue_state(job.status)
+    return {
+        "job_id": job.id,
+        "article_id": job.article_id,
+        "article_title": article.title if article and article.title else article.original_filename if article else "Unknown",
+        "status": job.status,
+        "queue_state": state,
+        "current_step": job.current_step,
+        "error": job.error,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+        "completed_at": job.completed_at,
+        "locked_at": job.locked_at,
+        "worker_id": job.worker_id,
+        "age_seconds": age_seconds,
+        "can_retry": job.status == "failed",
+    }
+
+
+@router.get("/jobs", response_model=JobQueueResponse)
+def get_job_queue(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    """Return global processing queue state for operational visibility."""
+    jobs = (
+        db.query(ProcessingJob, Article)
+        .join(Article, Article.id == ProcessingJob.article_id)
+        .filter(Article.deleted_at.is_(None))
+        .order_by(ProcessingJob.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    now = datetime.datetime.utcnow()
+    items = [_job_queue_item(job, article, now) for job, article in jobs]
+    state_order = {"active": 0, "queued": 1, "failed": 2, "completed": 3}
+    items.sort(key=lambda item: (state_order.get(item["queue_state"], 99), item["created_at"]), reverse=False)
+
+    counts = {"active": 0, "queued": 0, "failed": 0, "completed": 0}
+    for item in items:
+        counts[item["queue_state"]] += 1
+
+    return {"jobs": items, "counts": counts}
 
 
 @router.get("/metrics")

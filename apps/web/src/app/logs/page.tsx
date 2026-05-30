@@ -10,6 +10,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getJobQueue } from "@/lib/api";
+import type { JobQueueItem } from "@/lib/types";
+import { summarizeJobQueue } from "./jobQueueState.mjs";
 
 interface LogEntry {
   step: string;
@@ -68,6 +71,8 @@ function formatTokens(n: number): string {
 export default function LogsPage() {
   const router = useRouter();
   const [jobs, setJobs] = useState<JobItem[]>([]);
+  const [queueJobs, setQueueJobs] = useState<JobQueueItem[]>([]);
+  const [queueCounts, setQueueCounts] = useState({ active: 0, queued: 0, failed: 0, completed: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [liveMode, setLiveMode] = useState(false);
@@ -75,10 +80,18 @@ export default function LogsPage() {
 
   const fetchLogs = async () => {
     const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-    const res = await fetch(`${API_BASE}/dashboard/logs?limit=100`);
+    const [res, queue] = await Promise.all([
+      fetch(`${API_BASE}/dashboard/logs?limit=100`),
+      getJobQueue(100).catch(() => null),
+    ]);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const d = await res.json();
     setJobs(d.jobs || []);
+    if (queue) {
+      const summary = summarizeJobQueue(queue.jobs || []);
+      setQueueJobs(summary.jobs);
+      setQueueCounts(summary.counts);
+    }
     return d;
   };
 
@@ -157,6 +170,61 @@ export default function LogsPage() {
             <ScrollText className="h-10 w-10 mx-auto mb-3 opacity-30" />
             <p>No processing jobs found.</p>
             <p className="text-sm mt-1">Upload an article to see logs here.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {!loading && queueJobs.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <CardTitle className="text-lg">Job Queue</CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Current processing work across the local queue.
+                </p>
+              </div>
+              <div className="grid grid-cols-4 gap-2 text-center">
+                {[
+                  ["Active", queueCounts.active],
+                  ["Queued", queueCounts.queued],
+                  ["Failed", queueCounts.failed],
+                  ["Done", queueCounts.completed],
+                ].map(([label, value]) => (
+                  <div key={label as string} className="rounded-md border px-2 py-1.5 min-w-16">
+                    <div className="text-base font-semibold">{value as number}</div>
+                    <div className="text-[10px] text-muted-foreground">{label as string}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {queueJobs.slice(0, 8).map((job) => (
+              <div key={job.job_id} className="flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2 text-sm">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant={job.queue_state === "failed" ? "destructive" : job.queue_state === "completed" ? "default" : "secondary"}
+                      className="text-[10px]"
+                    >
+                      {job.queue_state}
+                    </Badge>
+                    <span className="font-medium truncate">{job.article_title}</span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span>Job #{job.job_id}</span>
+                    {job.current_step && <span>Step: {job.current_step}</span>}
+                    <span>{elapsed(job.created_at, job.completed_at)}</span>
+                    {job.worker_id && <span>{job.worker_id}</span>}
+                  </div>
+                  {job.error && <p className="mt-1 text-xs text-destructive line-clamp-1">{job.error}</p>}
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => router.push(`/articles/${job.article_id}`)}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
           </CardContent>
         </Card>
       )}

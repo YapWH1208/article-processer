@@ -346,6 +346,12 @@ export async function getDashboardMetrics(days = 30) {
   );
 }
 
+export async function getJobQueue(limit = 100) {
+  return apiFetch<import("./types").JobQueueResponse>(
+    `/dashboard/jobs?limit=${limit}`
+  );
+}
+
 // Related Articles
 
 export async function getRelatedArticles(articleId: number, limit = 5) {
