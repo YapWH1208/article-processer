@@ -156,6 +156,8 @@ export interface GraphResponse {
 // ── Chat types ────────────────────────────────────────────────────
 
 export interface Citation {
+  article_id?: number | null;
+  article_title?: string | null;
   chunk_id: number;
   section_title?: string | null;
   page_start?: number | null;

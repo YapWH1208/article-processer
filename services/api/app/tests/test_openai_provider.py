@@ -122,3 +122,32 @@ def test_extract_citations_matches_chunk_header_format_with_page_range():
     assert citations[0]["chunk_id"] == 3
     assert citations[0]["page_start"] == 10
     assert citations[0]["page_end"] == 12
+
+
+def test_extract_citations_preserves_article_metadata_from_retrieved_chunks():
+    provider = _provider_with_responses([])
+    chunk = SimpleNamespace(
+        article_id=7,
+        article_title="Retrieval Study",
+        chunk_index=5,
+        section_title="Findings",
+        page_start=14,
+        page_end=15,
+        text="Retrieved evidence text.",
+    )
+
+    header = provider._format_chunk_for_context(chunk).splitlines()[0]
+    answer = f"The claim is supported by {header}."
+    citations = provider._extract_citations(answer, [chunk])
+
+    assert citations == [
+        {
+            "article_id": 7,
+            "article_title": "Retrieval Study",
+            "chunk_id": 5,
+            "section_title": "Findings",
+            "page_start": 14,
+            "page_end": 15,
+            "snippet": "Retrieved evidence text.",
+        }
+    ]

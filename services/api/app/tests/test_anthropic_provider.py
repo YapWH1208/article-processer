@@ -112,3 +112,30 @@ def test_anthropic_extract_citations_matches_chunk_header_format_with_page_range
     assert citations[0]["chunk_id"] == 4
     assert citations[0]["page_start"] == 21
     assert citations[0]["page_end"] == 22
+
+
+def test_anthropic_extract_citations_preserves_article_metadata_from_retrieved_chunks():
+    chunk = SimpleNamespace(
+        article_id=9,
+        article_title="Claude Retrieval Study",
+        chunk_index=6,
+        section_title="Evidence",
+        page_start=30,
+        page_end=31,
+        text="Claude evidence text",
+    )
+    header = AnthropicProvider._format_chunk_for_context(chunk).splitlines()[0]
+    answer = f"See {header}."
+    citations = AnthropicProvider._extract_citations(answer, [chunk])
+
+    assert citations == [
+        {
+            "article_id": 9,
+            "article_title": "Claude Retrieval Study",
+            "chunk_id": 6,
+            "section_title": "Evidence",
+            "page_start": 30,
+            "page_end": 31,
+            "snippet": "Claude evidence text",
+        }
+    ]

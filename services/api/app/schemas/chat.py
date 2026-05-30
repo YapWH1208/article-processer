@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field
 
 
 class Citation(BaseModel):
+    article_id: Optional[int] = None
+    article_title: Optional[str] = None
     chunk_id: int
     section_title: Optional[str] = None
     page_start: Optional[int] = None

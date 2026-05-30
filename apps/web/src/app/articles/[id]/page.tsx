@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import { sendChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, toggleArchiveArticle, deleteArticle, restoreArticle, getRelatedArticles } from "@/lib/api";
 import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
+import { createCitationReaderTarget, slugifyWorkspaceText } from "../articleWorkspaceState.mjs";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -44,7 +45,15 @@ interface SkillDef {
 }
 
 interface ChatMessage { role: string; content: string; citations_json?: string; prompt_tokens?: number; completion_tokens?: number; }
-interface Citation { chunk_id: number; section_title: string; snippet: string; page_start?: number; }
+interface Citation {
+  article_id?: number | null;
+  article_title?: string | null;
+  chunk_id?: number | null;
+  section_title?: string | null;
+  snippet?: string | null;
+  page_start?: number | null;
+  page_end?: number | null;
+}
 interface JobInfo { id: number; status: string; current_step: string | null; logs: Record<string, unknown>[] | null; error: string | null; created_at: string; completed_at: string | null; }
 
 const TERMINAL_ARTICLE_STATUSES = new Set(["completed", "failed", "needs_review"]);
@@ -193,7 +202,15 @@ export default function ArticleDetailPage() {
         });
       },
       // onDone: streaming completed successfully
-      () => {
+      (_answer, citations) => {
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = {
+            ...updated[updated.length - 1],
+            citations_json: citations?.length ? JSON.stringify(citations) : undefined,
+          };
+          return updated;
+        });
         setChatting(false);
       },
       // onError: fall back to non-streaming endpoint
@@ -284,6 +301,22 @@ export default function ArticleDetailPage() {
   const citations = (msg: ChatMessage): Citation[] => {
     try { return msg.citations_json ? JSON.parse(msg.citations_json) : []; }
     catch { return []; }
+  };
+
+  const openCitation = (citation: Citation) => {
+    const target = createCitationReaderTarget(citation);
+    setTab("reader");
+    if (readerView === "pdf") setReaderView("markdown");
+
+    setTimeout(() => {
+      const fallbackAnchor = citation.section_title ? slugifyWorkspaceText(citation.section_title) : "";
+      const element = document.getElementById(target.anchorId) || (fallbackAnchor ? document.getElementById(fallbackAnchor) : null);
+      if (element) {
+        element.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+      toast.info("Source section is not visible in the reader yet");
+    }, 50);
   };
 
   if (loading) {
@@ -753,9 +786,22 @@ export default function ArticleDetailPage() {
                                 {msg.role === "assistant" && citations(msg).length > 0 && (
                                   <div className="mt-1.5 pt-1.5 border-t border-border/50 w-full">
                                     <p className="text-[10px] font-medium mb-0.5">Sources:</p>
-                                    {citations(msg).slice(0, 3).map((c, ci) => (
-                                      <div key={ci} className="text-[10px] opacity-70 mt-0.5">§{c.section_title} {c.page_start ? `p.${c.page_start}` : ""}</div>
-                                    ))}
+                                    <div className="flex flex-wrap gap-1">
+                                      {citations(msg).slice(0, 5).map((c, ci) => {
+                                        const target = createCitationReaderTarget(c);
+                                        return (
+                                          <button
+                                            key={ci}
+                                            type="button"
+                                            onClick={() => openCitation(c)}
+                                            className="rounded border border-border bg-background px-1.5 py-0.5 text-left text-[10px] text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                                            title={c.snippet || target.label}
+                                          >
+                                            {target.label}{target.meta ? ` · ${target.meta}` : ""}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
                                   </div>
                                 )}
                                 {(msg.prompt_tokens || msg.completion_tokens) ? (
@@ -800,8 +846,8 @@ export default function ArticleDetailPage() {
 // ── Sub-components ────────────────────────────────────────────────────────
 
 function slugify(children: React.ReactNode): string {
-  if (typeof children === "string") return children.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  if (Array.isArray(children)) return children.map(c => (typeof c === "string" ? c : "")).join(" ").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  if (typeof children === "string") return slugifyWorkspaceText(children);
+  if (Array.isArray(children)) return slugifyWorkspaceText(children.map(c => (typeof c === "string" ? c : "")).join(" "));
   return "";
 }
 
