@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.core.auth_deps import require_user
 from app.db.session import get_db
 from app.db.models import Article, ChatMessage, ChatSession, TokenUsage
 from app.schemas.chat import (
@@ -18,6 +17,7 @@ from app.schemas.chat import (
 from app.services.ai.base import get_llm_provider
 from app.services.ai.cost import compute_token_cost
 from app.core.config import settings
+from app.services.search import retrieve_relevant_chunks
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -60,7 +60,6 @@ async def chat_with_article(
     article_id: int,
     request: ChatRequest,
     db: Session = Depends(get_db),
-    user=Depends(require_user),
 ):
     """Ask a question about an article and get a cited answer.
 
@@ -75,10 +74,12 @@ async def chat_with_article(
 
     llm = get_llm_provider()
 
+    chunks = retrieve_relevant_chunks(db, request.message, article_ids=[article_id], limit=8)
     answer, citations = await llm.answer_question(
         question=request.message,
         article_title=article.title or article.original_filename,
-        article_text=article.markdown_text,
+        article_text=None if chunks else article.markdown_text,
+        chunks=chunks or None,
     )
 
     # Use real token counts from LLM when available; fall back to estimate
@@ -159,10 +160,12 @@ async def chat_with_article_stream(
         full_answer = ""
         citations: list[dict] = []
         try:
+            chunks = retrieve_relevant_chunks(db, request.message, article_ids=[article_id], limit=8)
             async for token in llm.stream_answer(
                 question=request.message,
                 article_title=article.title or article.original_filename,
-                article_text=article.markdown_text,
+                article_text=None if chunks else article.markdown_text,
+                chunks=chunks or None,
             ):
                 full_answer += token
                 yield f"data: {json.dumps({'token': token})}\n\n"
@@ -172,7 +175,8 @@ async def chat_with_article_stream(
                 _, citations = await llm.answer_question(
                     question=request.message,
                     article_title=article.title or article.original_filename,
-                    article_text=article.markdown_text,
+                    article_text=None if chunks else article.markdown_text,
+                    chunks=chunks or None,
                 )
             except Exception as e:
                 logger.warning(f"Failed to compute citations for streamed chat: {e}")
@@ -277,7 +281,6 @@ def get_chat_history(article_id: int, db: Session = Depends(get_db)):
 async def multi_article_chat(
     request: MultiArticleChatRequest,
     db: Session = Depends(get_db),
-    user=Depends(require_user),
 ):
     """Chat across multiple articles with full-text context.
 
@@ -298,32 +301,41 @@ async def multi_article_chat(
         if not articles:
             raise HTTPException(status_code=400, detail="No processed articles available")
 
-        # Build a summary context
-        summaries = []
-        for a in articles:
-            title = a.title or a.original_filename
-            text_preview = (a.markdown_text or "")[:800]
-            summaries.append(f"## {title} (ID: {a.id})\n{text_preview}...\n")
+        chunks = retrieve_relevant_chunks(db, request.message, limit=10)
+        if chunks:
+            answer, citations = await llm.answer_question(
+                question=request.message,
+                article_title=f"Library ({len(articles)} articles)",
+                chunks=chunks,
+            )
+            article_ids = sorted({chunk.article_id for chunk in chunks})
+        else:
+            summaries = []
+            for a in articles:
+                title = a.title or a.original_filename
+                text_preview = (a.markdown_text or "")[:800]
+                summaries.append(f"## {title} (ID: {a.id})\n{text_preview}...\n")
 
-        context = (
-            f"The user is asking about articles in the library. Below are summaries "
-            f"of {len(articles)} available articles. Use these to answer the question; "
-            f"cite which article(s) your answer draws from.\n\n"
-            + "\n---\n".join(summaries)
-        )
+            context = (
+                f"The user is asking about articles in the library. Below are summaries "
+                f"of {len(articles)} available articles. Use these to answer the question; "
+                f"cite which article(s) your answer draws from.\n\n"
+                + "\n---\n".join(summaries)
+            )
 
-        answer, citations = await llm.answer_question(
-            question=request.message,
-            article_title=f"Library ({len(articles)} articles)",
-            article_text=context,
-        )
+            answer, citations = await llm.answer_question(
+                question=request.message,
+                article_title=f"Library ({len(articles)} articles)",
+                article_text=context,
+            )
+            article_ids = [a.id for a in articles]
 
         return MultiArticleChatResponse(
             answer=answer,
             citations=citations,
             prompt_tokens=llm.last_usage.prompt_tokens if llm.last_usage else 0,
             completion_tokens=llm.last_usage.completion_tokens if llm.last_usage else 0,
-            article_ids=[a.id for a in articles],
+            article_ids=article_ids,
         )
 
     # Fetch all requested articles
@@ -337,18 +349,19 @@ async def multi_article_chat(
 
     article_map = {a.id: a for a in articles}
 
-    # Combine full text of all articles
+    chunks = retrieve_relevant_chunks(db, request.message, article_ids=request.article_ids, limit=10)
     combined_text_parts = []
-    for article in articles:
-        if not article.markdown_text:
-            continue
-        title = article.title or article.original_filename
-        combined_text_parts.append(f"### Article: {title} (ID: {article.id})\n\n{article.markdown_text}")
+    if not chunks:
+        for article in articles:
+            if not article.markdown_text:
+                continue
+            title = article.title or article.original_filename
+            combined_text_parts.append(f"### Article: {title} (ID: {article.id})\n\n{article.markdown_text}")
 
-    if not combined_text_parts:
+    if not chunks and not combined_text_parts:
         raise HTTPException(status_code=400, detail="None of the requested articles have been processed yet")
 
-    combined_text = "\n\n---\n\n".join(combined_text_parts)
+    combined_text = "\n\n---\n\n".join(combined_text_parts) if combined_text_parts else None
 
     primary_title = article_map[request.article_ids[0]].title or article_map[request.article_ids[0]].original_filename
 
@@ -356,6 +369,7 @@ async def multi_article_chat(
         question=request.message,
         article_title=f"{len(articles)} articles including '{primary_title}'",
         article_text=combined_text,
+        chunks=chunks or None,
     )
 
     # Token counts
@@ -433,7 +447,7 @@ def list_sessions(db: Session = Depends(get_db)):
 
 
 @router.post("/sessions", response_model=SessionResponse)
-def create_session(request: SessionCreateRequest, db: Session = Depends(get_db), user=Depends(require_user)):
+def create_session(request: SessionCreateRequest, db: Session = Depends(get_db)):
     """Create a new chat session."""
     session = ChatSession(title=request.title)
     db.add(session)
@@ -449,7 +463,7 @@ def create_session(request: SessionCreateRequest, db: Session = Depends(get_db),
 
 
 @router.delete("/sessions/{session_id}")
-def delete_session(session_id: int, db: Session = Depends(get_db), user=Depends(require_user)):
+def delete_session(session_id: int, db: Session = Depends(get_db)):
     """Delete a chat session and all its messages."""
     session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
     if not session:
@@ -497,7 +511,6 @@ async def send_session_message(
     session_id: int,
     request: SessionMessageRequest,
     db: Session = Depends(get_db),
-    user=Depends(require_user),
 ):
     """Send a message in a chat session. Uses multi-article or library-wide context."""
     session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
@@ -505,6 +518,7 @@ async def send_session_message(
         raise HTTPException(status_code=404, detail="Session not found")
 
     llm = get_llm_provider()
+    chunks = []
 
     if request.article_ids:
         # Tagged articles — send full text
@@ -512,16 +526,18 @@ async def send_session_message(
         if not articles:
             raise HTTPException(status_code=404, detail="No articles found")
 
+        chunks = retrieve_relevant_chunks(db, request.message, article_ids=request.article_ids, limit=10)
         combined_parts = []
-        for a in articles:
-            if a.markdown_text:
-                title = a.title or a.original_filename
-                combined_parts.append(f"### {title} (ID: {a.id})\n\n{a.markdown_text}")
+        if not chunks:
+            for a in articles:
+                if a.markdown_text:
+                    title = a.title or a.original_filename
+                    combined_parts.append(f"### {title} (ID: {a.id})\n\n{a.markdown_text}")
 
-        if not combined_parts:
+        if not chunks and not combined_parts:
             raise HTTPException(status_code=400, detail="No processed articles found")
 
-        article_text = "\n\n---\n\n".join(combined_parts)
+        article_text = "\n\n---\n\n".join(combined_parts) if combined_parts else None
         primary_title = articles[0].title or articles[0].original_filename
         context_title = f"{len(articles)} articles including '{primary_title}'"
     else:
@@ -533,19 +549,24 @@ async def send_session_message(
         if not articles:
             raise HTTPException(status_code=400, detail="No processed articles available")
 
-        summaries = []
-        for a in articles:
-            title = a.title or a.original_filename
-            preview = (a.markdown_text or "")[:800]
-            summaries.append(f"## {title} (ID: {a.id})\n{preview}...\n")
+        chunks = retrieve_relevant_chunks(db, request.message, limit=10)
+        if chunks:
+            article_text = None
+            request.article_ids = sorted({chunk.article_id for chunk in chunks})
+        else:
+            summaries = []
+            for a in articles:
+                title = a.title or a.original_filename
+                preview = (a.markdown_text or "")[:800]
+                summaries.append(f"## {title} (ID: {a.id})\n{preview}...\n")
 
-        article_text = (
-            f"The user is asking about articles in the library. Below are summaries "
-            f"of {len(articles)} available articles. Use these to answer; cite which "
-            f"article(s) your answer draws from.\n\n" + "\n---\n".join(summaries)
-        )
+            article_text = (
+                f"The user is asking about articles in the library. Below are summaries "
+                f"of {len(articles)} available articles. Use these to answer; cite which "
+                f"article(s) your answer draws from.\n\n" + "\n---\n".join(summaries)
+            )
+            request.article_ids = [a.id for a in articles]
         context_title = f"Library ({len(articles)} articles)"
-        request.article_ids = [a.id for a in articles]
 
     # ── Load conversation history from this session ──────────────────
     prior_messages = (
@@ -569,6 +590,7 @@ async def send_session_message(
         question=request.message,
         article_title=context_title,
         article_text=article_text,
+        chunks=chunks or None,
         history=history,
     )
 
@@ -612,7 +634,6 @@ async def stream_session_message(
     session_id: int,
     request: SessionMessageRequest,
     db: Session = Depends(get_db),
-    user=Depends(require_user),
 ):
     """Stream a chat answer token-by-token via SSE for a session.
 
@@ -630,14 +651,16 @@ async def stream_session_message(
         articles = db.query(Article).filter(Article.id.in_(request.article_ids)).all()
         if not articles:
             raise HTTPException(status_code=404, detail="No articles found")
+        chunks = retrieve_relevant_chunks(db, request.message, article_ids=request.article_ids, limit=10)
         combined_parts = []
-        for a in articles:
-            if a.markdown_text:
-                title = a.title or a.original_filename
-                combined_parts.append(f"### {title} (ID: {a.id})\n\n{a.markdown_text}")
-        if not combined_parts:
+        if not chunks:
+            for a in articles:
+                if a.markdown_text:
+                    title = a.title or a.original_filename
+                    combined_parts.append(f"### {title} (ID: {a.id})\n\n{a.markdown_text}")
+        if not chunks and not combined_parts:
             raise HTTPException(status_code=400, detail="No processed articles found")
-        article_text = "\n\n---\n\n".join(combined_parts)
+        article_text = "\n\n---\n\n".join(combined_parts) if combined_parts else None
         primary_title = articles[0].title or articles[0].original_filename
         context_title = f"{len(articles)} articles including '{primary_title}'"
     else:
@@ -646,17 +669,22 @@ async def stream_session_message(
         ).all()
         if not articles:
             raise HTTPException(status_code=400, detail="No processed articles available")
-        summaries = []
-        for a in articles:
-            title = a.title or a.original_filename
-            preview = (a.markdown_text or "")[:800]
-            summaries.append(f"## {title} (ID: {a.id})\n{preview}...\n")
-        article_text = (
-            f"Below are summaries of {len(articles)} available articles:\n\n"
-            + "\n---\n".join(summaries)
-        )
+        chunks = retrieve_relevant_chunks(db, request.message, limit=10)
+        if chunks:
+            article_text = None
+            request.article_ids = sorted({chunk.article_id for chunk in chunks})
+        else:
+            summaries = []
+            for a in articles:
+                title = a.title or a.original_filename
+                preview = (a.markdown_text or "")[:800]
+                summaries.append(f"## {title} (ID: {a.id})\n{preview}...\n")
+            article_text = (
+                f"Below are summaries of {len(articles)} available articles:\n\n"
+                + "\n---\n".join(summaries)
+            )
+            request.article_ids = [a.id for a in articles]
         context_title = f"Library ({len(articles)} articles)"
-        request.article_ids = [a.id for a in articles]
 
     # ── Load conversation history ──────────────────────────────────────
     prior_messages = (
@@ -676,6 +704,7 @@ async def stream_session_message(
                 question=request.message,
                 article_title=context_title,
                 article_text=article_text,
+                chunks=chunks or None,
                 history=history,
             ):
                 full_answer += token

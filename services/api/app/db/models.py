@@ -203,6 +203,10 @@ class ProcessingJob(Base):
     completed_at = Column(DateTime, nullable=True)
     retry_count = Column(Integer, default=0)
     last_error = Column(Text, nullable=True)
+    run_ai = Column(Integer, default=1)
+    start_step = Column(String(32), default="parse")
+    locked_at = Column(DateTime, nullable=True)
+    worker_id = Column(String(128), nullable=True)
 
     article = relationship("Article", back_populates="jobs")
 
@@ -252,15 +256,3 @@ class TokenUsage(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     article = relationship("Article", back_populates="token_usage")
-
-
-class User(Base):
-    __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    email = Column(String(256), unique=True, nullable=False, index=True)
-    password_hash = Column(String(256), nullable=False)
-    display_name = Column(String(256), nullable=True)
-    is_active = Column(Integer, default=1)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

@@ -1,7 +1,7 @@
 """add_is_archived_to_articles
 
 Revision ID: 9dea4a8d09de
-Revises: 3a78c0d72c5e
+Revises: 0a3cc3fd6192
 Create Date: 2026-05-22 19:10:07.116869
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '9dea4a8d09de'
-down_revision: Union[str, None] = '3a78c0d72c5e'
+down_revision: Union[str, None] = '0a3cc3fd6192'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

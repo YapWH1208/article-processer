@@ -35,6 +35,7 @@ class GraphBuilder:
             eid = temp_id_counter
             entity_map[key] = eid
             entities.append({
+                "temp_id": eid,
                 "article_id": article_id,
                 "type": etype,
                 "name": name,

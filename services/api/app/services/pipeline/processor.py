@@ -4,6 +4,9 @@ import json
 import logging
 import datetime
 import traceback
+import asyncio
+import threading
+import uuid
 from pathlib import Path
 
 from app.db.session import SessionLocal
@@ -92,7 +95,12 @@ def _get_parsers():
     }
 
 
-async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "parse") -> None:
+async def run_pipeline(
+    article_id: int,
+    run_ai: bool = True,
+    start_step: str = "parse",
+    job_id: int | None = None,
+) -> None:
     """Run the processing pipeline for an article.
 
     run_ai=False: stops after chunking (parse-only mode).
@@ -115,21 +123,32 @@ async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "
             return
 
         # Find or create the active job
-        job = (
-            db.query(ProcessingJob)
-            .filter(ProcessingJob.article_id == article_id)
-            .order_by(ProcessingJob.created_at.desc())
-            .first()
-        )
+        if job_id is not None:
+            job = db.query(ProcessingJob).filter(ProcessingJob.id == job_id).first()
+        else:
+            job = (
+                db.query(ProcessingJob)
+                .filter(ProcessingJob.article_id == article_id)
+                .order_by(ProcessingJob.created_at.desc())
+                .first()
+            )
         if not job:
             job = ProcessingJob(
                 article_id=article_id,
                 status=JobStatus.RUNNING.value,
                 current_step="started",
                 logs_json="[]",
+                run_ai=1 if run_ai else 0,
+                start_step=start_step,
             )
             db.add(job)
             db.flush()
+        else:
+            job.status = JobStatus.RUNNING.value
+            job.run_ai = 1 if run_ai else 0
+            job.start_step = start_step
+            job.locked_at = datetime.datetime.utcnow()
+            db.commit()
 
         logs: list[dict] = json.loads(job.logs_json) if job.logs_json else []
 
@@ -233,7 +252,11 @@ async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "
             db.commit()
             job.status = JobStatus.COMPLETED.value
             job.completed_at = datetime.datetime.utcnow()
+            job.locked_at = None
+            job.worker_id = None
             db.commit()
+            from app.services.search import upsert_article_search_index
+            upsert_article_search_index(db, article_id)
             return
 
         article.status = ArticleStatus.EXTRACTING.value
@@ -313,6 +336,8 @@ async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "
             job.last_error = failure_message
             job.retry_count = _MAX_RETRIES
             job.completed_at = datetime.datetime.utcnow()
+            job.locked_at = None
+            job.worker_id = None
             add_log("extracting", failure_message, error=True)
             logger.warning(f"Pipeline extraction failed for article {article_id}: {failure_message}")
             return
@@ -342,8 +367,9 @@ async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "
                 GraphEntity.article_id == article_id
             ).delete()
 
-            for entity in graph_entities:
-                db.add(GraphEntity(
+            temp_to_db_id: dict[int, int] = {}
+            for index, entity in enumerate(graph_entities, start=1):
+                graph_entity = GraphEntity(
                     article_id=entity["article_id"],
                     type=entity["type"],
                     name=entity["name"],
@@ -351,15 +377,26 @@ async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "
                     properties_json=json.dumps(entity.get("properties", {})),
                     evidence_json=json.dumps(entity.get("evidence", {})),
                     confidence=entity.get("confidence", 0.5),
-                ))
-
-            db.flush()
+                )
+                db.add(graph_entity)
+                db.flush()
+                temp_id = int(entity.get("temp_id") or index)
+                temp_to_db_id[temp_id] = graph_entity.id
 
             for rel in graph_relationships:
+                source_entity_id = temp_to_db_id.get(rel["source_entity_id"])
+                target_entity_id = temp_to_db_id.get(rel["target_entity_id"])
+                if source_entity_id is None or target_entity_id is None:
+                    logger.warning(
+                        "Skipping graph relationship with unknown temp ids: %s -> %s",
+                        rel.get("source_entity_id"),
+                        rel.get("target_entity_id"),
+                    )
+                    continue
                 db.add(GraphRelationship(
                     article_id=rel["article_id"],
-                    source_entity_id=rel["source_entity_id"],
-                    target_entity_id=rel["target_entity_id"],
+                    source_entity_id=source_entity_id,
+                    target_entity_id=target_entity_id,
                     type=rel["type"],
                     properties_json=json.dumps(rel.get("properties", {})),
                     evidence_json=json.dumps(rel.get("evidence", {})),
@@ -375,8 +412,12 @@ async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "
 
         job.status = JobStatus.COMPLETED.value
         job.completed_at = datetime.datetime.utcnow()
+        job.locked_at = None
+        job.worker_id = None
         add_log("completed", "Pipeline completed successfully")
         db.commit()
+        from app.services.search import upsert_article_search_index
+        upsert_article_search_index(db, article_id)
 
         logger.info(f"Pipeline completed for article {article_id}")
 
@@ -387,6 +428,8 @@ async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "
         if job:
             job.status = JobStatus.FAILED.value
             job.error = str(e)
+            job.locked_at = None
+            job.worker_id = None
             logs = json.loads(job.logs_json) if job.logs_json else []
             logs.append({
                 "step": "error",
@@ -406,22 +449,132 @@ async def run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "
         db.close()
 
 
-def run_pipeline_background(article_id: int, run_ai: bool = True, start_step: str = "parse") -> None:
-    """Kick off pipeline in a background thread.
+_WORKER_LOCK = threading.Lock()
+_WORKER_THREAD: threading.Thread | None = None
+_WORKER_ID = f"pipeline-{uuid.uuid4()}"
+_WORKER_POLL_INTERVAL_S = 1.0
 
-    start_step: "parse" (full pipeline) or "extract" (skip parse+chunk, start at extraction).
+
+async def run_queued_pipeline_job_once() -> bool:
+    """Claim and run the oldest pending processing job.
+
+    Returns True when a job was processed, False when the queue was empty.
     """
-    import asyncio
-    import threading
+    db = SessionLocal()
+    job: ProcessingJob | None = None
+    try:
+        job = (
+            db.query(ProcessingJob)
+            .filter(ProcessingJob.status == JobStatus.PENDING.value)
+            .order_by(ProcessingJob.created_at.asc(), ProcessingJob.id.asc())
+            .first()
+        )
+        if not job:
+            return False
 
-    def _run():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(run_pipeline(article_id, run_ai=run_ai, start_step=start_step))
-        finally:
-            loop.close()
+        job.status = JobStatus.RUNNING.value
+        job.locked_at = datetime.datetime.utcnow()
+        job.worker_id = _WORKER_ID
+        run_ai = bool(job.run_ai)
+        start_step = job.start_step or "parse"
+        article_id = job.article_id
+        job_id = job.id
+        db.commit()
+    finally:
+        db.close()
 
-    thread = threading.Thread(target=_run, daemon=True)
-    thread.start()
-    logger.info(f"Background pipeline started for article {article_id} (run_ai={run_ai}, start_step={start_step})")
+    await run_pipeline(
+        article_id,
+        run_ai=run_ai,
+        start_step=start_step,
+        job_id=job_id,
+    )
+    return True
+
+
+async def _worker_loop() -> None:
+    while True:
+        processed = await run_queued_pipeline_job_once()
+        if not processed:
+            await asyncio.sleep(_WORKER_POLL_INTERVAL_S)
+
+
+def ensure_pipeline_worker_started() -> None:
+    """Start the singleton local worker that drains persisted pending jobs."""
+    global _WORKER_THREAD
+    with _WORKER_LOCK:
+        if _WORKER_THREAD and _WORKER_THREAD.is_alive():
+            return
+
+        def _run():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(_worker_loop())
+            finally:
+                loop.close()
+
+        _WORKER_THREAD = threading.Thread(target=_run, daemon=True, name="pipeline-worker")
+        _WORKER_THREAD.start()
+        logger.info("Pipeline worker started")
+
+
+def resume_incomplete_pipeline_jobs() -> None:
+    """Return interrupted running jobs to the durable pending queue on startup."""
+    db = SessionLocal()
+    try:
+        jobs = (
+            db.query(ProcessingJob)
+            .filter(ProcessingJob.status == JobStatus.RUNNING.value)
+            .all()
+        )
+        for job in jobs:
+            job.status = JobStatus.PENDING.value
+            job.locked_at = None
+            job.worker_id = None
+        db.commit()
+        if jobs:
+            logger.info("Re-queued %s interrupted processing jobs", len(jobs))
+    finally:
+        db.close()
+
+
+def run_pipeline_background(
+    article_id: int,
+    run_ai: bool = True,
+    start_step: str = "parse",
+    job_id: int | None = None,
+) -> None:
+    """Persist pipeline job options and wake the local queue worker."""
+    db = SessionLocal()
+    try:
+        if job_id is not None:
+            job = db.query(ProcessingJob).filter(ProcessingJob.id == job_id).first()
+        else:
+            job = (
+                db.query(ProcessingJob)
+                .filter(
+                    ProcessingJob.article_id == article_id,
+                    ProcessingJob.status == JobStatus.PENDING.value,
+                )
+                .order_by(ProcessingJob.created_at.desc())
+                .first()
+            )
+        if job:
+            job.run_ai = 1 if run_ai else 0
+            job.start_step = start_step
+            job.status = JobStatus.PENDING.value
+            job.locked_at = None
+            job.worker_id = None
+            db.commit()
+    finally:
+        db.close()
+
+    ensure_pipeline_worker_started()
+    logger.info(
+        "Pipeline job queued for article %s (run_ai=%s, start_step=%s, job_id=%s)",
+        article_id,
+        run_ai,
+        start_step,
+        job_id,
+    )

@@ -17,7 +17,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.auth_deps import require_user
 from app.db.session import get_db
 from app.db.models import Article, ArticleExtraction, GraphEntity, GraphRelationship, ProcessingJob, ArticleStatus, JobStatus
 from app.core.security import compute_file_hash
@@ -96,6 +95,14 @@ def _validate_public_http_url(url: str) -> urllib.parse.ParseResult:
     return parsed
 
 
+class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Validate every redirect target before urllib follows it."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _validate_public_http_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _detect_url_type(url: str) -> tuple[str, str | None]:
     """Detect the type of URL and extract an identifier.
 
@@ -125,7 +132,8 @@ def _download_file(url: str, dest_path: Path, max_bytes: int, timeout: int = 60)
     """Download a file from a URL with progress tracking."""
     _validate_public_http_url(url)
     req = urllib.request.Request(url, headers={"User-Agent": "ArticleProcessor/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as response:
+    opener = urllib.request.build_opener(SafeRedirectHandler)
+    with opener.open(req, timeout=timeout) as response:
         final_url = response.geturl()
         _validate_public_http_url(final_url)
         content_length = response.headers.get("Content-Length")
@@ -158,7 +166,6 @@ def _is_pdf_file(path: Path) -> bool:
 async def import_from_url(
     body: UrlImportRequest,
     db: Session = Depends(get_db),
-    user=Depends(require_user),
 ):
     """Import an article from a URL.
 
@@ -270,6 +277,8 @@ async def import_from_url(
         article_id=article.id,
         status=JobStatus.PENDING.value,
         current_step="url_import_queued",
+        run_ai=1 if body.run_ai else 0,
+        start_step="parse",
         logs_json=json.dumps([{
             "step": "url_import_queued",
             "timestamp": datetime.datetime.utcnow().isoformat(),
@@ -283,7 +292,7 @@ async def import_from_url(
 
     # Start background processing
     from app.services.pipeline.processor import run_pipeline_background
-    run_pipeline_background(article.id, run_ai=body.run_ai)
+    run_pipeline_background(article.id, run_ai=body.run_ai, job_id=job.id)
 
     logger.info(f"URL import created article {article.id} from {url_type}: {url}")
 
@@ -299,7 +308,7 @@ async def import_from_url(
 # ── Article JSON Import ─────────────────────────────────────────────────
 
 @router.post("/articles")
-async def import_articles(body: dict, db: Session = Depends(get_db), user=Depends(require_user)):
+async def import_articles(body: dict, db: Session = Depends(get_db)):
     """Import previously exported articles from a JSON array.
 
     Body: {"articles": [{...article data...}, ...]}

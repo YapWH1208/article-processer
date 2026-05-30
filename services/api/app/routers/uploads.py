@@ -8,7 +8,6 @@ from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.auth_deps import require_user
 from app.core.security import (
     sanitize_filename,
     compute_file_hash,
@@ -30,7 +29,6 @@ async def upload_file(
     file: UploadFile = File(...),
     run_ai: str = Form("true"),
     db: Session = Depends(get_db),
-    user=Depends(require_user),
 ):
     """Upload a PDF, ZIP, HTML, MD, or TXT file for processing."""
     # Explicitly parse run_ai — avoid FastAPI bool coercion edge cases
@@ -107,6 +105,8 @@ async def upload_file(
         article_id=article.id,
         status=JobStatus.PENDING.value,
         current_step="uploaded",
+        run_ai=1 if run_ai_bool else 0,
+        start_step="parse",
         logs_json=json.dumps([
             {
                 "step": "uploaded",
@@ -121,7 +121,7 @@ async def upload_file(
     db.refresh(job)
 
     # Kick off background processing
-    run_pipeline_background(article.id, run_ai=run_ai_bool)
+    run_pipeline_background(article.id, run_ai=run_ai_bool, job_id=job.id)
 
     return UploadResponse(
         article_id=article.id,

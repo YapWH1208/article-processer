@@ -421,12 +421,17 @@ class OpenAIProvider(BaseLLMProvider):
         text = chunk.text if hasattr(chunk, "text") else str(chunk)
         section = chunk.section_title if hasattr(chunk, "section_title") else None
         chunk_idx = chunk.chunk_index if hasattr(chunk, "chunk_index") else 0
+        article = (
+            f', Article: "{chunk.article_title}" (ID: {chunk.article_id})'
+            if hasattr(chunk, "article_title") and hasattr(chunk, "article_id")
+            else ""
+        )
         page = (
             f', Page: {chunk.page_start}-{chunk.page_end}'
             if hasattr(chunk, "page_start") and chunk.page_start
             else ""
         )
-        return f'[Chunk {chunk_idx}, Section: "{section or "N/A"}"{page}]\n{text}'
+        return f'[Chunk {chunk_idx}, Section: "{section or "N/A"}"{article}{page}]\n{text}'
 
     def _extract_citations(self, answer: str, chunks: list[Any]) -> list[dict]:
         """Extract citation references from the answer text."""

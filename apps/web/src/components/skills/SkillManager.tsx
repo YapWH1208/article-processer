@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { authFetch } from "@/lib/api";
+import { apiRawFetch } from "@/lib/api";
 
 interface SkillDef {
   name: string; purpose: string; description: string;
@@ -74,7 +74,7 @@ export default function SkillManager({ skills, onSkillsChanged }: SkillManagerPr
         : "/skills";
       const method = editingSkill ? "PUT" : "POST";
 
-      const res = await authFetch(path, {
+      const res = await apiRawFetch(path, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -92,7 +92,7 @@ export default function SkillManager({ skills, onSkillsChanged }: SkillManagerPr
   const handleDelete = async (name: string) => {
     setDeletingName(name);
     try {
-      const res = await authFetch(`/skills/${encodeURIComponent(name)}`, { method: "DELETE" });
+      const res = await apiRawFetch(`/skills/${encodeURIComponent(name)}`, { method: "DELETE" });
       if (!res.ok) throw new Error((await res.json()).detail || "Delete failed");
       toast.success(`Skill "${name}" deleted`);
       onSkillsChanged();

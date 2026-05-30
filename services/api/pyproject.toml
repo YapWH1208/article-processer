@@ -43,11 +43,6 @@ ocr = [
 bibtex = [
     "bibtexparser>=1.4.0",
 ]
-# Authentication (JWT + password hashing)
-auth = [
-    "python-jose[cryptography]>=3.3.0",
-    "passlib[bcrypt]>=1.7.4",
-]
 # Anthropic Claude (optional)
 anthropic = [
     "anthropic>=0.40.0",
@@ -59,8 +54,6 @@ all = [
     "Pillow>=10.0.0",
     "pdf2image>=1.16.0",
     "bibtexparser>=1.4.0",
-    "python-jose[cryptography]>=3.3.0",
-    "passlib[bcrypt]>=1.7.4",
     "anthropic>=0.40.0",
 ]
 

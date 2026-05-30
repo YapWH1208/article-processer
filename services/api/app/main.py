@@ -11,7 +11,8 @@ from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.rate_limit import RateLimitMiddleware
 from app.db.session import engine, Base
-from app.routers import uploads, articles, chat, exports, imports, skills as skills_router, auth, settings_page, dashboard, dev
+from app.routers import uploads, articles, chat, exports, imports, skills as skills_router, settings_page, dashboard, dev
+from app.services.pipeline.processor import ensure_pipeline_worker_started, resume_incomplete_pipeline_jobs
 
 
 @asynccontextmanager
@@ -26,6 +27,8 @@ async def lifespan(app: FastAPI):
     settings.markdown_path.mkdir(parents=True, exist_ok=True)
     settings.exports_path.mkdir(parents=True, exist_ok=True)
     (settings.project_root / "storage" / "images").mkdir(parents=True, exist_ok=True)
+    resume_incomplete_pipeline_jobs()
+    ensure_pipeline_worker_started()
     yield
 
 
@@ -47,7 +50,7 @@ app.add_middleware(
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_headers=["Content-Type"],
 )
 
 
@@ -143,7 +146,6 @@ app.include_router(articles.router, prefix="/articles", tags=["articles"])
 app.include_router(chat.router, prefix="/articles", tags=["chat"])
 app.include_router(exports.router, prefix="/articles", tags=["exports"])
 app.include_router(imports.router, prefix="/imports", tags=["imports"])
-app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(settings_page.router, prefix="/settings", tags=["settings"])
 app.include_router(skills_router.router, prefix="/skills", tags=["skills"])
 app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])

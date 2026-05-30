@@ -182,13 +182,18 @@ class AnthropicProvider(BaseLLMProvider):
     def _format_chunk_for_context(chunk: Any) -> str:
         text = chunk.text if hasattr(chunk, 'text') else str(chunk)
         section = chunk.section_title if hasattr(chunk, 'section_title') else None
+        article = (
+            f', Article: "{chunk.article_title}" (ID: {chunk.article_id})'
+            if hasattr(chunk, "article_title") and hasattr(chunk, "article_id")
+            else ""
+        )
         page = (
             f', Page: {chunk.page_start}-{chunk.page_end}'
             if hasattr(chunk, 'page_start') and chunk.page_start
             else ""
         )
         idx = chunk.chunk_index if hasattr(chunk, 'chunk_index') else 0
-        return f'[Chunk {idx}, Section: "{section or "N/A"}"{page}]\n{text}'
+        return f'[Chunk {idx}, Section: "{section or "N/A"}"{article}{page}]\n{text}'
 
 
 class CustomAnthropicProvider(AnthropicProvider):

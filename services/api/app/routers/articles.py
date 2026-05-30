@@ -12,7 +12,6 @@ from fastapi.responses import FileResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.auth_deps import require_user
 from app.db.session import get_db
 from app.db.models import (
     Article,
@@ -32,6 +31,7 @@ from app.schemas.article import (
 from app.schemas.extraction import ExtractionResponse
 from app.schemas.graph import GraphResponse
 from app.schemas.jobs import JobResponse
+from app.services.search import search_article_ids, upsert_article_search_index
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -85,7 +85,13 @@ def list_articles(
         )
 
     if search_content:
-        q = q.filter(Article.markdown_text.ilike(f"%{search_content}%"))
+        fts_ids = search_article_ids(db, search_content, limit=200)
+        if fts_ids is None:
+            q = q.filter(Article.markdown_text.ilike(f"%{search_content}%"))
+        elif fts_ids:
+            q = q.filter(Article.id.in_(fts_ids))
+        else:
+            q = q.filter(False)
 
     # Apply sort with allowlist validation
     sort_col = _SORT_COLUMNS.get(sort_by, Article.created_at)
@@ -388,7 +394,6 @@ def reprocess_article(
     article_id: int,
     mode: str = "full",
     db: Session = Depends(get_db),
-    user=Depends(require_user),
 ):
     """Re-run processing for an article.
 
@@ -411,6 +416,8 @@ def reprocess_article(
         article_id=article.id,
         status=JobStatus.PENDING.value,
         current_step="reprocess_queued",
+        run_ai=0 if mode == "parse_only" else 1,
+        start_step="extract" if mode == "extract_only" else "parse",
         logs_json=json.dumps([
             {
                 "step": "reprocess_queued",
@@ -426,11 +433,11 @@ def reprocess_article(
     from app.services.pipeline.processor import run_pipeline_background
 
     if mode == "parse_only":
-        run_pipeline_background(article.id, run_ai=False, start_step="parse")
+        run_pipeline_background(article.id, run_ai=False, start_step="parse", job_id=job.id)
     elif mode == "extract_only":
-        run_pipeline_background(article.id, run_ai=True, start_step="extract")
+        run_pipeline_background(article.id, run_ai=True, start_step="extract", job_id=job.id)
     else:
-        run_pipeline_background(article.id, run_ai=True, start_step="parse")
+        run_pipeline_background(article.id, run_ai=True, start_step="parse", job_id=job.id)
 
     return ReprocessResponse(
         article_id=article.id,
@@ -440,29 +447,31 @@ def reprocess_article(
 
 
 @router.post("/{article_id}/archive")
-def archive_article(article_id: int, db: Session = Depends(get_db), user=Depends(require_user)):
+def archive_article(article_id: int, db: Session = Depends(get_db)):
     """Soft-archive an article (hide from default list)."""
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
     article.is_archived = 1
     db.commit()
+    upsert_article_search_index(db, article_id)
     return {"article_id": article_id, "is_archived": True}
 
 
 @router.post("/{article_id}/unarchive")
-def unarchive_article(article_id: int, db: Session = Depends(get_db), user=Depends(require_user)):
+def unarchive_article(article_id: int, db: Session = Depends(get_db)):
     """Restore an archived article."""
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
     article.is_archived = 0
     db.commit()
+    upsert_article_search_index(db, article_id)
     return {"article_id": article_id, "is_archived": False}
 
 
 @router.patch("/{article_id}")
-def update_article(article_id: int, body: dict, db: Session = Depends(get_db), user=Depends(require_user)):
+def update_article(article_id: int, body: dict, db: Session = Depends(get_db)):
     """Update article metadata (title only for now). Body: {"title": "New Title"}."""
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
@@ -475,12 +484,13 @@ def update_article(article_id: int, body: dict, db: Session = Depends(get_db), u
         article.title = new_title
 
     db.commit()
+    upsert_article_search_index(db, article_id)
     db.refresh(article)
     return ArticleDetail.model_validate(article)
 
 
 @router.delete("/{article_id}")
-def delete_article(article_id: int, db: Session = Depends(get_db), user=Depends(require_user)):
+def delete_article(article_id: int, db: Session = Depends(get_db)):
     """Soft-delete an article — marks it as trashed without removing data."""
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
@@ -488,12 +498,13 @@ def delete_article(article_id: int, db: Session = Depends(get_db), user=Depends(
 
     article.deleted_at = datetime.datetime.utcnow()
     db.commit()
+    upsert_article_search_index(db, article_id)
 
     return {"article_id": article_id, "deleted": True}
 
 
 @router.post("/{article_id}/restore")
-def restore_article(article_id: int, db: Session = Depends(get_db), user=Depends(require_user)):
+def restore_article(article_id: int, db: Session = Depends(get_db)):
     """Restore a soft-deleted article."""
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
@@ -503,6 +514,7 @@ def restore_article(article_id: int, db: Session = Depends(get_db), user=Depends
 
     article.deleted_at = None
     db.commit()
+    upsert_article_search_index(db, article_id)
     return {"article_id": article_id, "restored": True}
 
 
@@ -722,7 +734,7 @@ def list_tags(db: Session = Depends(get_db)):
 
 
 @router.put("/{article_id}/tags")
-def update_article_tags(article_id: int, body: dict, db: Session = Depends(get_db), user=Depends(require_user)):
+def update_article_tags(article_id: int, body: dict, db: Session = Depends(get_db)):
     """Update the tags for an article. Body: {"tags": ["tag1", "tag2", ...]}.
 
     Updates the tags in the latest extraction's extraction_json.
@@ -755,6 +767,7 @@ def update_article_tags(article_id: int, body: dict, db: Session = Depends(get_d
     data["tags"] = tags
     extraction.extraction_json = json.dumps(data)
     db.commit()
+    upsert_article_search_index(db, article_id)
 
     return {"article_id": article_id, "tags": tags}
 

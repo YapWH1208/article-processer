@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse, JSONResponse
 from sqlalchemy.orm import Session
 
-from app.core.auth_deps import require_user
 from app.db.session import get_db
 from app.db.models import Article, ArticleExtraction, GraphEntity, GraphRelationship
 from app.core.config import settings
@@ -183,7 +182,6 @@ def export_articles(
     date_from: str | None = None,
     date_to: str | None = None,
     db: Session = Depends(get_db),
-    user=Depends(require_user),
 ):
     """Export multiple articles as a JSON array.
 

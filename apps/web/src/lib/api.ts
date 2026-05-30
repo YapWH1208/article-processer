@@ -2,28 +2,9 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
-/** Read the stored JWT token — same key that AuthProvider writes to. */
-function getAuthToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("auth_token");
-}
-
-/** Paths that should NOT receive an auth header (login, register, health). */
-const AUTH_EXEMPT_PREFIXES = ["/auth/login", "/auth/register", "/health"];
-
 function buildRequest(path: string, options?: RequestInit): { url: string; init: RequestInit } {
   const url = `${API_BASE}${path}`;
-
-  // Build headers — attach auth token for protected endpoints
   const headers = new Headers(options?.headers);
-
-  const isAuthExempt = AUTH_EXEMPT_PREFIXES.some((p) => path.startsWith(p));
-  if (!isAuthExempt) {
-    const token = getAuthToken();
-    if (token) {
-      headers.set("Authorization", `Bearer ${token}`);
-    }
-  }
 
   const init: RequestInit = {
     ...options,
@@ -33,13 +14,13 @@ function buildRequest(path: string, options?: RequestInit): { url: string; init:
   return { url, init };
 }
 
-export async function authFetch(path: string, options?: RequestInit): Promise<Response> {
+export async function apiRawFetch(path: string, options?: RequestInit): Promise<Response> {
   const { url, init } = buildRequest(path, options);
   return fetch(url, init);
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await authFetch(path, options);
+  const res = await apiRawFetch(path, options);
 
   if (!res.ok) {
     const body = await res.text();
@@ -61,7 +42,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return res.text() as unknown as T;
 }
 
-// ── URL Import ────────────────────────────────────────────────────
+// URL Import
 
 export async function importFromUrl(url: string, runAi = true) {
   return apiFetch<import("./types").UrlImportResponse>("/imports/url", {
@@ -71,7 +52,7 @@ export async function importFromUrl(url: string, runAi = true) {
   });
 }
 
-// ── Uploads ───────────────────────────────────────────────────────
+// Uploads
 
 export async function uploadFile(file: File, runAi = true) {
   const formData = new FormData();
@@ -83,7 +64,7 @@ export async function uploadFile(file: File, runAi = true) {
   });
 }
 
-// ── Articles ──────────────────────────────────────────────────────
+// Articles
 
 export async function restoreArticle(id: number) {
   return apiFetch<{ article_id: number; restored: boolean }>(
@@ -177,7 +158,7 @@ export async function deleteArticle(id: number) {
   return apiFetch<{ article_id: number; deleted: boolean }>(`/articles/${id}`, { method: "DELETE" });
 }
 
-// ── Chat ──────────────────────────────────────────────────────────
+// Chat
 
 export async function sendChatMessage(articleId: number, message: string) {
   return apiFetch<import("./types").ChatResponse>(
@@ -273,7 +254,7 @@ export async function sendMultiArticleChatMessage(articleIds: number[], message:
   );
 }
 
-// ── Chat Sessions ─────────────────────────────────────────────────
+// Chat Sessions
 
 export async function listSessions() {
   return apiFetch<{ sessions: import("./types").ChatSession[] }>("/articles/sessions");
@@ -308,7 +289,7 @@ export async function sendSessionMessage(sessionId: number, message: string, art
   );
 }
 
-// ── Export ────────────────────────────────────────────────────────
+// Export
 
 export function getExportJsonUrl(articleId: number): string {
   return `${API_BASE}/articles/${articleId}/export/json`;
@@ -334,7 +315,7 @@ export async function importArticles(articles: unknown[]) {
   });
 }
 
-// ── Skills ────────────────────────────────────────────────────────
+// Skills
 
 export async function listSkills() {
   return apiFetch<{ skills: import("./types").SkillDef[] }>("/skills");
@@ -351,13 +332,13 @@ export async function runSkill(skillName: string, articleId: number) {
   );
 }
 
-// ── Parsers ──────────────────────────────────────────────────────
+// Parsers
 
 export async function listParsers() {
   return apiFetch<import("./types").ParserInfo[]>("/settings/parsers");
 }
 
-// ── Dashboard ─────────────────────────────────────────────────────
+// Dashboard
 
 export async function getDashboardMetrics(days = 30) {
   return apiFetch<import("./types").DashboardMetrics>(
@@ -365,7 +346,7 @@ export async function getDashboardMetrics(days = 30) {
   );
 }
 
-// ── Related Articles ──────────────────────────────────────────────
+// Related Articles
 
 export async function getRelatedArticles(articleId: number, limit = 5) {
   return apiFetch<import("./types").RelatedArticlesResponse>(
@@ -373,7 +354,7 @@ export async function getRelatedArticles(articleId: number, limit = 5) {
   );
 }
 
-// ── Global Graph ───────────────────────────────────────────────────
+// Global Graph
 
 export async function getGlobalGraph(limit = 200) {
   return apiFetch<import("./types").GlobalGraphData>(
@@ -381,7 +362,7 @@ export async function getGlobalGraph(limit = 200) {
   );
 }
 
-// ── Logs ──────────────────────────────────────────────────────────
+// Logs
 
 export async function getArticleLogs(articleId: number) {
   return apiFetch<import("./types").ArticleLogs>(
@@ -389,7 +370,7 @@ export async function getArticleLogs(articleId: number) {
   );
 }
 
-// ── Dev / Providers ──────────────────────────────────────────────
+// Dev / Providers
 
 export async function getDevConfig() {
   return apiFetch<import("./types").DevConfig>("/dev");
@@ -403,7 +384,7 @@ export async function setActiveProvider(providerId: string) {
   });
 }
 
-// ── Health ────────────────────────────────────────────────────────
+// Health
 
 export async function healthCheck() {
   return apiFetch<import("./types").HealthInfo>(

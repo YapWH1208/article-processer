@@ -56,7 +56,7 @@ cp .env.example apps/web/.env.local
 - **Automatic Parsing**: Convert documents to canonical Markdown with structure preservation — MinerU v3.x (best), Docling, or pypdf
 - **5-Step Processing Pipeline**: Parse → Semantic Chunk → AI Extract → Build Graph → Complete. Live progress bar with step-by-step status.
 - **AI Extraction**: Extract structured research information (authors, methodology, results, claims, entities, references) with evidence trails and confidence scoring
-- **Full-Context Chat**: Ask questions about articles with cited, source-linked answers drawn from complete article text. @-mention articles for focused context or let AI search your entire library. Multi-turn sessions persist across refreshes.
+- **Retrieval-Based Chat**: Ask questions about articles with cited, source-linked answers drawn from relevant chunks. @-mention articles for focused context or let AI search your entire library. Multi-turn sessions persist across refreshes.
 - **Model Selector**: Switch LLM providers on-the-fly from the Chat page — no reload required
 - **Built-in AI Skills**: Research summary, methodology extraction, experiment extraction, literature review notes, reviewer critique — with structured results. Create, edit, import, and export custom skills.
 - **Global Knowledge Graph**: Interactive canvas-based force-directed graph of all entities and relationships across articles (Obsidian-style), with zoom/pan, type filtering, and click-to-navigate
@@ -191,10 +191,10 @@ All settings can also be configured from the Settings page in the UI (`/settings
 
 ## Known Limitations
 
-- Chat uses full article text in context (no chunk retrieval) — works well for articles within the model's context window
+- Chat uses lexical chunk retrieval; semantic embeddings can be added later for deeper recall
 - Mock AI providers return deterministic but non-realistic extraction
-- No authentication system in MVP
-- Worker runs in-process via FastAPI BackgroundTasks
+- Local-first app without user accounts
+- Worker runs as a local SQLite-backed queue inside the API process
 - No Redis/Celery; single-process execution
 - MinerU image extraction requires `mineru` package (optional, falls back to Docling/pypdf)
 - Embeddings and vector search removed in v0.4.0
@@ -207,7 +207,6 @@ All settings can also be configured from the Settings page in the UI (`/settings
 - Multi-article comparison view
 - Cloud object storage (S3)
 - Real-time processing status (WebSocket/SSE)
-- Authentication enforcement (currently optional)
 
 ## CI/CD
 
