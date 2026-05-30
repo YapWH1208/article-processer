@@ -125,6 +125,20 @@ export async function getArticleExtraction(id: number) {
   );
 }
 
+export async function updateArticleExtraction(
+  id: number,
+  data: { extraction: import("./types").ExtractionResult; confidence?: number; validation_errors?: string[] | null }
+) {
+  return apiFetch<import("./types").ExtractionResponse>(
+    `/articles/${id}/extraction`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }
+  );
+}
+
 export async function getArticleGraph(id: number) {
   return apiFetch<import("./types").GraphResponse>(`/articles/${id}/graph`);
 }

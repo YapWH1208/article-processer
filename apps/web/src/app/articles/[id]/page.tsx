@@ -18,6 +18,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,10 +27,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { sendChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, toggleArchiveArticle, deleteArticle, restoreArticle, getRelatedArticles } from "@/lib/api";
+import { sendChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, updateArticleExtraction, toggleArchiveArticle, deleteArticle, restoreArticle, getRelatedArticles } from "@/lib/api";
 import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
 import { createCitationReaderTarget, slugifyWorkspaceText } from "../articleWorkspaceState.mjs";
+import { formatExtractionForReview, parseReviewedExtraction } from "../extractionReviewState.mjs";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -71,6 +73,10 @@ export default function ArticleDetailPage() {
   const [markdown, setMarkdown] = useState("");
   const [extraction, setExtraction] = useState<ExtractionResult | null>(null);
   const [extractionErrors, setExtractionErrors] = useState<string[]>([]);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewDraft, setReviewDraft] = useState("");
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewSaving, setReviewSaving] = useState(false);
   const [graph, setGraph] = useState<{ entities: unknown[]; relationships: unknown[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("reader");
@@ -256,6 +262,36 @@ export default function ArticleDetailPage() {
     }
     catch { toast.error("Reprocess failed"); }
     finally { setReprocessing(false); }
+  };
+
+  const openExtractionReview = () => {
+    setReviewDraft(formatExtractionForReview(extraction || {}));
+    setReviewError(null);
+    setReviewOpen(true);
+  };
+
+  const saveExtractionReview = async () => {
+    const parsed = parseReviewedExtraction(reviewDraft);
+    if (!parsed.ok) {
+      setReviewError(parsed.error || "Invalid JSON");
+      return;
+    }
+    setReviewSaving(true);
+    try {
+      const response = await updateArticleExtraction(articleId, {
+        extraction: parsed.value as ExtractionResult,
+        confidence: 1,
+      });
+      setExtraction(response.extraction || null);
+      setExtractionErrors(response.validation_errors || []);
+      setArticle((prev) => prev ? { ...prev, status: prev.status === "needs_review" ? "completed" : prev.status } : prev);
+      setReviewOpen(false);
+      toast.success("Reviewed extraction saved");
+    } catch (e) {
+      setReviewError(e instanceof Error ? e.message : "Failed to save reviewed extraction");
+    } finally {
+      setReviewSaving(false);
+    }
   };
 
   const handleArchive = async () => {
@@ -539,6 +575,34 @@ export default function ArticleDetailPage() {
                       <CardHeader className="shrink-0 flex flex-row items-center justify-between">
                         <div><CardTitle className="text-lg">Extraction</CardTitle><CardDescription>AI-extracted info</CardDescription></div>
                         <div className="flex gap-2">
+                          <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
+                            <DialogTrigger asChild>
+                              <Button variant="outline" size="sm" onClick={openExtractionReview} disabled={!extraction && extractionErrors.length === 0}>
+                                Review JSON
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-3xl">
+                              <DialogHeader>
+                                <DialogTitle>Review Extraction JSON</DialogTitle>
+                                <DialogDescription>
+                                  Edit the structured extraction and save it as reviewed data for search and analysis.
+                                </DialogDescription>
+                              </DialogHeader>
+                              <Textarea
+                                value={reviewDraft}
+                                onChange={(e) => { setReviewDraft(e.target.value); setReviewError(null); }}
+                                className="min-h-[420px] font-mono text-xs"
+                                spellCheck={false}
+                              />
+                              {reviewError && <p className="text-sm text-destructive">{reviewError}</p>}
+                              <DialogFooter>
+                                <Button variant="outline" onClick={() => setReviewOpen(false)}>Cancel</Button>
+                                <Button onClick={saveExtractionReview} disabled={reviewSaving}>
+                                  {reviewSaving ? "Saving..." : "Save Review"}
+                                </Button>
+                              </DialogFooter>
+                            </DialogContent>
+                          </Dialog>
                           {["json", "markdown"].map((f) => (
                             <a key={f} href={`${API_BASE}/articles/${articleId}/export/${f}`} target="_blank" rel="noopener noreferrer">
                               <Button variant="outline" size="sm" className="gap-1">
