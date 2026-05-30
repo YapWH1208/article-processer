@@ -32,3 +32,40 @@ export function createCitationReaderTarget(citation) {
 export function shouldUseWorkspaceSplit(width) {
   return Number(width) >= 1024;
 }
+
+function countSources(messages) {
+  let count = 0;
+  for (const message of messages || []) {
+    if (!message?.citations_json) continue;
+    try {
+      const citations = JSON.parse(message.citations_json);
+      if (Array.isArray(citations)) count += citations.length;
+    } catch {
+      // Ignore malformed historic citation payloads.
+    }
+  }
+  return count;
+}
+
+/**
+ * @param {{
+ *   messages?: Array<{ citations_json?: string, prompt_tokens?: number, completion_tokens?: number }>,
+ *   jobs?: Array<{ status?: string }>,
+ *   graph?: { entities?: unknown[], relationships?: unknown[] } | null,
+ * }} input
+ */
+export function createWorkspacePanelSummary({ messages = [], jobs = [], graph = null } = {}) {
+  return {
+    messageCount: messages.length,
+    sourceCount: countSources(messages),
+    tokenCount: messages.reduce(
+      (sum, message) => sum + (message.prompt_tokens || 0) + (message.completion_tokens || 0),
+      0
+    ),
+    jobCount: jobs.length,
+    activeJobCount: jobs.filter((job) => !["completed", "failed"].includes(job.status)).length,
+    failedJobCount: jobs.filter((job) => job.status === "failed").length,
+    entityCount: Array.isArray(graph?.entities) ? graph.entities.length : 0,
+    relationshipCount: Array.isArray(graph?.relationships) ? graph.relationships.length : 0,
+  };
+}

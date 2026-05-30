@@ -30,7 +30,7 @@ import { toast } from "sonner";
 import { sendChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, updateArticleExtraction, toggleArchiveArticle, deleteArticle, restoreArticle, getRelatedArticles } from "@/lib/api";
 import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
-import { createCitationReaderTarget, slugifyWorkspaceText } from "../articleWorkspaceState.mjs";
+import { createCitationReaderTarget, createWorkspacePanelSummary, slugifyWorkspaceText } from "../articleWorkspaceState.mjs";
 import { formatExtractionForReview, parseReviewedExtraction } from "../extractionReviewState.mjs";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
@@ -80,6 +80,7 @@ export default function ArticleDetailPage() {
   const [graph, setGraph] = useState<{ entities: unknown[]; relationships: unknown[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("reader");
+  const [sidePanelTab, setSidePanelTab] = useState("chat");
   const [readerView, setReaderView] = useState<"markdown" | "pdf">("markdown");
 
   // Chat
@@ -334,6 +335,7 @@ export default function ArticleDetailPage() {
   };
 
   const isProcessing = article && !isTerminalArticleStatus(article.status);
+  const workspaceSummary = createWorkspacePanelSummary({ messages, jobs, graph });
   const citations = (msg: ChatMessage): Citation[] => {
     try { return msg.citations_json ? JSON.parse(msg.citations_json) : []; }
     catch { return []; }
@@ -776,15 +778,15 @@ export default function ArticleDetailPage() {
               className="shrink-0 flex flex-col min-w-0 border-l md:border-l-0 pt-10"
             >
               <Card className="h-full flex flex-col border md:border rounded-lg">
-                <CardHeader className="pb-2 shrink-0 flex flex-row items-center justify-between">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <MessageCircle className="h-4 w-4"/> Chat
-                    {messages.length > 0 && (
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">
-                        {messages.reduce((sum, m) => sum + (m.prompt_tokens || 0) + (m.completion_tokens || 0), 0).toLocaleString()} tokens
-                      </Badge>
-                    )}
-                  </CardTitle>
+                <CardHeader className="pb-2 shrink-0 flex flex-row items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <MessageCircle className="h-4 w-4"/> Workspace
+                    </CardTitle>
+                    <CardDescription className="mt-1 text-xs">
+                      {workspaceSummary.messageCount} messages - {workspaceSummary.sourceCount} sources - {workspaceSummary.entityCount} entities
+                    </CardDescription>
+                  </div>
                   <div className="flex gap-1">
                     <Button variant="ghost" size="icon" className="h-7 w-7 md:hidden" onClick={() => setChatOpen(false)} aria-label="Close chat panel">
                       <X className="h-3.5 w-3.5"/>
@@ -795,6 +797,30 @@ export default function ArticleDetailPage() {
                   </div>
                 </CardHeader>
 
+                <Tabs value={sidePanelTab} onValueChange={setSidePanelTab} className="flex-1 flex flex-col min-h-0">
+                <div className="px-4 pb-3">
+                  <TabsList className="grid h-9 w-full grid-cols-3">
+                    <TabsTrigger value="chat" className="gap-1 text-xs">
+                      Chat
+                      {workspaceSummary.messageCount > 0 && <span className="rounded bg-muted px-1 text-[10px]">{workspaceSummary.messageCount}</span>}
+                    </TabsTrigger>
+                    <TabsTrigger value="jobs" className="gap-1 text-xs">
+                      Jobs
+                      {workspaceSummary.failedJobCount > 0 ? (
+                        <span className="rounded bg-destructive px-1 text-[10px] text-destructive-foreground">{workspaceSummary.failedJobCount}</span>
+                      ) : workspaceSummary.activeJobCount > 0 ? (
+                        <span className="rounded bg-primary px-1 text-[10px] text-primary-foreground">{workspaceSummary.activeJobCount}</span>
+                      ) : null}
+                    </TabsTrigger>
+                    <TabsTrigger value="context" className="gap-1 text-xs">
+                      Context
+                      {workspaceSummary.entityCount > 0 && <span className="rounded bg-muted px-1 text-[10px]">{workspaceSummary.entityCount}</span>}
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+
+                {sidePanelTab === "chat" && (
+                  <>
                 {/* Context preview */}
                 <AnimatePresence>
                   {contextText && (
@@ -824,7 +850,7 @@ export default function ArticleDetailPage() {
                               <div className="whitespace-pre-wrap text-xs">
                                 {msg.content.length > 400 && !expandedMsgs.has(i) ? (
                                   <>
-                                    {msg.content.slice(0, 400)}…
+                                    {msg.content.slice(0, 400)}...
                                     <button
                                       onClick={() => setExpandedMsgs((prev) => { const next = new Set(prev); next.add(i); return next; })}
                                       className="ml-1 text-primary hover:underline font-medium"
@@ -861,7 +887,7 @@ export default function ArticleDetailPage() {
                                             className="rounded border border-border bg-background px-1.5 py-0.5 text-left text-[10px] text-muted-foreground transition-colors hover:border-primary hover:text-primary"
                                             title={c.snippet || target.label}
                                           >
-                                            {target.label}{target.meta ? ` · ${target.meta}` : ""}
+                                            {target.label}{target.meta ? ` - ${target.meta}` : ""}
                                           </button>
                                         );
                                       })}
@@ -891,6 +917,70 @@ export default function ArticleDetailPage() {
                     </Button>
                   </div>
                 </CardContent>
+                  </>
+                )}
+
+                {sidePanelTab === "jobs" && (
+                  <CardContent className="flex-1 min-h-0 p-4 pt-0">
+                    <ScrollArea className="h-full">
+                      <div className="grid grid-cols-3 gap-2 pb-3 text-center text-xs">
+                        <div className="rounded-md border p-2">
+                          <div className="text-base font-semibold">{workspaceSummary.jobCount}</div>
+                          <div className="text-muted-foreground">Total</div>
+                        </div>
+                        <div className="rounded-md border p-2">
+                          <div className="text-base font-semibold">{workspaceSummary.activeJobCount}</div>
+                          <div className="text-muted-foreground">Active</div>
+                        </div>
+                        <div className="rounded-md border p-2">
+                          <div className="text-base font-semibold">{workspaceSummary.failedJobCount}</div>
+                          <div className="text-muted-foreground">Failed</div>
+                        </div>
+                      </div>
+                      {jobs.length === 0 ? (
+                        <p className="text-center text-sm text-muted-foreground py-8">No processing jobs yet.</p>
+                      ) : (
+                        <div className="space-y-2 pr-3">
+                          {jobs.slice(0, 8).map((j) => (
+                            <div key={j.id} className="rounded-md border bg-muted/20 p-3 text-xs">
+                              <div className="flex items-center justify-between gap-2">
+                                <Badge variant={j.status === "completed" ? "default" : j.status === "failed" ? "destructive" : "secondary"} className="text-[10px]">{j.status}</Badge>
+                                <span className="text-muted-foreground">{new Date(j.created_at).toLocaleString()}</span>
+                              </div>
+                              {j.current_step && <p className="mt-1 text-muted-foreground">Step: {j.current_step}</p>}
+                              {j.error && <p className="mt-1 text-destructive">{j.error}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </ScrollArea>
+                  </CardContent>
+                )}
+
+                {sidePanelTab === "context" && (
+                  <CardContent className="flex-1 min-h-0 p-4 pt-0">
+                    <ScrollArea className="h-full">
+                      <div className="space-y-4 pr-3">
+                        <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                          <div className="rounded-md border p-2">
+                            <div className="text-base font-semibold">{workspaceSummary.entityCount}</div>
+                            <div className="text-muted-foreground">Entities</div>
+                          </div>
+                          <div className="rounded-md border p-2">
+                            <div className="text-base font-semibold">{workspaceSummary.relationshipCount}</div>
+                            <div className="text-muted-foreground">Links</div>
+                          </div>
+                        </div>
+                        <Separator />
+                        <div>
+                          <h4 className="font-semibold text-sm mb-2">Related Articles</h4>
+                          <RelatedArticles articleId={articleId} />
+                        </div>
+                      </div>
+                    </ScrollArea>
+                  </CardContent>
+                )}
+                </Tabs>
               </Card>
             </motion.div>
           )}
