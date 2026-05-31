@@ -162,20 +162,33 @@ class AnthropicProvider(BaseLLMProvider):
         citations = []
         seen = set()
         pattern = re.compile(
-            r'\[Chunk\s+(\d+),\s*Section:\s*"([^"]*)",?\s*(?:Page:\s*(\d+)(?:-(\d+))?)?\]'
+            r'\[Chunk\s+(\d+),\s*Section:\s*"([^"]*)"[^\]]*\]'
         )
         for match in pattern.finditer(answer):
             chunk_id = int(match.group(1))
             if chunk_id not in seen:
                 seen.add(chunk_id)
                 chunk = next((c for c in chunks if getattr(c, 'chunk_index', 0) == chunk_id), None)
-                citations.append({
+                header = match.group(0)
+                page_match = re.search(r'Page:\s*(\d+)(?:-(\d+))?', header)
+                page_start = chunk.page_start if chunk and hasattr(chunk, 'page_start') else None
+                page_end = chunk.page_end if chunk and hasattr(chunk, 'page_end') else None
+                if page_start is None and page_match:
+                    page_start = int(page_match.group(1))
+                    page_end = int(page_match.group(2)) if page_match.group(2) else page_start
+
+                citation = {
                     "chunk_id": chunk_id,
                     "section_title": match.group(2),
-                    "page_start": chunk.page_start if chunk and hasattr(chunk, 'page_start') else None,
-                    "page_end": chunk.page_end if chunk and hasattr(chunk, 'page_end') else None,
+                    "page_start": page_start,
+                    "page_end": page_end,
                     "snippet": chunk.text[:200] if chunk and hasattr(chunk, 'text') else None,
-                })
+                }
+                if chunk and hasattr(chunk, "article_id"):
+                    citation["article_id"] = chunk.article_id
+                if chunk and hasattr(chunk, "article_title"):
+                    citation["article_title"] = chunk.article_title
+                citations.append(citation)
         return citations
 
     @staticmethod

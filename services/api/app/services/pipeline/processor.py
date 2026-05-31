@@ -22,11 +22,6 @@ from app.db.models import (
     JobStatus,
 )
 from app.services.storage.local import LocalStorage
-from app.services.parsers.pdf import PdfParser
-from app.services.parsers.html import HtmlParser
-from app.services.parsers.markdown import MarkdownParser
-from app.services.parsers.docling_adapter import DoclingAdapter
-from app.services.parsers.mineru_adapter import MinerUAdapter
 from app.services.pipeline.markdown_normalizer import normalize_markdown
 from app.services.pipeline.chunking import chunk_markdown, estimate_tokens
 from app.services.ai.base import get_llm_provider
@@ -51,48 +46,104 @@ def _retry_delay(attempt: int) -> float:
     return base * (0.75 + random.random() * 0.5)
 
 
-# Parser registry — instantiate once, select at call time based on priority setting
-_mineru = MinerUAdapter()
-_docling = DoclingAdapter()
-_pypdf = PdfParser()
-_html = HtmlParser()
-_md = MarkdownParser()
+# Parser registry. Optional PDF engines are intentionally lazy: importing
+# Docling/MinerU can take tens of seconds, so startup should not probe them.
+_mineru = None
+_docling = None
+_pypdf = None
+_html = None
+_md = None
+_pdf_parser_notice_logged_messages: set[str] = set()
 
-if _mineru.is_available:
-    logger.info("MinerU detected — available for PDF parsing (default)")
-elif _docling.is_available:
-    logger.info("Docling detected — available for PDF parsing")
-else:
-    logger.info("Neither MinerU nor Docling installed — pypdf will be used for PDFs. "
-                 "Install mineru for best results: pip install magic-pdf")
+
+def _get_mineru():
+    global _mineru
+    if _mineru is None:
+        from app.services.parsers.mineru_adapter import MinerUAdapter
+        _mineru = MinerUAdapter()
+    return _mineru
+
+
+def _get_docling():
+    global _docling
+    if _docling is None:
+        from app.services.parsers.docling_adapter import DoclingAdapter
+        _docling = DoclingAdapter()
+    return _docling
+
+
+def _get_pypdf():
+    global _pypdf
+    if _pypdf is None:
+        from app.services.parsers.pdf import PdfParser
+        _pypdf = PdfParser()
+    return _pypdf
+
+
+def _get_html():
+    global _html
+    if _html is None:
+        from app.services.parsers.html import HtmlParser
+        _html = HtmlParser()
+    return _html
+
+
+def _get_markdown():
+    global _md
+    if _md is None:
+        from app.services.parsers.markdown import MarkdownParser
+        _md = MarkdownParser()
+    return _md
+
+
+def _log_pdf_parser_notice(message: str, *, warning: bool = False) -> None:
+    if message in _pdf_parser_notice_logged_messages:
+        return
+    if warning:
+        logger.warning(message)
+    else:
+        logger.info(message)
+    _pdf_parser_notice_logged_messages.add(message)
 
 
 def _select_pdf_parser(priority: str):
     """Select PDF parser based on configured priority."""
     if priority == "pypdf":
-        return _pypdf
+        return _get_pypdf()
     if priority == "ocr":
-        return _pypdf  # PdfParser already has OCR fallback
+        return _get_pypdf()  # PdfParser already has OCR fallback
     if priority == "docling":
-        if _docling.is_available:
-            return _docling
-        logger.warning("docling requested but not installed, falling back")
-    # mineru_first (default) or unknown — try MinerU first, then Docling, then pypdf
-    if _mineru.is_available:
-        return _mineru
-    if _docling.is_available:
-        return _docling
-    return _pypdf
+        docling = _get_docling()
+        if docling.is_available:
+            _log_pdf_parser_notice("Docling detected - available for PDF parsing")
+            return docling
+        _log_pdf_parser_notice("docling requested but not installed, falling back", warning=True)
+    # mineru_first (default) or unknown: try MinerU first, then Docling, then pypdf
+    mineru = _get_mineru()
+    if mineru.is_available:
+        _log_pdf_parser_notice("MinerU detected - available for PDF parsing (default)")
+        return mineru
+    if priority != "docling":
+        docling = _get_docling()
+        if docling.is_available:
+            _log_pdf_parser_notice("Docling detected - available for PDF parsing")
+            return docling
+    _log_pdf_parser_notice(
+        "Neither MinerU nor Docling installed - pypdf will be used for PDFs. "
+        "Install mineru for best results: pip install magic-pdf"
+    )
+    return _get_pypdf()
 
 
-def _get_parsers():
-    """Return parser dict using current settings priority."""
-    return {
-        "pdf": _select_pdf_parser(settings.parser_priority),
-        "html": _html,
-        "md": _md,
-        "txt": _md,
-    }
+def _get_parser(source_type: str):
+    """Return the parser for one source type without loading unrelated parsers."""
+    if source_type == "pdf":
+        return _select_pdf_parser(settings.parser_priority)
+    if source_type == "html":
+        return _get_html()
+    if source_type in {"md", "txt"}:
+        return _get_markdown()
+    return None
 
 
 async def run_pipeline(
@@ -195,7 +246,7 @@ async def run_pipeline(
             article.status = ArticleStatus.PARSING.value
             db.commit()
 
-            parser = _get_parsers().get(article.source_type)
+            parser = _get_parser(article.source_type)
             if not parser:
                 raise ValueError(f"No parser for source type: {article.source_type}")
 

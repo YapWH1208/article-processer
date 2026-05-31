@@ -125,6 +125,20 @@ export async function getArticleExtraction(id: number) {
   );
 }
 
+export async function updateArticleExtraction(
+  id: number,
+  data: { extraction: import("./types").ExtractionResult; confidence?: number; validation_errors?: string[] | null }
+) {
+  return apiFetch<import("./types").ExtractionResponse>(
+    `/articles/${id}/extraction`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }
+  );
+}
+
 export async function getArticleGraph(id: number) {
   return apiFetch<import("./types").GraphResponse>(`/articles/${id}/graph`);
 }
@@ -176,7 +190,7 @@ export async function streamChatMessage(
   articleId: number,
   message: string,
   onToken: (token: string) => void,
-  onDone: (fullAnswer: string) => void,
+  onDone: (fullAnswer: string, citations?: import("./types").Citation[]) => void,
   onError: (error: string) => void,
 ): Promise<void> {
   const url = `${API_BASE}/articles/${articleId}/chat/stream`;
@@ -217,7 +231,7 @@ export async function streamChatMessage(
               fullAnswer += data.token;
               onToken(data.token);
             } else if (data.done) {
-              onDone(data.answer || fullAnswer);
+              onDone(data.answer || fullAnswer, data.citations || []);
             } else if (data.error) {
               onError(data.error);
             }
@@ -229,7 +243,7 @@ export async function streamChatMessage(
     if (buffer.startsWith("data: ")) {
       try {
         const data = JSON.parse(buffer.slice(6));
-        if (data.done) onDone(data.answer || fullAnswer);
+        if (data.done) onDone(data.answer || fullAnswer, data.citations || []);
       } catch {}
     }
   } catch (e: unknown) {
@@ -343,6 +357,12 @@ export async function listParsers() {
 export async function getDashboardMetrics(days = 30) {
   return apiFetch<import("./types").DashboardMetrics>(
     `/dashboard/metrics?days=${days}`
+  );
+}
+
+export async function getJobQueue(limit = 100) {
+  return apiFetch<import("./types").JobQueueResponse>(
+    `/dashboard/jobs?limit=${limit}`
   );
 }
 

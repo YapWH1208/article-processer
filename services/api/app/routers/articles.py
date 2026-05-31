@@ -21,6 +21,7 @@ from app.db.models import (
     ProcessingJob,
     TokenUsage,
     JobStatus,
+    ArticleStatus,
 )
 from app.schemas.article import (
     ArticleSummary,
@@ -28,7 +29,7 @@ from app.schemas.article import (
     ArticleListResponse,
     ReprocessResponse,
 )
-from app.schemas.extraction import ExtractionResponse
+from app.schemas.extraction import ExtractionResponse, ExtractionUpdateRequest
 from app.schemas.graph import GraphResponse
 from app.schemas.jobs import JobResponse
 from app.services.search import search_article_ids, upsert_article_search_index
@@ -298,6 +299,50 @@ def get_article_extraction(article_id: int, db: Session = Depends(get_db)):
             validation_errors = json.loads(extraction.validation_errors)
         except json.JSONDecodeError:
             validation_errors = [extraction.validation_errors]
+
+    return ExtractionResponse(
+        article_id=article_id,
+        schema_version=extraction.schema_version,
+        extraction=extraction_data,
+        validation_errors=validation_errors,
+        confidence=extraction.confidence,
+        created_at=extraction.created_at,
+    )
+
+
+@router.put("/{article_id}/extraction", response_model=ExtractionResponse)
+def update_article_extraction(
+    article_id: int,
+    request: ExtractionUpdateRequest,
+    db: Session = Depends(get_db),
+):
+    """Save manually reviewed extraction JSON for an article."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    extraction = (
+        db.query(ArticleExtraction)
+        .filter(ArticleExtraction.article_id == article_id)
+        .order_by(ArticleExtraction.created_at.desc())
+        .first()
+    )
+    if extraction is None:
+        extraction = ArticleExtraction(article_id=article_id)
+        db.add(extraction)
+
+    extraction_data = request.extraction.model_dump(mode="json")
+    validation_errors = request.validation_errors or None
+    extraction.extraction_json = json.dumps(extraction_data)
+    extraction.validation_errors = json.dumps(validation_errors) if validation_errors else None
+    extraction.confidence = request.confidence
+    article.needs_review = 1 if validation_errors else 0
+    if not validation_errors and article.status == ArticleStatus.NEEDS_REVIEW.value:
+        article.status = ArticleStatus.COMPLETED.value
+
+    upsert_article_search_index(db, article_id)
+    db.commit()
+    db.refresh(extraction)
 
     return ExtractionResponse(
         article_id=article_id,

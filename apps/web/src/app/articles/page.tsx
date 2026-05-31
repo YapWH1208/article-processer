@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight, ArrowUpDown, CheckSquare, Square, Trash2, ArchiveRestore, X, FileType, Globe, FileCode } from "lucide-react";
+import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight, ArrowUpDown, CheckSquare, Square, Trash2, ArchiveRestore, X, FileType, Globe, FileCode, FileDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { StaggerContainer, StaggerItem, HoverCard, FadeIn } from "@/components/ui/animated";
-import { deleteArticle, toggleArchiveArticle, restoreArticle } from "@/lib/api";
+import { deleteArticle, exportArticles, toggleArchiveArticle, restoreArticle } from "@/lib/api";
+import { createArticleExportDownload, parseArticleListQuery, serializeArticleListQuery } from "./articleListState.mjs";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 const TERMINAL_ARTICLE_STATUSES = new Set(["completed", "failed", "needs_review"]);
@@ -27,22 +28,26 @@ interface Article {
 
 const PAGE_SIZE = 20;
 
-function getUrlParam(key: string): string {
-  if (typeof window === "undefined") return "";
-  return new URLSearchParams(window.location.search).get(key) || "";
+function getInitialListState() {
+  if (typeof window === "undefined") {
+    return parseArticleListQuery(new URLSearchParams());
+  }
+  return parseArticleListQuery(new URLSearchParams(window.location.search));
 }
 
 export default function ArticlesPage() {
+  const [initialListState] = useState(getInitialListState);
   const [articles, setArticles] = useState<Article[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [searchContent, setSearchContent] = useState(getUrlParam("q"));
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [includeArchived, setIncludeArchived] = useState(false);
-  const [page, setPage] = useState(1);
-  const [sortBy, setSortBy] = useState("created_at");
-  const [sortOrder, setSortOrder] = useState("desc");
+  const [search, setSearch] = useState(initialListState.search);
+  const [searchContent, setSearchContent] = useState(initialListState.searchContent);
+  const [statusFilter, setStatusFilter] = useState(initialListState.statusFilter);
+  const [includeArchived, setIncludeArchived] = useState(initialListState.includeArchived);
+  const [page, setPage] = useState(initialListState.page);
+  const [sortBy, setSortBy] = useState(initialListState.sortBy);
+  const [sortOrder, setSortOrder] = useState(initialListState.sortOrder);
+  const didMountFiltersRef = useRef(false);
 
   // Force-refetch counter (setPage(1) is a no-op when already on page 1)
   const [refreshKey, setRefreshKey] = useState(0);
@@ -88,6 +93,26 @@ export default function ArticlesPage() {
     setSelected(new Set());
     setBatchAction(null);
     setRefreshKey((k) => k + 1);
+  };
+
+  const handleBatchExport = async () => {
+    setBatchAction("export");
+    try {
+      const payload = await exportArticles([...selected]);
+      const download = createArticleExportDownload(payload);
+      const blob = new Blob([download.content], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = download.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${download.count} article(s)`);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setBatchAction(null);
+    }
   };
 
   const handleBatchDelete = async () => {
@@ -157,8 +182,32 @@ export default function ArticlesPage() {
       .finally(() => setLoading(false));
   }, [page, statusFilter, includeArchived, search, searchContent, sortBy, sortOrder, refreshKey]);
 
-  // Reset to page 1 when filters change (but NOT on refreshKey bump)
-  useEffect(() => { setPage(1); }, [search, statusFilter, includeArchived, searchContent, sortBy, sortOrder]);
+  // Reset to page 1 when filters change after the initial URL-backed render.
+  useEffect(() => {
+    if (!didMountFiltersRef.current) {
+      didMountFiltersRef.current = true;
+      return;
+    }
+    setPage(1);
+  }, [search, statusFilter, includeArchived, searchContent, sortBy, sortOrder]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const qs = serializeArticleListQuery({
+      search,
+      searchContent,
+      statusFilter,
+      includeArchived,
+      page,
+      sortBy,
+      sortOrder,
+    });
+    const nextUrl = `${window.location.pathname}${qs ? `?${qs}` : ""}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(null, "", nextUrl);
+    }
+  }, [search, searchContent, statusFilter, includeArchived, page, sortBy, sortOrder]);
 
   // Keyboard navigation: j/k to move through articles, Enter to open
   const router = useRouter();
@@ -266,6 +315,9 @@ export default function ArticlesPage() {
             <span className="text-sm font-medium">{selected.size} selected</span>
             <Button variant="outline" size="sm" className="gap-1" onClick={handleBatchArchive} disabled={!!batchAction}>
               <ArchiveRestore className="h-3.5 w-3.5"/> Archive/Restore
+            </Button>
+            <Button variant="outline" size="sm" className="gap-1" onClick={handleBatchExport} disabled={!!batchAction}>
+              <FileDown className="h-3.5 w-3.5"/> Export JSON
             </Button>
             <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
               <DialogTrigger asChild>

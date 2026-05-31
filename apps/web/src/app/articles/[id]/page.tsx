@@ -18,6 +18,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,9 +27,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { sendChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, toggleArchiveArticle, deleteArticle, restoreArticle, getRelatedArticles } from "@/lib/api";
+import { sendChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, updateArticleExtraction, toggleArchiveArticle, deleteArticle, restoreArticle, getRelatedArticles } from "@/lib/api";
 import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
+import { createCitationReaderTarget, createWorkspacePanelSummary, slugifyWorkspaceText } from "../articleWorkspaceState.mjs";
+import { formatExtractionForReview, parseReviewedExtraction } from "../extractionReviewState.mjs";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -44,7 +47,15 @@ interface SkillDef {
 }
 
 interface ChatMessage { role: string; content: string; citations_json?: string; prompt_tokens?: number; completion_tokens?: number; }
-interface Citation { chunk_id: number; section_title: string; snippet: string; page_start?: number; }
+interface Citation {
+  article_id?: number | null;
+  article_title?: string | null;
+  chunk_id?: number | null;
+  section_title?: string | null;
+  snippet?: string | null;
+  page_start?: number | null;
+  page_end?: number | null;
+}
 interface JobInfo { id: number; status: string; current_step: string | null; logs: Record<string, unknown>[] | null; error: string | null; created_at: string; completed_at: string | null; }
 
 const TERMINAL_ARTICLE_STATUSES = new Set(["completed", "failed", "needs_review"]);
@@ -62,9 +73,14 @@ export default function ArticleDetailPage() {
   const [markdown, setMarkdown] = useState("");
   const [extraction, setExtraction] = useState<ExtractionResult | null>(null);
   const [extractionErrors, setExtractionErrors] = useState<string[]>([]);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewDraft, setReviewDraft] = useState("");
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewSaving, setReviewSaving] = useState(false);
   const [graph, setGraph] = useState<{ entities: unknown[]; relationships: unknown[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("reader");
+  const [sidePanelTab, setSidePanelTab] = useState("chat");
   const [readerView, setReaderView] = useState<"markdown" | "pdf">("markdown");
 
   // Chat
@@ -193,7 +209,15 @@ export default function ArticleDetailPage() {
         });
       },
       // onDone: streaming completed successfully
-      () => {
+      (_answer, citations) => {
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = {
+            ...updated[updated.length - 1],
+            citations_json: citations?.length ? JSON.stringify(citations) : undefined,
+          };
+          return updated;
+        });
         setChatting(false);
       },
       // onError: fall back to non-streaming endpoint
@@ -241,6 +265,36 @@ export default function ArticleDetailPage() {
     finally { setReprocessing(false); }
   };
 
+  const openExtractionReview = () => {
+    setReviewDraft(formatExtractionForReview(extraction || {}));
+    setReviewError(null);
+    setReviewOpen(true);
+  };
+
+  const saveExtractionReview = async () => {
+    const parsed = parseReviewedExtraction(reviewDraft);
+    if (!parsed.ok) {
+      setReviewError(parsed.error || "Invalid JSON");
+      return;
+    }
+    setReviewSaving(true);
+    try {
+      const response = await updateArticleExtraction(articleId, {
+        extraction: parsed.value as ExtractionResult,
+        confidence: 1,
+      });
+      setExtraction(response.extraction || null);
+      setExtractionErrors(response.validation_errors || []);
+      setArticle((prev) => prev ? { ...prev, status: prev.status === "needs_review" ? "completed" : prev.status } : prev);
+      setReviewOpen(false);
+      toast.success("Reviewed extraction saved");
+    } catch (e) {
+      setReviewError(e instanceof Error ? e.message : "Failed to save reviewed extraction");
+    } finally {
+      setReviewSaving(false);
+    }
+  };
+
   const handleArchive = async () => {
     setArchiving(true);
     try {
@@ -281,9 +335,26 @@ export default function ArticleDetailPage() {
   };
 
   const isProcessing = article && !isTerminalArticleStatus(article.status);
+  const workspaceSummary = createWorkspacePanelSummary({ messages, jobs, graph });
   const citations = (msg: ChatMessage): Citation[] => {
     try { return msg.citations_json ? JSON.parse(msg.citations_json) : []; }
     catch { return []; }
+  };
+
+  const openCitation = (citation: Citation) => {
+    const target = createCitationReaderTarget(citation);
+    setTab("reader");
+    if (readerView === "pdf") setReaderView("markdown");
+
+    setTimeout(() => {
+      const fallbackAnchor = citation.section_title ? slugifyWorkspaceText(citation.section_title) : "";
+      const element = document.getElementById(target.anchorId) || (fallbackAnchor ? document.getElementById(fallbackAnchor) : null);
+      if (element) {
+        element.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+      toast.info("Source section is not visible in the reader yet");
+    }, 50);
   };
 
   if (loading) {
@@ -506,6 +577,34 @@ export default function ArticleDetailPage() {
                       <CardHeader className="shrink-0 flex flex-row items-center justify-between">
                         <div><CardTitle className="text-lg">Extraction</CardTitle><CardDescription>AI-extracted info</CardDescription></div>
                         <div className="flex gap-2">
+                          <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
+                            <DialogTrigger asChild>
+                              <Button variant="outline" size="sm" onClick={openExtractionReview} disabled={!extraction && extractionErrors.length === 0}>
+                                Review JSON
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-3xl">
+                              <DialogHeader>
+                                <DialogTitle>Review Extraction JSON</DialogTitle>
+                                <DialogDescription>
+                                  Edit the structured extraction and save it as reviewed data for search and analysis.
+                                </DialogDescription>
+                              </DialogHeader>
+                              <Textarea
+                                value={reviewDraft}
+                                onChange={(e) => { setReviewDraft(e.target.value); setReviewError(null); }}
+                                className="min-h-[420px] font-mono text-xs"
+                                spellCheck={false}
+                              />
+                              {reviewError && <p className="text-sm text-destructive">{reviewError}</p>}
+                              <DialogFooter>
+                                <Button variant="outline" onClick={() => setReviewOpen(false)}>Cancel</Button>
+                                <Button onClick={saveExtractionReview} disabled={reviewSaving}>
+                                  {reviewSaving ? "Saving..." : "Save Review"}
+                                </Button>
+                              </DialogFooter>
+                            </DialogContent>
+                          </Dialog>
                           {["json", "markdown"].map((f) => (
                             <a key={f} href={`${API_BASE}/articles/${articleId}/export/${f}`} target="_blank" rel="noopener noreferrer">
                               <Button variant="outline" size="sm" className="gap-1">
@@ -679,15 +778,15 @@ export default function ArticleDetailPage() {
               className="shrink-0 flex flex-col min-w-0 border-l md:border-l-0 pt-10"
             >
               <Card className="h-full flex flex-col border md:border rounded-lg">
-                <CardHeader className="pb-2 shrink-0 flex flex-row items-center justify-between">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <MessageCircle className="h-4 w-4"/> Chat
-                    {messages.length > 0 && (
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">
-                        {messages.reduce((sum, m) => sum + (m.prompt_tokens || 0) + (m.completion_tokens || 0), 0).toLocaleString()} tokens
-                      </Badge>
-                    )}
-                  </CardTitle>
+                <CardHeader className="pb-2 shrink-0 flex flex-row items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <MessageCircle className="h-4 w-4"/> Workspace
+                    </CardTitle>
+                    <CardDescription className="mt-1 text-xs">
+                      {workspaceSummary.messageCount} messages - {workspaceSummary.sourceCount} sources - {workspaceSummary.entityCount} entities
+                    </CardDescription>
+                  </div>
                   <div className="flex gap-1">
                     <Button variant="ghost" size="icon" className="h-7 w-7 md:hidden" onClick={() => setChatOpen(false)} aria-label="Close chat panel">
                       <X className="h-3.5 w-3.5"/>
@@ -698,6 +797,30 @@ export default function ArticleDetailPage() {
                   </div>
                 </CardHeader>
 
+                <Tabs value={sidePanelTab} onValueChange={setSidePanelTab} className="flex-1 flex flex-col min-h-0">
+                <div className="px-4 pb-3">
+                  <TabsList className="grid h-9 w-full grid-cols-3">
+                    <TabsTrigger value="chat" className="gap-1 text-xs">
+                      Chat
+                      {workspaceSummary.messageCount > 0 && <span className="rounded bg-muted px-1 text-[10px]">{workspaceSummary.messageCount}</span>}
+                    </TabsTrigger>
+                    <TabsTrigger value="jobs" className="gap-1 text-xs">
+                      Jobs
+                      {workspaceSummary.failedJobCount > 0 ? (
+                        <span className="rounded bg-destructive px-1 text-[10px] text-destructive-foreground">{workspaceSummary.failedJobCount}</span>
+                      ) : workspaceSummary.activeJobCount > 0 ? (
+                        <span className="rounded bg-primary px-1 text-[10px] text-primary-foreground">{workspaceSummary.activeJobCount}</span>
+                      ) : null}
+                    </TabsTrigger>
+                    <TabsTrigger value="context" className="gap-1 text-xs">
+                      Context
+                      {workspaceSummary.entityCount > 0 && <span className="rounded bg-muted px-1 text-[10px]">{workspaceSummary.entityCount}</span>}
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+
+                {sidePanelTab === "chat" && (
+                  <>
                 {/* Context preview */}
                 <AnimatePresence>
                   {contextText && (
@@ -727,7 +850,7 @@ export default function ArticleDetailPage() {
                               <div className="whitespace-pre-wrap text-xs">
                                 {msg.content.length > 400 && !expandedMsgs.has(i) ? (
                                   <>
-                                    {msg.content.slice(0, 400)}…
+                                    {msg.content.slice(0, 400)}...
                                     <button
                                       onClick={() => setExpandedMsgs((prev) => { const next = new Set(prev); next.add(i); return next; })}
                                       className="ml-1 text-primary hover:underline font-medium"
@@ -753,9 +876,22 @@ export default function ArticleDetailPage() {
                                 {msg.role === "assistant" && citations(msg).length > 0 && (
                                   <div className="mt-1.5 pt-1.5 border-t border-border/50 w-full">
                                     <p className="text-[10px] font-medium mb-0.5">Sources:</p>
-                                    {citations(msg).slice(0, 3).map((c, ci) => (
-                                      <div key={ci} className="text-[10px] opacity-70 mt-0.5">§{c.section_title} {c.page_start ? `p.${c.page_start}` : ""}</div>
-                                    ))}
+                                    <div className="flex flex-wrap gap-1">
+                                      {citations(msg).slice(0, 5).map((c, ci) => {
+                                        const target = createCitationReaderTarget(c);
+                                        return (
+                                          <button
+                                            key={ci}
+                                            type="button"
+                                            onClick={() => openCitation(c)}
+                                            className="rounded border border-border bg-background px-1.5 py-0.5 text-left text-[10px] text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                                            title={c.snippet || target.label}
+                                          >
+                                            {target.label}{target.meta ? ` - ${target.meta}` : ""}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
                                   </div>
                                 )}
                                 {(msg.prompt_tokens || msg.completion_tokens) ? (
@@ -781,6 +917,70 @@ export default function ArticleDetailPage() {
                     </Button>
                   </div>
                 </CardContent>
+                  </>
+                )}
+
+                {sidePanelTab === "jobs" && (
+                  <CardContent className="flex-1 min-h-0 p-4 pt-0">
+                    <ScrollArea className="h-full">
+                      <div className="grid grid-cols-3 gap-2 pb-3 text-center text-xs">
+                        <div className="rounded-md border p-2">
+                          <div className="text-base font-semibold">{workspaceSummary.jobCount}</div>
+                          <div className="text-muted-foreground">Total</div>
+                        </div>
+                        <div className="rounded-md border p-2">
+                          <div className="text-base font-semibold">{workspaceSummary.activeJobCount}</div>
+                          <div className="text-muted-foreground">Active</div>
+                        </div>
+                        <div className="rounded-md border p-2">
+                          <div className="text-base font-semibold">{workspaceSummary.failedJobCount}</div>
+                          <div className="text-muted-foreground">Failed</div>
+                        </div>
+                      </div>
+                      {jobs.length === 0 ? (
+                        <p className="text-center text-sm text-muted-foreground py-8">No processing jobs yet.</p>
+                      ) : (
+                        <div className="space-y-2 pr-3">
+                          {jobs.slice(0, 8).map((j) => (
+                            <div key={j.id} className="rounded-md border bg-muted/20 p-3 text-xs">
+                              <div className="flex items-center justify-between gap-2">
+                                <Badge variant={j.status === "completed" ? "default" : j.status === "failed" ? "destructive" : "secondary"} className="text-[10px]">{j.status}</Badge>
+                                <span className="text-muted-foreground">{new Date(j.created_at).toLocaleString()}</span>
+                              </div>
+                              {j.current_step && <p className="mt-1 text-muted-foreground">Step: {j.current_step}</p>}
+                              {j.error && <p className="mt-1 text-destructive">{j.error}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </ScrollArea>
+                  </CardContent>
+                )}
+
+                {sidePanelTab === "context" && (
+                  <CardContent className="flex-1 min-h-0 p-4 pt-0">
+                    <ScrollArea className="h-full">
+                      <div className="space-y-4 pr-3">
+                        <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                          <div className="rounded-md border p-2">
+                            <div className="text-base font-semibold">{workspaceSummary.entityCount}</div>
+                            <div className="text-muted-foreground">Entities</div>
+                          </div>
+                          <div className="rounded-md border p-2">
+                            <div className="text-base font-semibold">{workspaceSummary.relationshipCount}</div>
+                            <div className="text-muted-foreground">Links</div>
+                          </div>
+                        </div>
+                        <Separator />
+                        <div>
+                          <h4 className="font-semibold text-sm mb-2">Related Articles</h4>
+                          <RelatedArticles articleId={articleId} />
+                        </div>
+                      </div>
+                    </ScrollArea>
+                  </CardContent>
+                )}
+                </Tabs>
               </Card>
             </motion.div>
           )}
@@ -800,8 +1000,8 @@ export default function ArticleDetailPage() {
 // ── Sub-components ────────────────────────────────────────────────────────
 
 function slugify(children: React.ReactNode): string {
-  if (typeof children === "string") return children.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  if (Array.isArray(children)) return children.map(c => (typeof c === "string" ? c : "")).join(" ").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  if (typeof children === "string") return slugifyWorkspaceText(children);
+  if (Array.isArray(children)) return slugifyWorkspaceText(children.map(c => (typeof c === "string" ? c : "")).join(" "));
   return "";
 }
 

@@ -156,6 +156,8 @@ export interface GraphResponse {
 // ── Chat types ────────────────────────────────────────────────────
 
 export interface Citation {
+  article_id?: number | null;
+  article_title?: string | null;
   chunk_id: number;
   section_title?: string | null;
   page_start?: number | null;
@@ -221,6 +223,28 @@ export interface JobResponse {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+}
+
+export interface JobQueueItem {
+  job_id: number;
+  article_id: number;
+  article_title: string;
+  status: string;
+  queue_state: "active" | "queued" | "failed" | "completed";
+  current_step: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+  locked_at: string | null;
+  worker_id: string | null;
+  age_seconds: number;
+  can_retry: boolean;
+}
+
+export interface JobQueueResponse {
+  jobs: JobQueueItem[];
+  counts: Record<"active" | "queued" | "failed" | "completed", number>;
 }
 
 // ── Skill types ───────────────────────────────────────────────────
