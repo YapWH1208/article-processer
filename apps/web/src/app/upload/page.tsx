@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { uploadFile, getArticleActiveJob } from "@/lib/api";
 import { FadeIn } from "@/components/ui/animated";
+import { createUploadQueueSnapshot, shouldResumeProcessingFile, upsertProcessingFile } from "./uploadQueueState.mjs";
 
 interface ProcessingFile {
   filename: string;
@@ -23,6 +24,7 @@ interface ProcessingFile {
 
 const STEP_ORDER = ["uploaded", "parsing", "extracting", "embedding", "graph"] as const;
 const TERMINAL_STEPS = new Set(["completed", "failed", "needs_review"]);
+const UPLOAD_QUEUE_STORAGE_KEY = "article-processor.uploadQueue";
 
 function stepLabel(step: string | null): string {
   if (!step) return "Starting…";
@@ -52,6 +54,7 @@ export default function UploadPage() {
   const [processingFiles, setProcessingFiles] = useState<ProcessingFile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showSparkle, setShowSparkle] = useState(false);
+  const [queueRestored, setQueueRestored] = useState(false);
   const pollIntervalsRef = useRef<Map<number, ReturnType<typeof setInterval>>>(new Map());
   const [modelInfo, setModelInfo] = useState<{
     llmProvider: string; llmModel: string; llmProtocol: string | null;
@@ -82,23 +85,25 @@ export default function UploadPage() {
 
   const startPolling = useCallback((articleId: number, filename: string) => {
     // Set initial processing state
-    setProcessingFiles((prev) => [...prev, { filename, articleId, step: null, status: "processing", error: null }]);
+    setProcessingFiles((prev) =>
+      upsertProcessingFile(prev, { filename, articleId, step: null, status: "processing", error: null })
+    );
 
     const poll = async () => {
       try {
         const { job } = await getArticleActiveJob(articleId);
         setProcessingFiles((prev) =>
-          prev.map((f) =>
-            f.articleId === articleId
-              ? {
-                  ...f,
-                  step: job?.current_step || f.step,
-                  status: job?.status === "completed" ? "completed"
-                    : job?.status === "failed" ? "failed"
-                    : "processing",
-                  error: job?.error || null,
-                }
-              : f
+          upsertProcessingFile(
+            prev,
+            {
+              filename,
+              articleId,
+              step: job?.current_step || null,
+              status: job?.status === "completed" ? "completed"
+                : job?.status === "failed" ? "failed"
+                : "processing",
+              error: job?.error || null,
+            }
           )
         );
         // Stop polling when terminal
@@ -111,10 +116,30 @@ export default function UploadPage() {
       }
     };
 
+    const existingInterval = pollIntervalsRef.current.get(articleId);
+    if (existingInterval) clearInterval(existingInterval);
     poll(); // immediate first poll
     const interval = setInterval(poll, 2000);
     pollIntervalsRef.current.set(articleId, interval);
   }, []);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(UPLOAD_QUEUE_STORAGE_KEY);
+      const snapshot: ProcessingFile[] = raw ? createUploadQueueSnapshot(JSON.parse(raw)) : [];
+      setProcessingFiles(snapshot);
+      snapshot.filter(shouldResumeProcessingFile).forEach((file) => startPolling(file.articleId, file.filename));
+    } catch {
+      localStorage.removeItem(UPLOAD_QUEUE_STORAGE_KEY);
+    } finally {
+      setQueueRestored(true);
+    }
+  }, [startPolling]);
+
+  useEffect(() => {
+    if (!queueRestored) return;
+    localStorage.setItem(UPLOAD_QUEUE_STORAGE_KEY, JSON.stringify(createUploadQueueSnapshot(processingFiles)));
+  }, [processingFiles, queueRestored]);
 
   const handleUpload = useCallback(async (files: FileList | File[]) => {
     setUploading(true); setError(null); setProgress(0);
