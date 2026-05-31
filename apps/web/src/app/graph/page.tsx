@@ -13,7 +13,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getGlobalGraph } from "@/lib/api";
 import type { GlobalGraphData } from "@/lib/types";
 import { FadeIn } from "@/components/ui/animated";
-import { createGraphViewportState, resolveGraphCanvasSize, resolveGraphCanvasTheme } from "./graphCanvasState.mjs";
+import {
+  applyGraphNodeDrag,
+  createGraphViewportState,
+  resolveGraphCanvasSize,
+  resolveGraphCanvasTheme,
+  tickGraphSimulation,
+} from "./graphCanvasState.mjs";
 
 // ── Entity type colors ─────────────────────────────────────────────
 const TYPE_COLORS: Record<string, string> = {
@@ -58,61 +64,8 @@ interface GraphEdge {
 // ── Force-directed layout engine (lightweight, no dependencies) ───
 
 function simulate(nodes: GraphNode[], edges: GraphEdge[], width: number, height: number, iterations = 120) {
-  const repulsion = 3000;
-  const attraction = 0.005;
-  const damping = 0.85;
-  const centerGravity = 0.001;
-  const maxVelocity = 8;
-  const minDistance = 30;
-
   for (let iter = 0; iter < iterations; iter++) {
-    // Repulsion between all node pairs
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const dx = nodes[i].x - nodes[j].x;
-        const dy = nodes[i].y - nodes[j].y;
-        const dist = Math.max(minDistance, Math.sqrt(dx * dx + dy * dy));
-        const force = repulsion / (dist * dist);
-        const fx = (dx / dist) * force;
-        const fy = (dy / dist) * force;
-        nodes[i].vx += fx;
-        nodes[i].vy += fy;
-        nodes[j].vx -= fx;
-        nodes[j].vy -= fy;
-      }
-    }
-
-    // Attraction along edges
-    for (const edge of edges) {
-      const s = nodes.find((n) => n.id === edge.source);
-      const t = nodes.find((n) => n.id === edge.target);
-      if (!s || !t) continue;
-      const dx = t.x - s.x;
-      const dy = t.y - s.y;
-      const dist = Math.max(1, Math.sqrt(dx * dx + dy * dy));
-      const force = dist * attraction;
-      const fx = (dx / dist) * force;
-      const fy = (dy / dist) * force;
-      s.vx += fx;
-      s.vy += fy;
-      t.vx -= fx;
-      t.vy -= fy;
-    }
-
-    // Center gravity + velocity update
-    const cx = width / 2;
-    const cy = height / 2;
-    for (const node of nodes) {
-      node.vx += (cx - node.x) * centerGravity;
-      node.vy += (cy - node.y) * centerGravity;
-      node.vx = Math.max(-maxVelocity, Math.min(maxVelocity, node.vx * damping));
-      node.vy = Math.max(-maxVelocity, Math.min(maxVelocity, node.vy * damping));
-      node.x += node.vx;
-      node.y += node.vy;
-      // Clamp to bounds
-      node.x = Math.max(node.radius, Math.min(width - node.radius, node.x));
-      node.y = Math.max(node.radius, Math.min(height - node.radius, node.y));
-    }
+    tickGraphSimulation(nodes, edges, width, height);
   }
 }
 
@@ -132,7 +85,11 @@ function GraphCanvas({
   onNodeClick: (node: GraphNode) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animRef = useRef<number>(0);
+  const renderFrameRef = useRef<number>(0);
+  const simulationFrameRef = useRef<number>(0);
+  const simulationRunningRef = useRef(false);
+  const pinnedNodeIdRef = useRef<number | null>(null);
+  const settleFramesRef = useRef(0);
   const viewportRef = useRef<ReturnType<typeof createGraphViewportState> | null>(null);
   const hoveredNodeRef = useRef<GraphNode | null>(null);
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
@@ -143,13 +100,6 @@ function GraphCanvas({
   if (!viewportRef.current) {
     viewportRef.current = createGraphViewportState(transform);
   }
-
-  // Run simulation on mount
-  useEffect(() => {
-    simulate(nodes, edges, width, height, 150);
-    render();
-    return () => cancelAnimationFrame(animRef.current);
-  }, [nodes, edges, width, height]);
 
   const worldToScreen = useCallback(
     (wx: number, wy: number) => {
@@ -287,9 +237,48 @@ function GraphCanvas({
   }, [nodes, edges, width, height, worldToScreen]);
 
   const requestRender = useCallback(() => {
-    cancelAnimationFrame(animRef.current);
-    animRef.current = requestAnimationFrame(render);
+    cancelAnimationFrame(renderFrameRef.current);
+    renderFrameRef.current = requestAnimationFrame(render);
   }, [render]);
+
+  const startSimulationLoop = useCallback(() => {
+    if (simulationRunningRef.current) return;
+    simulationRunningRef.current = true;
+
+    const frame = () => {
+      const energy = tickGraphSimulation(nodes, edges, width, height, {
+        pinnedNodeId: pinnedNodeIdRef.current,
+      });
+      render();
+      settleFramesRef.current += 1;
+
+      if (pinnedNodeIdRef.current != null || (energy > 0.04 && settleFramesRef.current < 240)) {
+        simulationFrameRef.current = requestAnimationFrame(frame);
+      } else {
+        simulationRunningRef.current = false;
+      }
+    };
+
+    simulationFrameRef.current = requestAnimationFrame(frame);
+  }, [nodes, edges, width, height, render]);
+
+  // Warm up the layout, then let it visibly settle like a force graph.
+  useEffect(() => {
+    cancelAnimationFrame(renderFrameRef.current);
+    cancelAnimationFrame(simulationFrameRef.current);
+    simulationRunningRef.current = false;
+    pinnedNodeIdRef.current = null;
+    settleFramesRef.current = 0;
+    simulate(nodes, edges, width, height, 30);
+    render();
+    startSimulationLoop();
+
+    return () => {
+      cancelAnimationFrame(renderFrameRef.current);
+      cancelAnimationFrame(simulationFrameRef.current);
+      simulationRunningRef.current = false;
+    };
+  }, [nodes, edges, width, height, render, startSimulationLoop]);
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -309,13 +298,10 @@ function GraphCanvas({
 
       if (dragRef.current.node) {
         const { x, y } = screenToWorld(sx, sy);
-        const node = nodes.find((n) => n.id === dragRef.current.node!.id);
-        if (node) {
-          node.x = x;
-          node.y = y;
-          node.vx = 0;
-          node.vy = 0;
-          requestRender();
+        if (applyGraphNodeDrag(nodes, edges, dragRef.current.node.id, { x, y })) {
+          pinnedNodeIdRef.current = dragRef.current.node.id;
+          settleFramesRef.current = 0;
+          startSimulationLoop();
         }
         return;
       }
@@ -337,7 +323,7 @@ function GraphCanvas({
         canvasRef.current.style.cursor = found ? "pointer" : dragRef.current.pan ? "grabbing" : "grab";
       }
     },
-    [nodes, screenToWorld, requestRender]
+    [nodes, edges, screenToWorld, requestRender, startSimulationLoop]
   );
 
   const handleMouseDown = useCallback(
@@ -361,12 +347,15 @@ function GraphCanvas({
 
       if (clicked) {
         dragRef.current = { x: sx, y: sy, node: clicked, pan: false };
+        pinnedNodeIdRef.current = clicked.id;
+        settleFramesRef.current = 0;
+        startSimulationLoop();
       } else {
         dragRef.current = { x: sx, y: sy, node: null, pan: true };
         if (canvasRef.current) canvasRef.current.style.cursor = "grabbing";
       }
     },
-    [nodes, screenToWorld]
+    [nodes, screenToWorld, startSimulationLoop]
   );
 
   const handleMouseUp = useCallback(
@@ -378,10 +367,13 @@ function GraphCanvas({
           onNodeClick(dragRef.current.node);
         }
       }
+      pinnedNodeIdRef.current = null;
+      settleFramesRef.current = 0;
+      startSimulationLoop();
       dragRef.current = { x: 0, y: 0, node: null, pan: false };
       if (canvasRef.current) canvasRef.current.style.cursor = "grab";
     },
-    [onNodeClick]
+    [onNodeClick, startSimulationLoop]
   );
 
   const handleWheel = useCallback(
@@ -439,6 +431,10 @@ function GraphCanvas({
         onMouseUp={handleMouseUp}
         onMouseLeave={() => {
           hoveredNodeRef.current = null;
+          pinnedNodeIdRef.current = null;
+          dragRef.current = { x: 0, y: 0, node: null, pan: false };
+          settleFramesRef.current = 0;
+          startSimulationLoop();
           requestRender();
         }}
         onWheel={handleWheel}
