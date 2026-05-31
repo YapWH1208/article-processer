@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { parseArticleListQuery, serializeArticleListQuery } from "./articleListState.mjs";
+import {
+  createArticleExportDownload,
+  parseArticleListQuery,
+  serializeArticleListQuery,
+} from "./articleListState.mjs";
 
 test("article list query state round-trips active filters and paging", () => {
   const state = parseArticleListQuery(
@@ -39,4 +43,15 @@ test("article list query state normalizes invalid and default values", () => {
     sortOrder: "desc",
   });
   assert.equal(serializeArticleListQuery(state), "");
+});
+
+test("article export download uses a stable dated filename and pretty JSON", () => {
+  const download = createArticleExportDownload(
+    { count: 2, articles: [{ id: 1 }, { id: 2 }] },
+    new Date("2026-05-31T10:00:00Z")
+  );
+
+  assert.equal(download.filename, "articles-export-2026-05-31.json");
+  assert.equal(download.count, 2);
+  assert.equal(download.content, '{\n  "count": 2,\n  "articles": [\n    {\n      "id": 1\n    },\n    {\n      "id": 2\n    }\n  ]\n}');
 });

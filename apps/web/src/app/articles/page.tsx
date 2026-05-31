@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight, ArrowUpDown, CheckSquare, Square, Trash2, ArchiveRestore, X, FileType, Globe, FileCode } from "lucide-react";
+import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight, ArrowUpDown, CheckSquare, Square, Trash2, ArchiveRestore, X, FileType, Globe, FileCode, FileDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -14,8 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { StaggerContainer, StaggerItem, HoverCard, FadeIn } from "@/components/ui/animated";
-import { deleteArticle, toggleArchiveArticle, restoreArticle } from "@/lib/api";
-import { parseArticleListQuery, serializeArticleListQuery } from "./articleListState.mjs";
+import { deleteArticle, exportArticles, toggleArchiveArticle, restoreArticle } from "@/lib/api";
+import { createArticleExportDownload, parseArticleListQuery, serializeArticleListQuery } from "./articleListState.mjs";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 const TERMINAL_ARTICLE_STATUSES = new Set(["completed", "failed", "needs_review"]);
@@ -93,6 +93,26 @@ export default function ArticlesPage() {
     setSelected(new Set());
     setBatchAction(null);
     setRefreshKey((k) => k + 1);
+  };
+
+  const handleBatchExport = async () => {
+    setBatchAction("export");
+    try {
+      const payload = await exportArticles([...selected]);
+      const download = createArticleExportDownload(payload);
+      const blob = new Blob([download.content], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = download.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${download.count} article(s)`);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setBatchAction(null);
+    }
   };
 
   const handleBatchDelete = async () => {
@@ -295,6 +315,9 @@ export default function ArticlesPage() {
             <span className="text-sm font-medium">{selected.size} selected</span>
             <Button variant="outline" size="sm" className="gap-1" onClick={handleBatchArchive} disabled={!!batchAction}>
               <ArchiveRestore className="h-3.5 w-3.5"/> Archive/Restore
+            </Button>
+            <Button variant="outline" size="sm" className="gap-1" onClick={handleBatchExport} disabled={!!batchAction}>
+              <FileDown className="h-3.5 w-3.5"/> Export JSON
             </Button>
             <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
               <DialogTrigger asChild>

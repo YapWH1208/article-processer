@@ -59,3 +59,11 @@ export function serializeArticleListQuery(state) {
   if (state.sortOrder && state.sortOrder !== DEFAULT_STATE.sortOrder) params.set("order", state.sortOrder);
   return params.toString();
 }
+
+export function createArticleExportDownload(payload, date = new Date()) {
+  return {
+    filename: `articles-export-${date.toISOString().slice(0, 10)}.json`,
+    content: JSON.stringify(payload, null, 2),
+    count: Number(payload?.count ?? payload?.articles?.length ?? 0),
+  };
+}
