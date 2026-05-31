@@ -53,7 +53,7 @@ _docling = None
 _pypdf = None
 _html = None
 _md = None
-_pdf_parser_notice_logged = False
+_pdf_parser_notice_logged_messages: set[str] = set()
 
 
 def _get_mineru():
@@ -97,14 +97,13 @@ def _get_markdown():
 
 
 def _log_pdf_parser_notice(message: str, *, warning: bool = False) -> None:
-    global _pdf_parser_notice_logged
-    if _pdf_parser_notice_logged:
+    if message in _pdf_parser_notice_logged_messages:
         return
     if warning:
         logger.warning(message)
     else:
         logger.info(message)
-    _pdf_parser_notice_logged = True
+    _pdf_parser_notice_logged_messages.add(message)
 
 
 def _select_pdf_parser(priority: str):
@@ -145,16 +144,6 @@ def _get_parser(source_type: str):
     if source_type in {"md", "txt"}:
         return _get_markdown()
     return None
-
-
-def _get_parsers():
-    """Return parser dict using current settings priority."""
-    return {
-        "pdf": _select_pdf_parser(settings.parser_priority),
-        "html": _get_html(),
-        "md": _get_markdown(),
-        "txt": _get_markdown(),
-    }
 
 
 async def run_pipeline(

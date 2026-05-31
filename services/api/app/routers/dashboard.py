@@ -53,14 +53,25 @@ def get_job_queue(
     db: Session = Depends(get_db),
 ):
     """Return global processing queue state for operational visibility."""
-    jobs = (
+    base_jobs_query = (
         db.query(ProcessingJob, Article)
         .join(Article, Article.id == ProcessingJob.article_id)
         .filter(Article.deleted_at.is_(None))
+    )
+    active_jobs = (
+        base_jobs_query
+        .filter(ProcessingJob.status != "completed")
+        .order_by(ProcessingJob.created_at.desc())
+        .all()
+    )
+    completed_jobs = (
+        base_jobs_query
+        .filter(ProcessingJob.status == "completed")
         .order_by(ProcessingJob.created_at.desc())
         .limit(limit)
         .all()
     )
+    jobs = active_jobs + completed_jobs
 
     now = datetime.datetime.utcnow()
     items = [_job_queue_item(job, article, now) for job, article in jobs]
@@ -68,8 +79,15 @@ def get_job_queue(
     items.sort(key=lambda item: (state_order.get(item["queue_state"], 99), item["created_at"]), reverse=False)
 
     counts = {"active": 0, "queued": 0, "failed": 0, "completed": 0}
-    for item in items:
-        counts[item["queue_state"]] += 1
+    status_counts = (
+        db.query(ProcessingJob.status, func.count(ProcessingJob.id))
+        .join(Article, Article.id == ProcessingJob.article_id)
+        .filter(Article.deleted_at.is_(None))
+        .group_by(ProcessingJob.status)
+        .all()
+    )
+    for status, count in status_counts:
+        counts[_queue_state(status)] += int(count)
 
     return {"jobs": items, "counts": counts}
 

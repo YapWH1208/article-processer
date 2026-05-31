@@ -43,6 +43,22 @@ class FlakyExtractionProvider:
         return {"title": article_title, "graph_entities": [], "graph_relationships": []}, None, 0.9
 
 
+def test_pdf_parser_notice_logs_each_unique_message_once(monkeypatch):
+    info_messages = []
+    warning_messages = []
+    processor._pdf_parser_notice_logged_messages.clear()
+    monkeypatch.setattr(processor.logger, "info", lambda message: info_messages.append(message))
+    monkeypatch.setattr(processor.logger, "warning", lambda message: warning_messages.append(message))
+
+    processor._log_pdf_parser_notice("docling requested but not installed, falling back", warning=True)
+    processor._log_pdf_parser_notice("docling requested but not installed, falling back", warning=True)
+    processor._log_pdf_parser_notice("Neither MinerU nor Docling installed - pypdf will be used")
+    processor._log_pdf_parser_notice("Neither MinerU nor Docling installed - pypdf will be used")
+
+    assert warning_messages == ["docling requested but not installed, falling back"]
+    assert info_messages == ["Neither MinerU nor Docling installed - pypdf will be used"]
+
+
 @pytest.mark.asyncio
 async def test_pipeline_fails_when_extraction_returns_no_json(tmp_path, monkeypatch):
     db_path = tmp_path / "pipeline.sqlite3"

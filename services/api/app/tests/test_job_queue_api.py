@@ -87,3 +87,50 @@ def test_job_queue_summarizes_jobs_by_queue_state(tmp_path):
     failed = response["jobs"][2]
     assert failed["error"] == "model timeout"
     assert failed["can_retry"] is True
+
+
+def test_job_queue_keeps_non_completed_visible_when_completed_are_limited(tmp_path):
+    db_path = tmp_path / "jobs_limited.sqlite3"
+    engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+    db = TestingSessionLocal()
+    article = Article(
+        title="Queue Visibility",
+        status=ArticleStatus.EXTRACTING.value,
+        original_filename="queue.md",
+        source_type="md",
+        storage_path="queue.md",
+    )
+    db.add(article)
+    db.flush()
+
+    now = datetime.datetime.utcnow()
+    db.add(ProcessingJob(
+        article_id=article.id,
+        status=JobStatus.PENDING.value,
+        current_step="queued",
+        logs_json=json.dumps([]),
+        created_at=now - datetime.timedelta(hours=1),
+    ))
+    for index in range(5):
+        db.add(ProcessingJob(
+            article_id=article.id,
+            status=JobStatus.COMPLETED.value,
+            current_step="complete",
+            logs_json=json.dumps([]),
+            created_at=now - datetime.timedelta(minutes=index),
+            completed_at=now - datetime.timedelta(minutes=index - 1),
+        ))
+    db.commit()
+
+    response = get_job_queue(limit=2, db=db)
+
+    assert response["counts"] == {
+        "active": 0,
+        "queued": 1,
+        "failed": 0,
+        "completed": 5,
+    }
+    assert [job["queue_state"] for job in response["jobs"]] == ["queued", "completed", "completed"]
