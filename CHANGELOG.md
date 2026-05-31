@@ -4,6 +4,31 @@ All notable changes to the Article Processor project.
 
 ---
 
+## [Unreleased] - 2026-05-31
+
+### Added
+
+- **Local-first article workspace** - Article detail pages now use a two-pane workspace with reader-first content and a tabbed side panel for Chat, Jobs, and Context. Source chips in chat answers link back to reader chunks or sections when citation metadata is available.
+- **Extraction review editor** - Structured AI extraction JSON can be edited and saved from the article detail page. Saving reviewed extraction data updates review status and refreshes search-derived data.
+- **Global job queue visibility** - Logs now include a queue overview with active, queued, failed, and completed jobs, current step, age, article title, worker information, and errors.
+- **Retry failed jobs from Logs** - Failed queue items expose a retry action that requeues full article processing from the global queue surface.
+- **Article-list URL state** - Article list search, content search, status filter, archived toggle, sorting, and pagination are reflected in the URL for refresh-safe and shareable views.
+- **Batch JSON export from article list** - Selected articles can be exported directly from the batch action bar.
+- **Persistent upload queue** - Upload/import processing progress is stored locally and resumed after refresh for active jobs.
+- **Frontend state tests** - Node test coverage now includes article-list URL/export state, upload queue persistence, job queue action state, graph canvas state, extraction review parsing, and article workspace helpers.
+
+### Changed
+
+- **Backend startup** - PDF parser imports are lazy-loaded to reduce API startup time when optional parser packages are not installed.
+- **Chat retrieval** - Local retrieval uses chunk-aware source metadata so generated answers can carry article, section, page, and chunk references back to the UI.
+- **Functional/QOL polish** - Article list, upload, logs, and article detail workflows now favor recoverable local state, direct queue actions, and clearer operational feedback.
+
+### Removed
+
+- **Authentication surfaces** - Login/register/account-related routes and UI are removed. The app is local-first and runs without user accounts.
+
+---
+
 ## [0.4.0] — 2026-05-24
 
 ### Changed (breaking)
