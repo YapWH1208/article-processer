@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { summarizeJobQueue } from "./jobQueueState.mjs";
+import { getJobQueueActionState, summarizeJobQueue } from "./jobQueueState.mjs";
 
 test("job queue summary keeps active and queued work first", () => {
   const summary = summarizeJobQueue([
@@ -18,4 +18,33 @@ test("job queue summary keeps active and queued work first", () => {
     completed: 1,
   });
   assert.deepEqual(summary.jobs.map((job) => job.job_id), [4, 3, 2, 1]);
+});
+
+test("job queue action state exposes retry only for retryable failed jobs", () => {
+  assert.deepEqual(
+    getJobQueueActionState({ job_id: 12, queue_state: "failed", can_retry: true }, null),
+    {
+      canRetry: true,
+      retryDisabled: false,
+      retryLabel: "Retry",
+    }
+  );
+
+  assert.deepEqual(
+    getJobQueueActionState({ job_id: 13, queue_state: "completed", can_retry: true }, null),
+    {
+      canRetry: false,
+      retryDisabled: true,
+      retryLabel: "Retry",
+    }
+  );
+
+  assert.deepEqual(
+    getJobQueueActionState({ job_id: 12, queue_state: "failed", can_retry: true }, 12),
+    {
+      canRetry: true,
+      retryDisabled: true,
+      retryLabel: "Retrying...",
+    }
+  );
 });

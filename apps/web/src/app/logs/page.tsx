@@ -5,14 +5,15 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   ScrollText, Clock, CheckCircle2, AlertCircle, Loader2, Brain,
-  Layers, ArrowLeft, ChevronRight, Zap, Hash, BarChart3,
+  Layers, ArrowLeft, ChevronRight, Zap, Hash, BarChart3, RotateCw,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getJobQueue } from "@/lib/api";
+import { getJobQueue, reprocessArticle } from "@/lib/api";
 import type { JobQueueItem } from "@/lib/types";
-import { summarizeJobQueue } from "./jobQueueState.mjs";
+import { getJobQueueActionState, summarizeJobQueue } from "./jobQueueState.mjs";
 
 interface LogEntry {
   step: string;
@@ -76,6 +77,7 @@ export default function LogsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [liveMode, setLiveMode] = useState(false);
+  const [retryingJobId, setRetryingJobId] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const fetchLogs = async () => {
@@ -93,6 +95,19 @@ export default function LogsPage() {
       setQueueCounts(summary.counts);
     }
     return d;
+  };
+
+  const retryJob = async (job: JobQueueItem) => {
+    setRetryingJobId(job.job_id);
+    try {
+      await reprocessArticle(job.article_id, "full");
+      toast.success(`Requeued "${job.article_title}"`);
+      await fetchLogs();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Retry failed");
+    } finally {
+      setRetryingJobId(null);
+    }
   };
 
   useEffect(() => {
@@ -200,31 +215,48 @@ export default function LogsPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-2">
-            {queueJobs.slice(0, 8).map((job) => (
-              <div key={job.job_id} className="flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2 text-sm">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      variant={job.queue_state === "failed" ? "destructive" : job.queue_state === "completed" ? "default" : "secondary"}
-                      className="text-[10px]"
-                    >
-                      {job.queue_state}
-                    </Badge>
-                    <span className="font-medium truncate">{job.article_title}</span>
+            {queueJobs.slice(0, 8).map((job) => {
+              const actionState = getJobQueueActionState(job, retryingJobId);
+              return (
+                <div key={job.job_id} className="flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <Badge
+                        variant={job.queue_state === "failed" ? "destructive" : job.queue_state === "completed" ? "default" : "secondary"}
+                        className="text-[10px]"
+                      >
+                        {job.queue_state}
+                      </Badge>
+                      <span className="font-medium truncate">{job.article_title}</span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <span>Job #{job.job_id}</span>
+                      {job.current_step && <span>Step: {job.current_step}</span>}
+                      <span>{elapsed(job.created_at, job.completed_at)}</span>
+                      {job.worker_id && <span>{job.worker_id}</span>}
+                    </div>
+                    {job.error && <p className="mt-1 text-xs text-destructive line-clamp-1">{job.error}</p>}
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <span>Job #{job.job_id}</span>
-                    {job.current_step && <span>Step: {job.current_step}</span>}
-                    <span>{elapsed(job.created_at, job.completed_at)}</span>
-                    {job.worker_id && <span>{job.worker_id}</span>}
+                  <div className="flex items-center gap-1">
+                    {actionState.canRetry && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1"
+                        disabled={actionState.retryDisabled}
+                        onClick={() => retryJob(job)}
+                      >
+                        <RotateCw className={`h-3.5 w-3.5 ${retryingJobId === job.job_id ? "animate-spin" : ""}`} />
+                        {actionState.retryLabel}
+                      </Button>
+                    )}
+                    <Button variant="ghost" size="sm" onClick={() => router.push(`/articles/${job.article_id}`)}>
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
                   </div>
-                  {job.error && <p className="mt-1 text-xs text-destructive line-clamp-1">{job.error}</p>}
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => router.push(`/articles/${job.article_id}`)}>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
+              );
+            })}
           </CardContent>
         </Card>
       )}

@@ -27,3 +27,18 @@ export function summarizeJobQueue(jobs) {
 
   return { counts, jobs: sorted };
 }
+
+/**
+ * @param {{ can_retry?: boolean, queue_state?: string, job_id?: number }} job
+ * @param {number | null} retryingJobId
+ */
+export function getJobQueueActionState(job, retryingJobId = null) {
+  const canRetry = Boolean(job?.can_retry && job?.queue_state === "failed");
+  const retrying = retryingJobId === job?.job_id;
+
+  return {
+    canRetry,
+    retryDisabled: !canRetry || retrying,
+    retryLabel: retrying ? "Retrying..." : "Retry",
+  };
+}
