@@ -23,6 +23,29 @@ export function resolveGraphCanvasSize({ containerWidth, viewportHeight }) {
   };
 }
 
+function resolveCssHslColor(style, propertyName, fallback) {
+  const rawValue = typeof style?.getPropertyValue === "function"
+    ? style.getPropertyValue(propertyName).trim()
+    : "";
+
+  if (!rawValue) return fallback;
+  if (rawValue.startsWith("#") || rawValue.startsWith("rgb(") || rawValue.startsWith("rgba(") || rawValue.startsWith("hsl(") || rawValue.startsWith("hsla(")) {
+    return rawValue;
+  }
+
+  return `hsl(${rawValue})`;
+}
+
+export function resolveGraphCanvasTheme(style) {
+  return {
+    foreground: resolveCssHslColor(style, "--foreground", "#111827"),
+    background: resolveCssHslColor(style, "--background", "#ffffff"),
+    card: resolveCssHslColor(style, "--card", "#ffffff"),
+    cardForeground: resolveCssHslColor(style, "--card-foreground", "#111827"),
+    border: resolveCssHslColor(style, "--border", "#e5e7eb"),
+  };
+}
+
 export function createGraphViewportState(initialTransform = { x: 0, y: 0, scale: 1 }) {
   let transform = {
     x: initialTransform.x,

@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getGlobalGraph } from "@/lib/api";
 import type { GlobalGraphData } from "@/lib/types";
 import { FadeIn } from "@/components/ui/animated";
-import { createGraphViewportState, resolveGraphCanvasSize } from "./graphCanvasState.mjs";
+import { createGraphViewportState, resolveGraphCanvasSize, resolveGraphCanvasTheme } from "./graphCanvasState.mjs";
 
 // ── Entity type colors ─────────────────────────────────────────────
 const TYPE_COLORS: Record<string, string> = {
@@ -188,6 +188,7 @@ function GraphCanvas({
     const currentTransform = viewportRef.current!.getTransform();
     const currentHoveredNode = hoveredNodeRef.current;
     const activeNodeId = currentHoveredNode?.id ?? null;
+    const theme = resolveGraphCanvasTheme(getComputedStyle(document.documentElement));
 
     ctx.save();
     ctx.translate(currentTransform.x, currentTransform.y);
@@ -200,7 +201,7 @@ function GraphCanvas({
       if (!s || !t) continue;
       const activeEdge = activeNodeId != null && (edge.source === activeNodeId || edge.target === activeNodeId);
       ctx.globalAlpha = activeNodeId == null ? 0.6 : activeEdge ? 0.9 : 0.12;
-      ctx.strokeStyle = activeEdge ? "hsl(var(--foreground))" : "hsl(var(--border))";
+      ctx.strokeStyle = activeEdge ? theme.foreground : theme.border;
       ctx.lineWidth = (activeEdge ? 1.6 : 0.8) / currentTransform.scale;
       ctx.beginPath();
       ctx.moveTo(s.x, s.y);
@@ -237,7 +238,7 @@ function GraphCanvas({
       ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
-      ctx.strokeStyle = isHovered ? "#fff" : "hsl(var(--background))";
+      ctx.strokeStyle = isHovered ? "#fff" : theme.background;
       ctx.lineWidth = isHovered ? 2 / currentTransform.scale : 1.5 / currentTransform.scale;
       ctx.stroke();
 
@@ -245,7 +246,7 @@ function GraphCanvas({
       if (currentTransform.scale > 0.5 || isHovered) {
         const fontSize = Math.max(9, 11 / currentTransform.scale);
         ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
-        ctx.fillStyle = "hsl(var(--foreground))";
+        ctx.fillStyle = theme.foreground;
         ctx.textAlign = "center";
         const label = node.label.length > 20 ? node.label.slice(0, 20) + "…" : node.label;
         ctx.fillText(label, node.x, node.y - node.radius - 4);
@@ -268,15 +269,15 @@ function GraphCanvas({
       const tx = Math.min(width - tooltipW, Math.max(0, x - tooltipW / 2));
       const ty = y - currentHoveredNode.radius - tooltipH - 10;
 
-      ctx.fillStyle = "hsl(var(--card))";
-      ctx.strokeStyle = "hsl(var(--border))";
+      ctx.fillStyle = theme.card;
+      ctx.strokeStyle = theme.border;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.roundRect(tx, ty, tooltipW, tooltipH, 6);
       ctx.fill();
       ctx.stroke();
 
-      ctx.fillStyle = "hsl(var(--card-foreground))";
+      ctx.fillStyle = theme.cardForeground;
       ctx.textAlign = "left";
       lines.forEach((line, i) => {
         ctx.fillText(line, tx + 8, ty + 14 + i * 16);
