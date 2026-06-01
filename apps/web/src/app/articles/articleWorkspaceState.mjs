@@ -33,6 +33,21 @@ export function shouldUseWorkspaceSplit(width) {
   return Number(width) >= 1024;
 }
 
+export function createChatSubmission({ question = "", contextText = "" } = {}) {
+  const trimmedQuestion = String(question || "").trim();
+  const selectedContext = String(contextText || "");
+
+  if (!trimmedQuestion && !selectedContext) return null;
+
+  return {
+    content: selectedContext
+      ? `[User selected context]:\n${selectedContext}\n\n[Question]: ${
+          trimmedQuestion || "Tell me about this"
+        }`
+      : trimmedQuestion,
+  };
+}
+
 function countSources(messages) {
   let count = 0;
   for (const message of messages || []) {

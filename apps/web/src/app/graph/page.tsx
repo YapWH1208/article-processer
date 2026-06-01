@@ -10,9 +10,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getGlobalGraph } from "@/lib/api";
-import type { GlobalGraphData } from "@/lib/types";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { getArticle, getGlobalGraph } from "@/lib/api";
+import type { ArticleDetail, GlobalGraphData } from "@/lib/types";
 import { FadeIn } from "@/components/ui/animated";
+import { createGraphNodeArticleSummary } from "./graphArticleSummary.mjs";
 import {
   applyGraphNodeDrag,
   createGraphViewportState,
@@ -48,6 +50,7 @@ interface GraphNode {
   type: string;
   articleId: number;
   articleTitle: string;
+  confidence: number;
   x: number;
   y: number;
   vx: number;
@@ -67,6 +70,10 @@ function simulate(nodes: GraphNode[], edges: GraphEdge[], width: number, height:
   for (let iter = 0; iter < iterations; iter++) {
     tickGraphSimulation(nodes, edges, width, height);
   }
+}
+
+function formatDateTime(value: string | null) {
+  return value ? new Date(value).toLocaleString() : "Unknown";
 }
 
 // ── Canvas Graph Component ─────────────────────────────────────────
@@ -463,6 +470,10 @@ export default function GraphPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set());
+  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [selectedArticle, setSelectedArticle] = useState<ArticleDetail | null>(null);
+  const [selectedArticleLoading, setSelectedArticleLoading] = useState(false);
+  const [selectedArticleError, setSelectedArticleError] = useState<string | null>(null);
   const graphContainerRef = useRef<HTMLDivElement>(null);
   const [graphSize, setGraphSize] = useState({ width: 0, height: 0 });
 
@@ -504,6 +515,35 @@ export default function GraphPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!selectedNode) {
+      setSelectedArticle(null);
+      setSelectedArticleError(null);
+      setSelectedArticleLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSelectedArticle(null);
+    setSelectedArticleError(null);
+    setSelectedArticleLoading(true);
+
+    getArticle(selectedNode.articleId)
+      .then((article) => {
+        if (!cancelled) setSelectedArticle(article);
+      })
+      .catch((e) => {
+        if (!cancelled) setSelectedArticleError(e instanceof Error ? e.message : "Failed to load article");
+      })
+      .finally(() => {
+        if (!cancelled) setSelectedArticleLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedNode?.articleId]);
+
   const toggleType = (t: string) => {
     setSelectedTypes((prev) => {
       const next = new Set(prev);
@@ -535,6 +575,7 @@ export default function GraphPage() {
     type: e.type,
     articleId: e.article_id,
     articleTitle: e.article_title,
+    confidence: e.confidence,
     x: Math.random() * 800 + 100,
     y: Math.random() * 600 + 50,
     vx: 0,
@@ -549,6 +590,7 @@ export default function GraphPage() {
   }));
 
   const allTypes = data ? [...new Set(data.entities.map((e) => e.type))].sort() : [];
+  const selectedSummary = selectedNode ? createGraphNodeArticleSummary(selectedNode, selectedArticle) : null;
 
   return (
     <div className="space-y-4">
@@ -619,7 +661,7 @@ export default function GraphPage() {
                     Upload Articles
                   </Button>
                   <p className="text-[11px] text-muted-foreground/50 mt-2">
-                    Tip: Drag to pan · Scroll to zoom · Click node to open article
+                    Tip: Drag to pan · Scroll to zoom · Click node for article summary
                   </p>
                 </div>
               ) : nodes.length === 0 ? (
@@ -637,7 +679,7 @@ export default function GraphPage() {
                   edges={edges}
                   width={graphSize.width}
                   height={graphSize.height}
-                  onNodeClick={(node) => router.push(`/articles/${node.articleId}`)}
+                  onNodeClick={setSelectedNode}
                 />
               ) : (
                 <div className="flex h-full items-center justify-center">
@@ -649,6 +691,79 @@ export default function GraphPage() {
         </Card>
       </FadeIn>
 
+      <Dialog open={!!selectedNode} onOpenChange={(open) => { if (!open) setSelectedNode(null); }}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="break-words">{selectedSummary?.title || "Article summary"}</DialogTitle>
+            <DialogDescription>
+              {selectedSummary ? `Article #${selectedSummary.articleId}` : "Graph node article details"}
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedSummary && (
+            <div className="space-y-4">
+              <div className="rounded-md border bg-muted/30 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className="h-2.5 w-2.5 rounded-full"
+                    style={{ backgroundColor: TYPE_COLORS[selectedSummary.nodeType] || DEFAULT_COLOR }}
+                  />
+                  <Badge variant="secondary">{selectedSummary.nodeType}</Badge>
+                  <span className="text-xs text-muted-foreground">Confidence {selectedSummary.confidenceLabel}</span>
+                </div>
+                <p className="mt-2 break-words text-sm font-medium">{selectedSummary.nodeLabel}</p>
+              </div>
+
+              {selectedArticleLoading ? (
+                <div className="flex items-center gap-2 rounded-md border p-3 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading article details...
+                </div>
+              ) : selectedArticleError ? (
+                <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                  {selectedArticleError}
+                </div>
+              ) : (
+                <dl className="grid gap-3 rounded-md border p-3 text-sm sm:grid-cols-2">
+                  <div>
+                    <dt className="text-xs uppercase text-muted-foreground">Status</dt>
+                    <dd className="mt-1 font-medium capitalize">{selectedSummary.status}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase text-muted-foreground">Source</dt>
+                    <dd className="mt-1 font-medium uppercase">{selectedSummary.sourceType}</dd>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <dt className="text-xs uppercase text-muted-foreground">File</dt>
+                    <dd className="mt-1 break-words">{selectedSummary.originalFilename || "Unknown"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase text-muted-foreground">Created</dt>
+                    <dd className="mt-1">{formatDateTime(selectedSummary.createdAt)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase text-muted-foreground">Updated</dt>
+                    <dd className="mt-1">{formatDateTime(selectedSummary.updatedAt)}</dd>
+                  </div>
+                  {selectedSummary.needsReview && (
+                    <div className="sm:col-span-2">
+                      <Badge variant="outline">Needs review</Badge>
+                    </div>
+                  )}
+                </dl>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedNode(null)}>Close</Button>
+            <Button onClick={() => selectedSummary && router.push(`/articles/${selectedSummary.articleId}`)}>
+              Open article
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Legend */}
       {!loading && data && (
         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -659,7 +774,7 @@ export default function GraphPage() {
               {t}
             </span>
           ))}
-          <span className="text-muted-foreground ml-2">| Drag to pan · Scroll to zoom · Click node to open article</span>
+          <span className="text-muted-foreground ml-2">| Drag to pan · Scroll to zoom · Click node for article summary</span>
         </div>
       )}
     </div>

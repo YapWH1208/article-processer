@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
+import * as workspaceState from "./articleWorkspaceState.mjs";
+
+const {
   createWorkspacePanelSummary,
   createCitationReaderTarget,
   shouldUseWorkspaceSplit,
-} from "./articleWorkspaceState.mjs";
+} = workspaceState;
 
 test("citation target prefers a stable chunk anchor", () => {
   assert.deepEqual(
@@ -74,4 +76,32 @@ test("workspace panel summary counts chat, sources, jobs, and graph context", ()
     entityCount: 2,
     relationshipCount: 1,
   });
+});
+
+test("chat submission preserves selected context without making empty prompts", () => {
+  assert.equal(typeof workspaceState.createChatSubmission, "function");
+
+  assert.equal(
+    workspaceState.createChatSubmission({ question: "   ", contextText: "" }),
+    null
+  );
+
+  assert.deepEqual(
+    workspaceState.createChatSubmission({
+      question: "  What changed?  ",
+      contextText: "",
+    }),
+    { content: "What changed?" }
+  );
+
+  assert.deepEqual(
+    workspaceState.createChatSubmission({
+      question: "",
+      contextText: "[From Reader]:\nImportant passage",
+    }),
+    {
+      content:
+        "[User selected context]:\n[From Reader]:\nImportant passage\n\n[Question]: Tell me about this",
+    }
+  );
 });

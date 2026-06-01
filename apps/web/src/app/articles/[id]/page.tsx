@@ -30,7 +30,7 @@ import { toast } from "sonner";
 import { sendChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, updateArticleExtraction, toggleArchiveArticle, deleteArticle, restoreArticle, getRelatedArticles } from "@/lib/api";
 import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
-import { createCitationReaderTarget, createWorkspacePanelSummary, slugifyWorkspaceText } from "../articleWorkspaceState.mjs";
+import { createChatSubmission, createCitationReaderTarget, createWorkspacePanelSummary, slugifyWorkspaceText } from "../articleWorkspaceState.mjs";
 import { formatExtractionForReview, parseReviewedExtraction } from "../extractionReviewState.mjs";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
@@ -85,10 +85,10 @@ export default function ArticleDetailPage() {
 
   // Chat
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [question, setQuestion] = useState("");
   const [chatting, setChatting] = useState(false);
   const [chatOpen, setChatOpen] = useState(true);
   const [contextText, setContextText] = useState("");
+  const [chatDraftSeed, setChatDraftSeed] = useState({ id: 0, text: "" });
   const [expandedMsgs, setExpandedMsgs] = useState<Set<number>>(new Set());
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -177,17 +177,13 @@ export default function ArticleDetailPage() {
     return () => clearInterval(interval);
   }, [article?.status, articleId, loadData, prevStatus]);
 
-  const handleChat = async () => {
-    const msg = question.trim();
-    if (!msg && !contextText) return;
+  const handleChat = useCallback((draftQuestion: string) => {
+    const submission = createChatSubmission({ question: draftQuestion, contextText });
+    if (!submission) return false;
+
     setChatting(true);
-    // Build message with context
-    const fullContent = contextText
-      ? `[User selected context]:\n${contextText}\n\n[Question]: ${msg || "Tell me about this"}`
-      : msg;
-    const userMsg: ChatMessage = { role: "user", content: fullContent };
+    const userMsg: ChatMessage = { role: "user", content: submission.content };
     setMessages((prev) => [...prev, userMsg]);
-    setQuestion("");
     setContextText("");
 
     // Placeholder assistant message for streaming
@@ -196,7 +192,7 @@ export default function ArticleDetailPage() {
 
     let streamedContent = "";
 
-    await streamChatMessage(
+    void streamChatMessage(
       articleId,
       userMsg.content,
       // onToken: append each token to the streaming message
@@ -237,7 +233,8 @@ export default function ArticleDetailPage() {
         setChatting(false);
       },
     );
-  };
+    return true;
+  }, [articleId, contextText]);
 
   // Add text selection to chat context
   const addToChat = (text: string, source: string) => {
@@ -249,7 +246,7 @@ export default function ArticleDetailPage() {
 
   // Add claim/question to chat
   const askAbout = (text: string) => {
-    setQuestion(text);
+    setChatDraftSeed((prev) => ({ id: prev.id + 1, text }));
     setChatOpen(true);
   };
 
@@ -908,14 +905,12 @@ export default function ArticleDetailPage() {
                       <div ref={chatEndRef}/>
                     </div>
                   </ScrollArea>
-                  <div className="flex gap-2 shrink-0">
-                    <Input value={question} onChange={(e) => setQuestion(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleChat()}
-                      placeholder="Ask a question..." disabled={chatting} className="text-xs h-9"/>
-                    <Button size="icon" className="h-9 w-9" onClick={handleChat} disabled={chatting || (!question.trim() && !contextText)}>
-                      <Send className="h-3.5 w-3.5"/>
-                    </Button>
-                  </div>
+                  <ChatComposer
+                    chatting={chatting}
+                    contextText={contextText}
+                    draftSeed={chatDraftSeed}
+                    onSubmit={handleChat}
+                  />
                 </CardContent>
                   </>
                 )}
@@ -1062,6 +1057,56 @@ function MarkdownReader({ text, onSelect }: { text: string; onSelect: (t: string
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function ChatComposer({
+  chatting,
+  contextText,
+  draftSeed,
+  onSubmit,
+}: {
+  chatting: boolean;
+  contextText: string;
+  draftSeed: { id: number; text: string };
+  onSubmit: (question: string) => boolean;
+}) {
+  const [draft, setDraft] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (draftSeed.id === 0) return;
+    setDraft(draftSeed.text);
+    inputRef.current?.focus();
+  }, [draftSeed.id, draftSeed.text]);
+
+  const submit = () => {
+    if (chatting) return;
+    if (onSubmit(draft)) setDraft("");
+  };
+
+  const canSubmit = !chatting && Boolean(draft.trim() || contextText);
+
+  return (
+    <div className="flex gap-2 shrink-0">
+      <Input
+        ref={inputRef}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        placeholder="Ask a question..."
+        disabled={chatting}
+        className="text-xs h-9"
+      />
+      <Button size="icon" className="h-9 w-9" onClick={submit} disabled={!canSubmit}>
+        <Send className="h-3.5 w-3.5" />
+      </Button>
     </div>
   );
 }
