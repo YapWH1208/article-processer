@@ -28,7 +28,7 @@ import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useLanguage } from "@/components/LanguageProvider";
-import { sendChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, updateArticleExtraction, toggleArchiveArticle, deleteArticle, restoreArticle, getRelatedArticles } from "@/lib/api";
+import { sendChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, updateArticleExtraction, toggleArchiveArticle, deleteArticle, getRelatedArticles } from "@/lib/api";
 import { getPromptText, translateUiText } from "@/lib/languageState.mjs";
 import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
@@ -310,18 +310,7 @@ export default function ArticleDetailPage() {
     try {
       await deleteArticle(articleId);
       setDeleteOpen(false);
-      toast.success("Article trashed", {
-        action: {
-          label: "Undo",
-          onClick: async () => {
-            try {
-              await restoreArticle(articleId);
-              setArticle((prev) => prev ? { ...prev, status: prev.status } : null);
-              toast.success("Article restored");
-            } catch { toast.error("Restore failed"); }
-          },
-        },
-      });
+      toast.success("Article deleted");
       router.push("/articles");
     } catch { toast.error("Delete failed"); setDeleting(false); setDeleteOpen(false); }
   };

@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Settings2, Server, Download, Upload, Loader2, FileCode,
   Save, RotateCcw, Thermometer, Gauge, Hash, Sparkles,
-  Plus, Trash2, Brain, CheckCircle2, MessageSquare,
+  Plus, Trash2, Pencil, Brain, CheckCircle2, MessageSquare,
   SlidersHorizontal, SwitchCamera, Maximize2, Database,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FadeIn } from "@/components/ui/animated";
 import { listParsers, apiRawFetch } from "@/lib/api";
 import type { ParserInfo } from "@/lib/types";
+import { buildProviderUpdatePayload, createProviderEditDraft } from "./providerSettingsState.mjs";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -61,6 +62,10 @@ const PROTOCOL_OPTIONS = [
   { value: "openai", label: "OpenAI-compatible" },
   { value: "anthropic", label: "Anthropic-compatible" },
 ];
+
+const EMPTY_PROVIDER_DRAFT = {
+  name: "", type: "openai", api_key: "", base_url: "", model: "", protocol: "openai",
+};
 
 const taskLabels: Record<string, string> = {
   extraction: "Extraction", chat: "Chat Q&A", skill_default: "Skills (Default)",
@@ -143,9 +148,9 @@ export default function SettingsPage() {
   const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [deleteProviderId, setDeleteProviderId] = useState<string | null>(null);
-  const [newProvider, setNewProvider] = useState({
-    name: "", type: "openai", api_key: "", base_url: "", model: "", protocol: "openai",
-  });
+  const [editProviderId, setEditProviderId] = useState<string | null>(null);
+  const [newProvider, setNewProvider] = useState(EMPTY_PROVIDER_DRAFT);
+  const [editProvider, setEditProvider] = useState(EMPTY_PROVIDER_DRAFT);
   const [provSaving, setProvSaving] = useState(false);
 
   // Enlarged view dialog
@@ -351,6 +356,13 @@ export default function SettingsPage() {
                               } catch { toast.error("Failed to set active provider"); }
                             }}>Set Active</Button>
                         )}
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                          title="Edit provider"
+                          aria-label={`Edit ${p.name}`}
+                          onClick={() => {
+                            setEditProviderId(p.id);
+                            setEditProvider(createProviderEditDraft(p));
+                          }}><Pencil className="h-3.5 w-3.5" /></Button>
                         <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive"
                           onClick={() => setDeleteProviderId(p.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
                       </div>
@@ -389,6 +401,111 @@ export default function SettingsPage() {
                         toast.success(`Deleted ${deleted?.name || pid}`);
                       } catch { toast.error("Failed to delete"); }
                     }}>Delete Permanently</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {/* Edit provider dialog */}
+              <Dialog open={!!editProviderId} onOpenChange={(open) => {
+                if (!open) {
+                  setEditProviderId(null);
+                  setEditProvider(EMPTY_PROVIDER_DRAFT);
+                }
+              }}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Edit Provider</DialogTitle>
+                    <DialogDescription>
+                      Update provider details. Leave API key blank to keep the saved key.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Name</Label>
+                        <Input value={editProvider.name}
+                          onChange={(e) => setEditProvider((p) => ({...p, name: e.target.value}))}
+                          placeholder="My Provider" className="h-9" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Provider Type</Label>
+                        <select value={editProvider.type} onChange={(e) => {
+                          const t = PROVIDER_TYPES.find((x) => x.value === e.target.value);
+                          setEditProvider((p) => ({
+                            ...p, type: e.target.value, base_url: t?.defaultBase || "",
+                            model: t?.defaultModel || "",
+                            protocol: e.target.value === "anthropic" ? "anthropic" : "openai",
+                          }));
+                        }} className="w-full h-9 rounded-md border bg-background px-3 text-sm">
+                          {PROVIDER_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    {editProvider.type === "custom" && (
+                      <div className="space-y-1.5">
+                        <Label className="text-xs flex items-center gap-1.5">
+                          <SwitchCamera className="h-3 w-3 text-muted-foreground" /> Protocol
+                        </Label>
+                        <Select value={editProvider.protocol} onValueChange={(v) => setEditProvider((p) => ({...p, protocol: v}))}>
+                          <SelectTrigger className="h-9"><SelectValue/></SelectTrigger>
+                          <SelectContent>
+                            {PROTOCOL_OPTIONS.map((o) => (
+                              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[11px] text-muted-foreground">
+                          OpenAI = <code className="bg-muted px-1 rounded text-[10px]">/v1/chat/completions</code> 路 Anthropic = <code className="bg-muted px-1 rounded text-[10px]">/v1/messages</code>
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">New API Key</Label>
+                      <Input value={editProvider.api_key}
+                        onChange={(e) => setEditProvider((p) => ({...p, api_key: e.target.value}))}
+                        placeholder="Leave blank to keep current key"
+                        type="password" className="h-9 font-mono" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Base URL</Label>
+                      <Input value={editProvider.base_url}
+                        onChange={(e) => setEditProvider((p) => ({...p, base_url: e.target.value}))}
+                        placeholder="https://api.openai.com/v1" className="h-9 font-mono text-xs" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Model</Label>
+                      <Input value={editProvider.model}
+                        onChange={(e) => setEditProvider((p) => ({...p, model: e.target.value}))}
+                        placeholder="gpt-4.1-mini" className="h-9" />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => {
+                      setEditProviderId(null);
+                      setEditProvider(EMPTY_PROVIDER_DRAFT);
+                    }}>Cancel</Button>
+                    <Button onClick={async () => {
+                      if (!editProviderId) return;
+                      if (!editProvider.name.trim()) { toast.error("Name is required"); return; }
+                      setProvSaving(true);
+                      try {
+                        const res = await apiRawFetch(`/dev/providers/${editProviderId}`, {
+                          method: "PUT", headers: {"Content-Type":"application/json"},
+                          body: JSON.stringify(buildProviderUpdatePayload(editProvider)),
+                        });
+                        if (!res.ok) throw new Error((await res.json()).detail || "Failed");
+                        const updated: ProviderEntry = await res.json();
+                        setProviders((prev) => prev.map((p) => p.id === updated.id ? updated : p));
+                        setEditProviderId(null);
+                        setEditProvider(EMPTY_PROVIDER_DRAFT);
+                        toast.success(`Updated ${updated.name}`);
+                      } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Failed"); }
+                      finally { setProvSaving(false); }
+                    }} disabled={provSaving}>
+                      {provSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1"/> : <Save className="h-3.5 w-3.5 mr-1"/>} Save Changes
+                    </Button>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
@@ -474,7 +591,7 @@ export default function SettingsPage() {
                           setProviders((prev) => [...prev, created]);
                           if (!activeProviderId) setActiveProviderId(created.id);
                           setShowAddForm(false);
-                          setNewProvider({ name: "", type: "openai", api_key: "", base_url: "", model: "", protocol: "openai" });
+                          setNewProvider(EMPTY_PROVIDER_DRAFT);
                           toast.success(`Added ${created.name}`);
                         } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Failed"); }
                         finally { setProvSaving(false); }

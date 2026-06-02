@@ -536,12 +536,12 @@ def update_article(article_id: int, body: dict, db: Session = Depends(get_db)):
 
 @router.delete("/{article_id}")
 def delete_article(article_id: int, db: Session = Depends(get_db)):
-    """Soft-delete an article — marks it as trashed without removing data."""
+    """Permanently delete an article and its related database rows."""
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
 
-    article.deleted_at = datetime.datetime.utcnow()
+    db.delete(article)
     db.commit()
     upsert_article_search_index(db, article_id)
 

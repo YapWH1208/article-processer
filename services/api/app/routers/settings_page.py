@@ -734,6 +734,7 @@ async def import_settings(file: UploadFile = File(...)):
         from app.db.session import SessionLocal
         from app.db.models import Article, ArticleExtraction, GraphEntity, GraphRelationship, ProcessingJob, ArticleStatus, JobStatus
         from app.core.security import compute_file_hash
+        from app.services.article_duplicates import find_active_article_by_hash
         import datetime as dt
 
         db = SessionLocal()
@@ -745,7 +746,7 @@ async def import_settings(file: UploadFile = File(...)):
                 source_type = article_meta.get("source_type", "md")
                 file_hash = compute_file_hash(title.encode() + original_filename.encode())
 
-                existing = db.query(Article).filter(Article.file_hash == file_hash).first()
+                existing = find_active_article_by_hash(db, file_hash)
                 if existing:
                     continue
 

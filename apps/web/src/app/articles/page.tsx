@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { StaggerContainer, StaggerItem, HoverCard, FadeIn } from "@/components/ui/animated";
-import { deleteArticle, exportArticles, toggleArchiveArticle, restoreArticle } from "@/lib/api";
+import { deleteArticle, exportArticles, toggleArchiveArticle } from "@/lib/api";
 import { createArticleExportDownload, parseArticleListQuery, serializeArticleListQuery } from "./articleListState.mjs";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -135,27 +135,11 @@ export default function ArticlesPage() {
       }
     }
     const count = deletedIds.length;
-    const msg = failed > 0 ? `${count} trashed, ${failed} failed` : `${count} article(s) trashed`;
+    const msg = failed > 0 ? `${count} deleted, ${failed} failed` : `${count} article(s) deleted`;
     if (failed > 0) {
-      toast.warning(msg, {
-        action: count > 0 ? { label: "Undo", onClick: async () => {
-          let restored = 0;
-          for (const id of deletedIds) {
-            try { await restoreArticle(id); restored++; } catch {}
-          }
-          if (restored > 0) { toast.success(`${restored} article(s) restored`); setRefreshKey((k) => k + 1); }
-        }} : undefined,
-      });
+      toast.warning(msg);
     } else {
-      toast.success(msg, {
-        action: count > 0 ? { label: "Undo", onClick: async () => {
-          let restored = 0;
-          for (const id of deletedIds) {
-            try { await restoreArticle(id); restored++; } catch {}
-          }
-          if (restored > 0) { toast.success(`${restored} article(s) restored`); setRefreshKey((k) => k + 1); }
-        }} : undefined,
-      });
+      toast.success(msg);
     }
     setSelected(new Set());
     setBatchAction(null);

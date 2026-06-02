@@ -16,6 +16,7 @@ from app.core.security import (
 from app.db.session import get_db
 from app.db.models import Article, ProcessingJob, ArticleStatus, JobStatus
 from app.schemas.article import UploadResponse
+from app.services.article_duplicates import find_active_article_by_hash
 from app.services.storage.local import LocalStorage
 from app.services.pipeline.processor import run_pipeline_background
 
@@ -58,7 +59,7 @@ async def upload_file(
     file_hash = compute_file_hash(content)
 
     # Check for duplicates
-    existing = db.query(Article).filter(Article.file_hash == file_hash).first()
+    existing = find_active_article_by_hash(db, file_hash)
     if existing:
         # Return existing article info
         job = db.query(ProcessingJob).filter(

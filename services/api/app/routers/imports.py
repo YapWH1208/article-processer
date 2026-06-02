@@ -21,6 +21,7 @@ from app.db.session import get_db
 from app.db.models import Article, ArticleExtraction, GraphEntity, GraphRelationship, ProcessingJob, ArticleStatus, JobStatus
 from app.core.security import compute_file_hash
 from app.core.config import settings
+from app.services.article_duplicates import find_active_article_by_hash
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -248,7 +249,7 @@ async def import_from_url(
         file_hash = compute_file_hash(f.read())
 
     # Check for duplicates
-    existing = db.query(Article).filter(Article.file_hash == file_hash).first()
+    existing = find_active_article_by_hash(db, file_hash)
     if existing:
         # Clean up the downloaded file
         try:
@@ -334,7 +335,7 @@ async def import_articles(body: dict, db: Session = Depends(get_db)):
                 title.encode() + original_filename.encode()
             )
 
-            existing = db.query(Article).filter(Article.file_hash == file_hash).first()
+            existing = find_active_article_by_hash(db, file_hash)
             if existing:
                 skipped += 1
                 continue
