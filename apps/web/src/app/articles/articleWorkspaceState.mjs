@@ -1,3 +1,5 @@
+import { getPromptText } from "../../lib/languageState.mjs";
+
 export function slugifyWorkspaceText(value) {
   return String(value || "")
     .toLowerCase()
@@ -33,16 +35,19 @@ export function shouldUseWorkspaceSplit(width) {
   return Number(width) >= 1024;
 }
 
-export function createChatSubmission({ question = "", contextText = "" } = {}) {
+export function createChatSubmission({ question = "", contextText = "", language = "en" } = {}) {
   const trimmedQuestion = String(question || "").trim();
   const selectedContext = String(contextText || "");
+  const isChinese = language === "zh";
+  const contextLabel = isChinese ? "[用户选择的上下文]" : "[User selected context]";
+  const questionLabel = isChinese ? "[问题]" : "[Question]";
 
   if (!trimmedQuestion && !selectedContext) return null;
 
   return {
     content: selectedContext
-      ? `[User selected context]:\n${selectedContext}\n\n[Question]: ${
-          trimmedQuestion || "Tell me about this"
+      ? `${contextLabel}:\n${selectedContext}\n\n${questionLabel}: ${
+          trimmedQuestion || getPromptText("contextDefault", language)
         }`
       : trimmedQuestion,
   };

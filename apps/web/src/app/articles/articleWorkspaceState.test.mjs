@@ -105,3 +105,17 @@ test("chat submission preserves selected context without making empty prompts", 
     }
   );
 });
+
+test("chat submission uses localized fallback prompt for selected context", () => {
+  assert.deepEqual(
+    workspaceState.createChatSubmission({
+      question: "",
+      contextText: "[From Reader]:\nImportant passage",
+      language: "zh",
+    }),
+    {
+      content:
+        "[用户选择的上下文]:\n[From Reader]:\nImportant passage\n\n[问题]: 请介绍这段内容",
+    }
+  );
+});

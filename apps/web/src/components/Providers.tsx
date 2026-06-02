@@ -1,21 +1,27 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Toaster } from "sonner";
 import {
   FileText, Sun, Moon, Home, FileUp, MessageCircle,
-  GitBranch, BarChart3, Settings2, BookOpen, Menu, X, Loader2,
+  GitBranch, BarChart3, Settings2, BookOpen, Menu, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/CommandPalette";
+import { LanguageProvider, useLanguage } from "@/components/LanguageProvider";
+import {
+  formatProcessingCount,
+  getLanguageButtonLabel,
+} from "@/lib/languageState.mjs";
 
 // ── Theme toggle ──────────────────────────────────────────────────────────
 
 function ThemeToggle() {
   const [dark, setDark] = useState(false);
+  const { copy } = useLanguage();
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -43,7 +49,7 @@ function ThemeToggle() {
   };
 
   return (
-    <Button variant="ghost" size="icon" onClick={toggle} title={dark ? "Light mode" : "Dark mode"}>
+    <Button variant="ghost" size="icon" onClick={toggle} title={dark ? copy.lightMode : copy.darkMode}>
       <motion.div
         key={dark ? "sun" : "moon"}
         initial={{ rotate: -90, opacity: 0, scale: 0.5 }}
@@ -56,21 +62,41 @@ function ThemeToggle() {
   );
 }
 
+function LanguageToggle() {
+  const { language, setLanguage, copy } = useLanguage();
+  const isChinese = language === "zh";
+  const title = isChinese ? copy.toggleToEnglish : copy.toggleToChinese;
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-9 min-w-11 px-2 text-xs font-semibold"
+      title={title}
+      aria-label={title}
+      onClick={() => setLanguage(isChinese ? "en" : "zh")}
+    >
+      {getLanguageButtonLabel(language)}
+    </Button>
+  );
+}
+
 // ── Nav link groups ───────────────────────────────────────────────────────
 
 const navLinks = [
-  { href: "/", label: "Home", icon: Home },
-  { href: "/articles", label: "Library", icon: BookOpen },
-  { href: "/upload", label: "Upload", icon: FileUp },
-  { href: "/chat", label: "Chat", icon: MessageCircle },
-  { href: "/graph", label: "Graph", icon: GitBranch },
-  { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
-];
+  { href: "/", labelKey: "home", icon: Home },
+  { href: "/articles", labelKey: "library", icon: BookOpen },
+  { href: "/upload", labelKey: "upload", icon: FileUp },
+  { href: "/chat", labelKey: "chat", icon: MessageCircle },
+  { href: "/graph", labelKey: "graph", icon: GitBranch },
+  { href: "/dashboard", labelKey: "dashboard", icon: BarChart3 },
+] as const;
 
 // ── Navbar ─────────────────────────────────────────────────────────────────
 
 function NavBar() {
   const pathname = usePathname();
+  const { language, copy } = useLanguage();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [processingCount, setProcessingCount] = useState(0);
   const PROCESSING_STATUSES = ["uploaded", "parsing", "extracting", "indexing"];
@@ -113,7 +139,7 @@ function NavBar() {
           size="icon"
           className="h-9 w-9 md:hidden flex-shrink-0"
           onClick={() => setMobileOpen(true)}
-          aria-label="Open navigation menu"
+          aria-label={copy.openNavigation}
         >
           <Menu className="h-5 w-5" />
         </Button>
@@ -127,13 +153,13 @@ function NavBar() {
             <FileText className="h-6 w-6 text-primary" />
           </motion.div>
           <span className="text-lg font-bold tracking-tight hidden sm:inline">
-            Article Processor
+            {copy.appName}
           </span>
         </Link>
 
         {/* Center: nav links — hidden on mobile */}
         <nav className="hidden md:flex items-center gap-1 mx-4 overflow-x-auto">
-          {navLinks.map(({ href, label, icon: Icon }) => (
+          {navLinks.map(({ href, labelKey, icon: Icon }) => (
             <Link key={href} href={href}>
               <Button
                 variant={isActive(href) ? "secondary" : "ghost"}
@@ -141,7 +167,7 @@ function NavBar() {
                 className="gap-2 h-9"
               >
                 <Icon className="h-4 w-4" />
-                <span className="hidden sm:inline">{label}</span>
+                <span className="hidden sm:inline">{copy.nav[labelKey]}</span>
               </Button>
             </Link>
           ))}
@@ -157,12 +183,13 @@ function NavBar() {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
                 </span>
-                <span className="hidden sm:inline">{processingCount} processing</span>
+                <span className="hidden sm:inline">{formatProcessingCount(processingCount, language)}</span>
               </Button>
             </Link>
           )}
+          <LanguageToggle />
           <Link href="/settings" className="hidden md:inline-flex">
-            <Button variant="ghost" size="icon" className="h-9 w-9" title="Settings">
+            <Button variant="ghost" size="icon" className="h-9 w-9" title={copy.settings} aria-label={copy.settings}>
               <Settings2 className="h-5 w-5" />
             </Button>
           </Link>
@@ -192,22 +219,22 @@ function NavBar() {
             >
               {/* Drawer header */}
               <div className="flex items-center justify-between p-4 border-b">
-                <span className="text-lg font-bold tracking-tight">Article Processor</span>
-                <Button variant="ghost" size="icon" onClick={closeMobile} aria-label="Close menu">
+                <span className="text-lg font-bold tracking-tight">{copy.appName}</span>
+                <Button variant="ghost" size="icon" onClick={closeMobile} aria-label={copy.closeMenu}>
                   <X className="h-5 w-5" />
                 </Button>
               </div>
 
               {/* Nav links */}
               <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
-                {navLinks.map(({ href, label, icon: Icon }) => (
+                {navLinks.map(({ href, labelKey, icon: Icon }) => (
                   <Link key={href} href={href} onClick={closeMobile}>
                     <Button
                       variant={isActive(href) ? "secondary" : "ghost"}
                       className="w-full justify-start gap-3 h-11"
                     >
                       <Icon className="h-5 w-5" />
-                      <span>{label}</span>
+                      <span>{copy.nav[labelKey]}</span>
                     </Button>
                   </Link>
                 ))}
@@ -218,7 +245,7 @@ function NavBar() {
                 <Link href="/settings" onClick={closeMobile}>
                   <Button variant="outline" className="w-full justify-start gap-3 h-11">
                     <Settings2 className="h-5 w-5" />
-                    <span>Settings</span>
+                    <span>{copy.settings}</span>
                   </Button>
                 </Link>
               </div>
@@ -267,7 +294,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <>
+    <LanguageProvider>
       <NavBar />
       <main className="container mx-auto px-4 py-6">
         <PageTransition>{children}</PageTransition>
@@ -283,6 +310,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
           },
         }}
       />
-    </>
+    </LanguageProvider>
   );
 }

@@ -27,7 +27,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { useLanguage } from "@/components/LanguageProvider";
 import { sendChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, updateArticleExtraction, toggleArchiveArticle, deleteArticle, restoreArticle, getRelatedArticles } from "@/lib/api";
+import { getPromptText, translateUiText } from "@/lib/languageState.mjs";
 import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
 import { createChatSubmission, createCitationReaderTarget, createWorkspacePanelSummary, slugifyWorkspaceText } from "../articleWorkspaceState.mjs";
@@ -67,6 +69,7 @@ function isTerminalArticleStatus(status: string | null | undefined) {
 export default function ArticleDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { language } = useLanguage();
   const articleId = Number(id);
 
   const [article, setArticle] = useState<Article | null>(null);
@@ -178,7 +181,7 @@ export default function ArticleDetailPage() {
   }, [article?.status, articleId, loadData, prevStatus]);
 
   const handleChat = useCallback((draftQuestion: string) => {
-    const submission = createChatSubmission({ question: draftQuestion, contextText });
+    const submission = createChatSubmission({ question: draftQuestion, contextText, language });
     if (!submission) return false;
 
     setChatting(true);
@@ -234,7 +237,7 @@ export default function ArticleDetailPage() {
       },
     );
     return true;
-  }, [articleId, contextText]);
+  }, [articleId, contextText, language]);
 
   // Add text selection to chat context
   const addToChat = (text: string, source: string) => {
@@ -614,7 +617,7 @@ export default function ArticleDetailPage() {
                       </CardHeader>
                       <CardContent className="flex-1 min-h-0 p-4">
                         {extraction ? (
-                          <ScrollArea className="h-full"><SummaryContent extraction={extraction} onAsk={askAbout} onAdd={addToChat}/></ScrollArea>
+                          <ScrollArea className="h-full"><SummaryContent extraction={extraction} onAsk={askAbout} onAdd={addToChat} language={language}/></ScrollArea>
                         ) : extractionErrors.length > 0 ? (
                           <div className="flex flex-col items-center py-12 text-muted-foreground gap-3 text-center">
                             <AlertCircle className="h-10 w-10 text-amber-500"/>
@@ -909,6 +912,7 @@ export default function ArticleDetailPage() {
                     chatting={chatting}
                     contextText={contextText}
                     draftSeed={chatDraftSeed}
+                    language={language}
                     onSubmit={handleChat}
                   />
                 </CardContent>
@@ -1065,11 +1069,13 @@ function ChatComposer({
   chatting,
   contextText,
   draftSeed,
+  language,
   onSubmit,
 }: {
   chatting: boolean;
   contextText: string;
   draftSeed: { id: number; text: string };
+  language: "en" | "zh";
   onSubmit: (question: string) => boolean;
 }) {
   const [draft, setDraft] = useState("");
@@ -1100,7 +1106,7 @@ function ChatComposer({
             submit();
           }
         }}
-        placeholder="Ask a question..."
+        placeholder={translateUiText("Ask a question...", language)}
         disabled={chatting}
         className="text-xs h-9"
       />
@@ -1112,12 +1118,12 @@ function ChatComposer({
 }
 
 /** Summary content with "Ask" buttons */
-function SummaryContent({ extraction, onAsk, onAdd }: { extraction: ExtractionResult; onAsk: (t: string) => void; onAdd: (t: string, s: string) => void }) {
+function SummaryContent({ extraction, onAsk, onAdd, language }: { extraction: ExtractionResult; onAsk: (t: string) => void; onAdd: (t: string, s: string) => void; language: "en" | "zh" }) {
   return (
     <div className="space-y-4 text-sm">
-      {extraction.abstract && <SectionWithAsk title="Abstract" text={extraction.abstract} onAsk={onAsk} onAdd={onAdd}/>}
+      {extraction.abstract && <SectionWithAsk title="Abstract" text={extraction.abstract} onAsk={onAsk} onAdd={onAdd} language={language}/>}
       {Array.isArray(extraction.authors) && extraction.authors.length > 0 && (
-        <div><h4 className="font-semibold mb-1 flex items-center gap-2">Authors <button onClick={()=>onAsk(`Tell me about the authors of this paper`)} className="text-primary hover:underline text-xs font-normal"><MessageCircle className="h-3 w-3 inline-block"/></button></h4>
+        <div><h4 className="font-semibold mb-1 flex items-center gap-2">Authors <button onClick={()=>onAsk(getPromptText("authors", language))} className="text-primary hover:underline text-xs font-normal"><MessageCircle className="h-3 w-3 inline-block"/></button></h4>
           <div className="flex flex-wrap gap-1">{extraction.authors.map((a,i)=><Badge key={i} variant="secondary">{a}</Badge>)}</div>
         </div>
       )}
@@ -1127,12 +1133,12 @@ function SummaryContent({ extraction, onAsk, onAdd }: { extraction: ExtractionRe
       {["background","research_problem","methodology","results","limitations","future_work"].map(k=>{
         const label = k.replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase());
         const val = (extraction as any)[k];
-        return val ? <SectionWithAsk key={k} title={label} text={String(val)} onAsk={onAsk} onAdd={onAdd}/> : null;
+        return val ? <SectionWithAsk key={k} title={label} text={String(val)} onAsk={onAsk} onAdd={onAdd} language={language}/> : null;
       })}
       {Array.isArray(extraction.key_claims) && extraction.key_claims.length > 0 && (
         <div><h4 className="font-semibold mb-1">Key Claims</h4>
           <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
-            {extraction.key_claims.map((c,i)=><li key={i} className="group flex items-start gap-2"><span className="flex-1">{c.claim}</span><button onClick={()=>onAsk(`Tell me more about this claim: ${c.claim}`)} className="text-primary hover:underline text-xs opacity-0 group-hover:opacity-100"><MessageCircle className="h-3 w-3"/></button><button onClick={()=>onAdd(c.claim,"Key Claims")} className="text-primary hover:underline text-xs opacity-0 group-hover:opacity-100"><Plus className="h-3 w-3"/></button></li>)}
+            {extraction.key_claims.map((c,i)=><li key={i} className="group flex items-start gap-2"><span className="flex-1">{c.claim}</span><button onClick={()=>onAsk(getPromptText("claim", language, { claim: c.claim }))} className="text-primary hover:underline text-xs opacity-0 group-hover:opacity-100"><MessageCircle className="h-3 w-3"/></button><button onClick={()=>onAdd(c.claim,"Key Claims")} className="text-primary hover:underline text-xs opacity-0 group-hover:opacity-100"><Plus className="h-3 w-3"/></button></li>)}
           </ul>
         </div>
       )}
@@ -1140,12 +1146,12 @@ function SummaryContent({ extraction, onAsk, onAdd }: { extraction: ExtractionRe
   );
 }
 
-function SectionWithAsk({ title, text, onAsk, onAdd }: { title: string; text: string; onAsk: (t: string) => void; onAdd: (t: string, s: string) => void }) {
+function SectionWithAsk({ title, text, onAsk, onAdd, language }: { title: string; text: string; onAsk: (t: string) => void; onAdd: (t: string, s: string) => void; language: "en" | "zh" }) {
   return (
     <div>
       <h4 className="font-semibold mb-1 flex items-center gap-2">
         {title}
-        <button onClick={() => onAsk(`Tell me about the ${title.toLowerCase()} of this paper`)} className="text-primary hover:underline text-xs font-normal"><MessageCircle className="h-3 w-3 inline-block"/></button>
+        <button onClick={() => onAsk(getPromptText("section", language, { section: title }))} className="text-primary hover:underline text-xs font-normal"><MessageCircle className="h-3 w-3 inline-block"/></button>
         <button onClick={() => onAdd(text, title)} className="text-primary hover:underline text-xs font-normal"><Plus className="h-3 w-3 inline-block"/></button>
       </h4>
       <p className="text-muted-foreground">{text}</p>

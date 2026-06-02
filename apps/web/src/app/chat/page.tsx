@@ -19,11 +19,13 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import { useLanguage } from "@/components/LanguageProvider";
 import {
   listArticles, listSessions, createSession, deleteSession,
   getSessionMessages, sendSessionMessage,
   getDevConfig, setActiveProvider,
 } from "@/lib/api";
+import { translateUiText } from "@/lib/languageState.mjs";
 import type { ArticleSummary, ChatSession, ChatMessageResponse, Citation, ProviderEntry } from "@/lib/types";
 import { TypingDots } from "@/components/ui/animated";
 
@@ -152,6 +154,7 @@ function MessageBubble({ msg }: { msg: BubbleData }) {
 // ── Main Chat Page ────────────────────────────────────────────────────────
 
 export default function ChatPage() {
+  const { language } = useLanguage();
   const [articles, setArticles] = useState<ArticleSummary[]>([]);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
@@ -230,7 +233,7 @@ export default function ChatPage() {
 
   const handleNewSession = async () => {
     try {
-      const s = await createSession();
+      const s = await createSession(translateUiText("New Chat", language));
       setSessions((prev) => [s, ...prev]);
       setActiveSessionId(s.id);
       setMessages([]);
@@ -297,7 +300,7 @@ export default function ChatPage() {
     let sid = activeSessionId;
     if (!sid) {
       try {
-        const s = await createSession();
+        const s = await createSession(translateUiText("New Chat", language));
         setSessions((prev) => [s, ...prev]);
         sid = s.id;
         setActiveSessionId(sid);
@@ -413,8 +416,8 @@ export default function ChatPage() {
               <h1 className="text-lg font-bold flex items-center gap-2">
                 <MessageCircle className="h-5 w-5 text-primary" />
                 {activeSessionId
-                  ? sessions.find((s) => s.id === activeSessionId)?.title || "Chat"
-                  : "New Chat"}
+                  ? sessions.find((s) => s.id === activeSessionId)?.title || translateUiText("Chat", language)
+                  : translateUiText("New Chat", language)}
               </h1>
               <p className="text-xs text-muted-foreground">
                 {taggedArticles.length > 0
@@ -579,10 +582,10 @@ export default function ChatPage() {
                 )}
               </AnimatePresence>
               <div className="flex gap-2">
-                <Input ref={inputRef} value={input}
+              <Input ref={inputRef} value={input}
                   onChange={(e) => handleInputChange(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Ask anything... Tag articles with @"
+                  placeholder={translateUiText("Ask anything... Tag articles with @", language)}
                   className="h-12 text-base rounded-xl" disabled={sending} />
                 <Button onClick={handleSend} disabled={sending || !input.trim()}
                   size="icon" className="h-12 w-12 rounded-xl flex-shrink-0">

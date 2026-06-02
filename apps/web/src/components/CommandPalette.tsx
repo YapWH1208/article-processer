@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { useLanguage } from "@/components/LanguageProvider";
+import { translateUiText } from "@/lib/languageState.mjs";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -36,6 +38,7 @@ interface CommandPaletteProps {
 
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const router = useRouter();
+  const { language } = useLanguage();
   const [query, setQuery] = useState("");
   const [articles, setArticles] = useState<ArticleHit[]>([]);
   const [loading, setLoading] = useState(false);
@@ -45,13 +48,13 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   // Static commands
   const staticCommands: CommandItem[] = [
-    { id: "home", label: "Go to Home", icon: Home, href: "/", keywords: ["home", "landing"] },
-    { id: "library", label: "Go to Library", icon: BookOpen, href: "/articles", keywords: ["articles", "library", "papers"] },
-    { id: "upload", label: "Go to Upload", icon: FileUp, href: "/upload", keywords: ["upload", "add", "import"] },
-    { id: "chat", label: "Go to Chat", icon: MessageCircle, href: "/chat", keywords: ["chat", "ask", "conversation"] },
-    { id: "graph", label: "Go to Graph", icon: GitBranch, href: "/graph", keywords: ["graph", "knowledge", "entities"] },
-    { id: "dashboard", label: "Go to Dashboard", icon: BarChart3, href: "/dashboard", keywords: ["dashboard", "metrics", "stats"] },
-    { id: "settings", label: "Go to Settings", icon: Settings2, href: "/settings", keywords: ["settings", "config", "preferences"] },
+    { id: "home", label: translateUiText("Go to Home", language), icon: Home, href: "/", keywords: ["home", "landing", "首页"] },
+    { id: "library", label: translateUiText("Go to Library", language), icon: BookOpen, href: "/articles", keywords: ["articles", "library", "papers", "文库"] },
+    { id: "upload", label: translateUiText("Go to Upload", language), icon: FileUp, href: "/upload", keywords: ["upload", "add", "import", "上传"] },
+    { id: "chat", label: translateUiText("Go to Chat", language), icon: MessageCircle, href: "/chat", keywords: ["chat", "ask", "conversation", "聊天"] },
+    { id: "graph", label: translateUiText("Go to Graph", language), icon: GitBranch, href: "/graph", keywords: ["graph", "knowledge", "entities", "图谱"] },
+    { id: "dashboard", label: translateUiText("Go to Dashboard", language), icon: BarChart3, href: "/dashboard", keywords: ["dashboard", "metrics", "stats", "仪表盘"] },
+    { id: "settings", label: translateUiText("Go to Settings", language), icon: Settings2, href: "/settings", keywords: ["settings", "config", "preferences", "设置"] },
   ];
 
   // Search articles
@@ -164,7 +167,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 ref={inputRef}
                 value={query}
                 onChange={(e) => { setQuery(e.target.value); setSelectedIndex(0); }}
-                placeholder="Search articles or type a command…"
+                placeholder={translateUiText("Search articles or type a command…", language)}
                 className="border-0 bg-transparent h-auto p-0 text-sm shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/60"
               />
               {loading && (
@@ -176,7 +179,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             <div ref={listRef} className="max-h-80 overflow-y-auto py-2" role="listbox">
               {allItems.length === 0 && query.length >= 2 && (
                 <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                  No results found for &ldquo;{query}&rdquo;
+                  {translateUiText(`No results found for “${query}”`, language)}
                 </div>
               )}
               {allItems.map((item, i) => (
@@ -206,13 +209,13 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             {/* Footer hint */}
             <div className="flex items-center gap-4 px-4 py-2 border-t text-[11px] text-muted-foreground">
               <span className="flex items-center gap-1">
-                <CornerDownLeft className="h-3 w-3" /> select
+                <CornerDownLeft className="h-3 w-3" /> {translateUiText("select", language)}
               </span>
               <span className="flex items-center gap-1">
-                <span className="font-medium">↑↓</span> navigate
+                <span className="font-medium">↑↓</span> {translateUiText("navigate", language)}
               </span>
               <span className="flex-1" />
-              <span>Esc to close</span>
+              <span>{translateUiText("Esc to close", language)}</span>
             </div>
           </motion.div>
         </>
