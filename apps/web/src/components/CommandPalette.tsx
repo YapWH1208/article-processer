@@ -5,11 +5,10 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, FileText, Home, FileUp, MessageCircle,
-  GitBranch, BarChart3, Settings2, BookOpen, Sun, Moon,
+  GitBranch, BarChart3, Settings2, BookOpen,
   ArrowRight, CornerDownLeft,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/components/LanguageProvider";
 import { translateUiText } from "@/lib/languageState.mjs";
 
@@ -46,7 +45,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Static commands
   const staticCommands: CommandItem[] = [
     { id: "home", label: translateUiText("Go to Home", language), icon: Home, href: "/", keywords: ["home", "landing", "首页"] },
     { id: "library", label: translateUiText("Go to Library", language), icon: BookOpen, href: "/articles", keywords: ["articles", "library", "papers", "文库"] },
@@ -57,7 +55,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     { id: "settings", label: translateUiText("Go to Settings", language), icon: Settings2, href: "/settings", keywords: ["settings", "config", "preferences", "设置"] },
   ];
 
-  // Search articles
   useEffect(() => {
     if (!query.trim() || query.length < 2) {
       setArticles([]);
@@ -74,7 +71,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     return () => controller.abort();
   }, [query]);
 
-  // Reset state when opened
   useEffect(() => {
     if (open) {
       setQuery("");
@@ -89,9 +85,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       .filter((c) => {
         if (!query.trim()) return true;
         const q = query.toLowerCase();
-        return c.label.toLowerCase().includes(q) || (c.keywords || []).some((k) => k.includes(q));
+        return c.label.toLowerCase().includes(q) || (c.keywords || []).some((k) => k.toLowerCase().includes(q));
       }),
-    ...articles.map((a, i) => ({
+    ...articles.map((a) => ({
       id: `article-${a.id}`,
       label: a.title || a.original_filename,
       icon: FileText,
@@ -111,7 +107,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     onClose();
   }, [router, onClose]);
 
-  // Keyboard navigation
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
@@ -132,7 +127,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [open, allItems, selectedIndex, execute]);
 
-  // Scroll selected into view
   useEffect(() => {
     if (listRef.current) {
       const el = listRef.current.children[selectedIndex] as HTMLElement | undefined;
@@ -144,7 +138,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     <AnimatePresence>
       {open && (
         <>
-          {/* Backdrop */}
           <motion.div
             className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
             initial={{ opacity: 0 }}
@@ -152,7 +145,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             exit={{ opacity: 0 }}
             onClick={onClose}
           />
-          {/* Palette */}
           <motion.div
             className="fixed inset-x-0 top-[15%] z-50 mx-auto w-full max-w-lg rounded-xl border bg-card shadow-2xl overflow-hidden"
             initial={{ opacity: 0, scale: 0.95, y: -20 }}
@@ -160,14 +152,13 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             exit={{ opacity: 0, scale: 0.95, y: -20 }}
             transition={{ duration: 0.15 }}
           >
-            {/* Search input */}
             <div className="flex items-center gap-2 px-4 py-3 border-b">
               <Search className="h-4 w-4 text-muted-foreground shrink-0" />
               <Input
                 ref={inputRef}
                 value={query}
                 onChange={(e) => { setQuery(e.target.value); setSelectedIndex(0); }}
-                placeholder={translateUiText("Search articles or type a command…", language)}
+                placeholder={translateUiText("Search articles or type a command...", language)}
                 className="border-0 bg-transparent h-auto p-0 text-sm shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/60"
               />
               {loading && (
@@ -175,7 +166,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               )}
             </div>
 
-            {/* Results */}
             <div ref={listRef} className="max-h-80 overflow-y-auto py-2" role="listbox">
               {allItems.length === 0 && query.length >= 2 && (
                 <div className="px-4 py-8 text-center text-sm text-muted-foreground">
@@ -206,7 +196,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               ))}
             </div>
 
-            {/* Footer hint */}
             <div className="flex items-center gap-4 px-4 py-2 border-t text-[11px] text-muted-foreground">
               <span className="flex items-center gap-1">
                 <CornerDownLeft className="h-3 w-3" /> {translateUiText("select", language)}

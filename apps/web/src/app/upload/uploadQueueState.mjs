@@ -23,6 +23,14 @@ export function createUploadQueueSnapshot(files) {
     .slice(0, SNAPSHOT_LIMIT);
 }
 
+export function canOpenArticleDetail(file) {
+  return Number.isFinite(Number(file?.articleId));
+}
+
+export function clearFinishedProcessingFiles(files) {
+  return files.filter((file) => !TERMINAL_STATUSES.has(String(file?.status || "processing")));
+}
+
 export function shouldResumeProcessingFile(file) {
   return Boolean(file?.articleId && !TERMINAL_STATUSES.has(file.status));
 }

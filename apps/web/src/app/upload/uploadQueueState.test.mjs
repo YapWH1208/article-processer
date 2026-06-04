@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  canOpenArticleDetail,
+  clearFinishedProcessingFiles,
   createUploadQueueSnapshot,
   shouldResumeProcessingFile,
   upsertProcessingFile,
@@ -37,4 +39,29 @@ test("upload queue snapshot keeps recent normalized rows and resumes only active
   assert.equal(shouldResumeProcessingFile(snapshot[0]), true);
   assert.equal(shouldResumeProcessingFile(snapshot[1]), false);
   assert.equal(shouldResumeProcessingFile(snapshot[2]), false);
+});
+
+test("upload queue allows opening article detail as soon as an article id exists", () => {
+  assert.equal(
+    canOpenArticleDetail({ articleId: 42, filename: "paper.pdf", status: "processing" }),
+    true
+  );
+  assert.equal(
+    canOpenArticleDetail({ articleId: Number.NaN, filename: "paper.pdf", status: "processing" }),
+    false
+  );
+});
+
+test("upload queue clears finished rows without dropping active progress", () => {
+  assert.deepEqual(
+    clearFinishedProcessingFiles([
+      { articleId: 1, filename: "active.pdf", status: "processing", step: "extracting", error: null },
+      { articleId: 2, filename: "complete.pdf", status: "completed", step: "graph", error: null },
+      { articleId: 3, filename: "failed.pdf", status: "failed", step: "extracting", error: "Bad JSON" },
+      { articleId: 4, filename: "review.pdf", status: "needs_review", step: "graph", error: null },
+    ]),
+    [
+      { articleId: 1, filename: "active.pdf", status: "processing", step: "extracting", error: null },
+    ]
+  );
 });

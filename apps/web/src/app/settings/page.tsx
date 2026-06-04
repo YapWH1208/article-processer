@@ -7,6 +7,7 @@ import {
   Settings2, Server, Download, Upload, Loader2, FileCode,
   Save, RotateCcw, Thermometer, Gauge, Hash, Sparkles,
   Plus, Trash2, Pencil, Brain, CheckCircle2, MessageSquare,
+  ArrowLeft, ArrowRight,
   SlidersHorizontal, SwitchCamera, Maximize2, Database,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,7 +22,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FadeIn } from "@/components/ui/animated";
 import { listParsers, apiRawFetch } from "@/lib/api";
 import type { ParserInfo } from "@/lib/types";
-import { buildProviderUpdatePayload, createProviderEditDraft } from "./providerSettingsState.mjs";
+import {
+  buildProviderUpdatePayload,
+  canContinueProviderAddStep,
+  createProviderEditDraft,
+  getProviderAddWizardSteps,
+} from "./providerSettingsState.mjs";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -147,6 +153,7 @@ export default function SettingsPage() {
   const [providers, setProviders] = useState<ProviderEntry[]>([]);
   const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [addProviderStepIndex, setAddProviderStepIndex] = useState(0);
   const [deleteProviderId, setDeleteProviderId] = useState<string | null>(null);
   const [editProviderId, setEditProviderId] = useState<string | null>(null);
   const [newProvider, setNewProvider] = useState(EMPTY_PROVIDER_DRAFT);
@@ -269,6 +276,61 @@ export default function SettingsPage() {
   };
 
   // ── Loading ───────────────────────────────────────────────────────────
+
+  const addProviderSteps = getProviderAddWizardSteps(newProvider);
+  const currentAddProviderStepIndex = Math.min(addProviderStepIndex, addProviderSteps.length - 1);
+  const currentAddProviderStep = addProviderSteps[currentAddProviderStepIndex];
+  const canAdvanceAddProvider = canContinueProviderAddStep(newProvider, currentAddProviderStep);
+  const addProviderProgress = ((currentAddProviderStepIndex + 1) / addProviderSteps.length) * 100;
+
+  const resetAddProviderDialog = () => {
+    setShowAddForm(false);
+    setAddProviderStepIndex(0);
+    setNewProvider(EMPTY_PROVIDER_DRAFT);
+  };
+
+  const updateNewProviderType = (type: string) => {
+    const preset = PROVIDER_TYPES.find((x) => x.value === type);
+    setNewProvider((p) => ({
+      ...p,
+      type,
+      base_url: preset?.defaultBase || "",
+      model: preset?.defaultModel || "",
+      protocol: type === "anthropic" ? "anthropic" : "openai",
+    }));
+  };
+
+  const goToNextAddProviderStep = () => {
+    if (!canAdvanceAddProvider) {
+      toast.error(currentAddProviderStep === "model" ? "Model name is required" : "Provider name is required");
+      return;
+    }
+    setAddProviderStepIndex((step) => Math.min(step + 1, addProviderSteps.length - 1));
+  };
+
+  const saveNewProvider = async () => {
+    if (!canContinueProviderAddStep(newProvider, "name")) { toast.error("Provider name is required"); return; }
+    if (!canContinueProviderAddStep(newProvider, "model")) { toast.error("Model name is required"); return; }
+    setProvSaving(true);
+    try {
+      const res = await apiRawFetch("/dev/providers", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({
+          ...newProvider,
+          name: newProvider.name.trim(),
+          model: newProvider.model.trim(),
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || "Failed");
+      const created: ProviderEntry = await res.json();
+      setProviders((prev) => [...prev, created]);
+      if (!activeProviderId) setActiveProviderId(created.id);
+      resetAddProviderDialog();
+      toast.success(`Added ${created.name}`);
+    } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Failed"); }
+    finally { setProvSaving(false); }
+  };
 
   if (loading) {
     return <div className="max-w-3xl mx-auto space-y-4">
@@ -510,8 +572,118 @@ export default function SettingsPage() {
                 </DialogContent>
               </Dialog>
 
-              {/* ── Add Provider Form ─────────────────────────────── */}
-              {showAddForm ? (
+              {/* Add provider dialog */}
+              <Button variant="outline" className="w-full gap-2 h-10" onClick={() => {
+                setShowAddForm(true);
+                setAddProviderStepIndex(0);
+              }}>
+                <Plus className="h-4 w-4" /> Add Provider
+              </Button>
+
+              <Dialog open={showAddForm} onOpenChange={(open) => {
+                if (open) setShowAddForm(true);
+                else resetAddProviderDialog();
+              }}>
+                <DialogContent className="sm:max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>Add LLM Provider</DialogTitle>
+                    <DialogDescription>
+                      Step {currentAddProviderStepIndex + 1} of {addProviderSteps.length}
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div className="h-full bg-primary transition-all" style={{ width: `${addProviderProgress}%` }} />
+                  </div>
+
+                  <div className="min-h-[220px] space-y-4 py-2">
+                    {currentAddProviderStep === "name" && (
+                      <div className="space-y-3">
+                        <Label className="text-base font-semibold">What should this provider be called?</Label>
+                        <Input value={newProvider.name}
+                          onChange={(e) => setNewProvider((p) => ({...p, name: e.target.value}))}
+                          placeholder="My Research Provider" className="h-11" autoFocus />
+                      </div>
+                    )}
+
+                    {currentAddProviderStep === "type" && (
+                      <div className="space-y-3">
+                        <Label className="text-base font-semibold">Which provider type is it?</Label>
+                        <select value={newProvider.type} onChange={(e) => updateNewProviderType(e.target.value)}
+                          className="w-full h-11 rounded-md border bg-background px-3 text-sm">
+                          {PROVIDER_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                        </select>
+                      </div>
+                    )}
+
+                    {currentAddProviderStep === "protocol" && (
+                      <div className="space-y-3">
+                        <Label className="text-base font-semibold flex items-center gap-2">
+                          <SwitchCamera className="h-4 w-4 text-muted-foreground" /> Which protocol should it use?
+                        </Label>
+                        <Select value={newProvider.protocol} onValueChange={(v) => setNewProvider((p) => ({...p, protocol: v}))}>
+                          <SelectTrigger className="h-11"><SelectValue/></SelectTrigger>
+                          <SelectContent>
+                            {PROTOCOL_OPTIONS.map((o) => (
+                              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    {currentAddProviderStep === "api_key" && (
+                      <div className="space-y-3">
+                        <Label className="text-base font-semibold">What API key should it use?</Label>
+                        <Input value={newProvider.api_key}
+                          onChange={(e) => setNewProvider((p) => ({...p, api_key: e.target.value}))}
+                          placeholder={newProvider.type === "custom" ? "ollama or your-key" : "sk-..."}
+                          type="password" className="h-11 font-mono" />
+                        <p className="text-xs text-muted-foreground">Leave blank for local endpoints or mock fallback.</p>
+                      </div>
+                    )}
+
+                    {currentAddProviderStep === "base_url" && (
+                      <div className="space-y-3">
+                        <Label className="text-base font-semibold">What base URL should it use?</Label>
+                        <Input value={newProvider.base_url}
+                          onChange={(e) => setNewProvider((p) => ({...p, base_url: e.target.value}))}
+                          placeholder="https://api.openai.com/v1" className="h-11 font-mono text-sm" />
+                      </div>
+                    )}
+
+                    {currentAddProviderStep === "model" && (
+                      <div className="space-y-3">
+                        <Label className="text-base font-semibold">What model name should it use?</Label>
+                        <Input value={newProvider.model}
+                          onChange={(e) => setNewProvider((p) => ({...p, model: e.target.value}))}
+                          placeholder="gpt-4.1-mini" className="h-11" autoFocus />
+                      </div>
+                    )}
+                  </div>
+
+                  <DialogFooter className="gap-2 sm:justify-between">
+                    <Button variant="outline" onClick={() => setAddProviderStepIndex((step) => Math.max(0, step - 1))}
+                      disabled={currentAddProviderStepIndex === 0 || provSaving}>
+                      <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Back
+                    </Button>
+                    <div className="flex gap-2">
+                      <Button variant="ghost" onClick={resetAddProviderDialog} disabled={provSaving}>Cancel</Button>
+                      {currentAddProviderStepIndex === addProviderSteps.length - 1 ? (
+                        <Button onClick={saveNewProvider} disabled={!canAdvanceAddProvider || provSaving}>
+                          {provSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1"/> : <Plus className="h-3.5 w-3.5 mr-1"/>} Add
+                        </Button>
+                      ) : (
+                        <Button onClick={goToNextAddProviderStep} disabled={!canAdvanceAddProvider || provSaving}>
+                          Next <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                        </Button>
+                      )}
+                    </div>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {false && showAddForm ? (
                 <Card>
                   <CardHeader><CardTitle className="text-base">Add Provider</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
@@ -601,11 +773,7 @@ export default function SettingsPage() {
                     </div>
                   </CardContent>
                 </Card>
-              ) : (
-                <Button variant="outline" className="w-full gap-2 h-10" onClick={() => setShowAddForm(true)}>
-                  <Plus className="h-4 w-4" /> Add Provider
-                </Button>
-              )}
+              ) : null}
             </motion.div>
           )}
 

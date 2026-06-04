@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileText, CheckCircle2, AlertCircle, Inbox, Sparkles, Brain, Loader2 } from "lucide-react";
+import { Upload, FileText, CheckCircle2, AlertCircle, Inbox, Sparkles, Brain, Loader2, Eye, X } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { uploadFile, getArticleActiveJob } from "@/lib/api";
 import { FadeIn } from "@/components/ui/animated";
-import { createUploadQueueSnapshot, shouldResumeProcessingFile, upsertProcessingFile } from "./uploadQueueState.mjs";
+import { canOpenArticleDetail, clearFinishedProcessingFiles, createUploadQueueSnapshot, shouldResumeProcessingFile, upsertProcessingFile } from "./uploadQueueState.mjs";
 
 interface ProcessingFile {
   filename: string;
@@ -46,7 +46,6 @@ function stepProgress(step: string | null): number {
 }
 
 export default function UploadPage() {
-  const router = useRouter();
   const [dragover, setDragover] = useState(false);
   const [runAI, setRunAI] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -54,8 +53,10 @@ export default function UploadPage() {
   const [processingFiles, setProcessingFiles] = useState<ProcessingFile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showSparkle, setShowSparkle] = useState(false);
+  const [clearingFinished, setClearingFinished] = useState(false);
   const [queueRestored, setQueueRestored] = useState(false);
   const pollIntervalsRef = useRef<Map<number, ReturnType<typeof setInterval>>>(new Map());
+  const clearFinishedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [modelInfo, setModelInfo] = useState<{
     llmProvider: string; llmModel: string; llmProtocol: string | null;
     llmProviderName?: string;
@@ -66,6 +67,7 @@ export default function UploadPage() {
   useEffect(() => {
     return () => {
       pollIntervalsRef.current.forEach((interval) => clearInterval(interval));
+      if (clearFinishedTimeoutRef.current) clearTimeout(clearFinishedTimeoutRef.current);
     };
   }, []);
 
@@ -157,6 +159,19 @@ export default function UploadPage() {
     setUploading(false);
     if (arr.length > 0) { setShowSparkle(true); setTimeout(() => setShowSparkle(false), 2500); }
   }, [runAI, startPolling]);
+
+  const handleClearFinished = useCallback(() => {
+    if (clearingFinished) return;
+    setClearingFinished(true);
+    if (clearFinishedTimeoutRef.current) clearTimeout(clearFinishedTimeoutRef.current);
+    clearFinishedTimeoutRef.current = setTimeout(() => {
+      setProcessingFiles((prev) => clearFinishedProcessingFiles(prev));
+      setClearingFinished(false);
+      clearFinishedTimeoutRef.current = null;
+    }, 120);
+  }, [clearingFinished]);
+
+  const hasFinishedProcessingFiles = processingFiles.some((file) => !shouldResumeProcessingFile(file));
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
@@ -300,9 +315,16 @@ export default function UploadPage() {
       {/* Per-file processing progress */}
       <AnimatePresence>
         {processingFiles.length > 0 && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+          <motion.div
+            layout
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8, height: 0 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+            className="overflow-hidden"
+          >
             <Card>
-              <CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between gap-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   {processingFiles.every((f) => f.status === "completed") ? (
                     <CheckCircle2 className="h-4 w-4 text-green-600" />
@@ -311,44 +333,85 @@ export default function UploadPage() {
                   )}
                   Processing {processingFiles.length} file{processingFiles.length > 1 ? "s" : ""}
                 </CardTitle>
+                <AnimatePresence>
+                  {hasFinishedProcessingFiles && (
+                    <motion.div
+                      initial={{ opacity: 0, x: 8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 8 }}
+                      whileTap={{ scale: 0.96 }}
+                      transition={{ duration: 0.16 }}
+                    >
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 min-w-[8.5rem] gap-1.5"
+                        disabled={clearingFinished}
+                        onClick={handleClearFinished}
+                      >
+                        {clearingFinished ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <X className="h-3.5 w-3.5" />
+                        )}
+                        {clearingFinished ? "Clearing..." : "Clear finished"}
+                      </Button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </CardHeader>
               <CardContent className="space-y-3">
-                {processingFiles.map((f) => (
-                  <motion.div
-                    key={f.articleId}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="py-2 px-3 rounded-md bg-accent/50 space-y-1.5"
-                  >
-                    <div className="flex items-center justify-between min-w-0">
-                      <div className="flex items-center gap-2 min-w-0">
-                        {f.status === "completed" ? (
-                          <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
-                        ) : f.status === "failed" ? (
-                          <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
-                        ) : (
-                          <Loader2 className="h-4 w-4 text-primary animate-spin shrink-0" />
+                <AnimatePresence initial={false} mode="popLayout">
+                  {processingFiles.map((f) => (
+                    <motion.div
+                      key={f.articleId}
+                      layout
+                      initial={{ opacity: 0, x: -10, scale: 0.99 }}
+                      animate={{ opacity: 1, x: 0, scale: 1 }}
+                      exit={{
+                        opacity: 0,
+                        x: 24,
+                        scale: 0.98,
+                        height: 0,
+                        paddingTop: 0,
+                        paddingBottom: 0,
+                      }}
+                      transition={{ duration: 0.22, ease: "easeInOut" }}
+                      className="py-2 px-3 rounded-md bg-accent/50 space-y-1.5 overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {f.status === "completed" ? (
+                            <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                          ) : f.status === "failed" ? (
+                            <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
+                          ) : (
+                            <Loader2 className="h-4 w-4 text-primary animate-spin shrink-0" />
+                          )}
+                          <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <span className="text-sm truncate">{f.filename}</span>
+                        </div>
+                        {canOpenArticleDetail(f) && (
+                          <Button variant="link" size="sm" asChild>
+                            <Link href={`/articles/${f.articleId}`} className="gap-1.5">
+                              <Eye className="h-3.5 w-3.5" />
+                              View
+                            </Link>
+                          </Button>
                         )}
-                        <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span className="text-sm truncate">{f.filename}</span>
                       </div>
-                      {f.status !== "processing" && (
-                        <Button variant="link" size="sm" onClick={() => router.push(`/articles/${f.articleId}`)}>
-                          View →
-                        </Button>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Progress
-                        value={f.status === "completed" ? 100 : f.status === "failed" ? 100 : stepProgress(f.step)}
-                        className={f.status === "failed" ? "[&>div]:bg-destructive" : f.status === "completed" ? "[&>div]:bg-green-500" : ""}
-                      />
-                    </div>
-                    <p className={`text-xs ${f.status === "failed" ? "text-destructive" : "text-muted-foreground"}`}>
-                      {f.status === "completed" ? "Complete" : f.status === "failed" ? f.error || "Failed" : stepLabel(f.step)}
-                    </p>
-                  </motion.div>
-                ))}
+                      <div className="flex items-center gap-2">
+                        <Progress
+                          value={f.status === "completed" ? 100 : f.status === "failed" ? 100 : stepProgress(f.step)}
+                          className={f.status === "failed" ? "[&>div]:bg-destructive" : f.status === "completed" ? "[&>div]:bg-green-500" : ""}
+                        />
+                      </div>
+                      <p className={`text-xs ${f.status === "failed" ? "text-destructive" : "text-muted-foreground"}`}>
+                        {f.status === "completed" ? "Complete" : f.status === "failed" ? f.error || "Failed" : stepLabel(f.step)}
+                      </p>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
               </CardContent>
             </Card>
           </motion.div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import { useLanguage } from "@/components/LanguageProvider";
 import { sendChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, updateArticleExtraction, toggleArchiveArticle, deleteArticle, getRelatedArticles } from "@/lib/api";
 import { getPromptText, translateUiText } from "@/lib/languageState.mjs";
+import { normalizeHtmlTablesForMarkdown } from "@/lib/markdownHtmlTables.mjs";
 import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
 import { createChatSubmission, createCitationReaderTarget, createWorkspacePanelSummary, slugifyWorkspaceText } from "../articleWorkspaceState.mjs";
@@ -544,7 +545,7 @@ export default function ArticleDetailPage() {
                             title="Original PDF"
                           />
                         ) : markdown ? (
-                          <ScrollArea className="h-full">
+                          <ScrollArea className="h-full min-w-0">
                             <MarkdownReader text={markdown} onSelect={addToChat} />
                           </ScrollArea>
                         ) : (
@@ -1001,16 +1002,26 @@ const mdComponents = {
   h5: ({ children, ...props }: any) => <h5 id={slugify(children)} className="text-sm font-semibold mt-3 mb-1 scroll-mt-20" {...props}>{children}</h5>,
   h6: ({ children, ...props }: any) => <h6 id={slugify(children)} className="text-xs font-semibold mt-3 mb-1 uppercase tracking-wide scroll-mt-20" {...props}>{children}</h6>,
   img: ({ src, alt, ...props }: any) => (
-    <span className="flex justify-center my-4 block">
-      <img src={src} alt={alt} className="rounded-lg max-w-full" {...props} />
+    <span className="my-4 block w-full max-w-full text-center">
+      <img {...props} src={src} alt={alt} className="inline-block h-auto max-h-[70vh] w-auto max-w-full rounded-lg object-contain align-middle" />
     </span>
   ),
+  table: ({ children, ...props }: any) => (
+    <div className="my-4 block w-full min-w-0 max-w-full overflow-x-auto rounded-md border font-sans">
+      <table {...props} className="w-max min-w-full border-collapse text-sm">{children}</table>
+    </div>
+  ),
+  thead: ({ children, ...props }: any) => <thead className="bg-muted/70" {...props}>{children}</thead>,
+  tr: ({ children, ...props }: any) => <tr className="border-b last:border-b-0" {...props}>{children}</tr>,
+  th: ({ children, ...props }: any) => <th className="border-r px-3 py-2 text-left font-semibold last:border-r-0" {...props}>{children}</th>,
+  td: ({ children, ...props }: any) => <td className="border-r px-3 py-2 align-top last:border-r-0" {...props}>{children}</td>,
 };
 
 /** Renders Markdown via react-markdown with text-selection "Add to Chat" support. */
 function MarkdownReader({ text, onSelect }: { text: string; onSelect: (t: string, src: string) => void }) {
   const [selected, setSelected] = useState("");
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const renderedText = useMemo(() => normalizeHtmlTablesForMarkdown(text), [text]);
 
   const handleMouseUp = () => {
     const sel = window.getSelection();
@@ -1029,15 +1040,15 @@ function MarkdownReader({ text, onSelect }: { text: string; onSelect: (t: string
   };
 
   return (
-    <div onMouseUp={handleMouseUp} className="relative">
-      <div className="prose prose-sm dark:prose-invert max-w-none font-serif
+    <div onMouseUp={handleMouseUp} className="relative min-w-0">
+      <div className="prose prose-sm dark:prose-invert w-full min-w-0 max-w-full overflow-x-auto font-serif
         prose-headings:scroll-mt-20 prose-headings:font-sans prose-a:text-primary prose-code:bg-muted prose-code:px-1 prose-code:rounded prose-code:font-mono prose-pre:bg-muted prose-img:rounded-lg">
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]}
           components={mdComponents}
         >
-          {text}
+          {renderedText}
         </ReactMarkdown>
       </div>
       <AnimatePresence>

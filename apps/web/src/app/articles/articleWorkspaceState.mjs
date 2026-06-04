@@ -1,4 +1,4 @@
-import { getPromptText } from "../../lib/languageState.mjs";
+import { getPromptText, getPromptWrapperLabels } from "../../lib/languageState.mjs";
 
 export function slugifyWorkspaceText(value) {
   return String(value || "")
@@ -38,9 +38,7 @@ export function shouldUseWorkspaceSplit(width) {
 export function createChatSubmission({ question = "", contextText = "", language = "en" } = {}) {
   const trimmedQuestion = String(question || "").trim();
   const selectedContext = String(contextText || "");
-  const isChinese = language === "zh";
-  const contextLabel = isChinese ? "[用户选择的上下文]" : "[User selected context]";
-  const questionLabel = isChinese ? "[问题]" : "[Question]";
+  const { selectedContext: contextLabel, question: questionLabel } = getPromptWrapperLabels(language);
 
   if (!trimmedQuestion && !selectedContext) return null;
 

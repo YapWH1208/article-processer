@@ -5,6 +5,7 @@ import {
   DEFAULT_LANGUAGE,
   LANGUAGE_STORAGE_KEY,
   applyLanguageToDocument,
+  getLanguageDictionary,
   getShellCopy,
   normalizeLanguage,
   resolveInitialLanguage,
@@ -33,7 +34,7 @@ type LanguageContextValue = {
 const LanguageContext = createContext<LanguageContextValue | null>(null);
 
 function htmlLanguage(language: AppLanguage) {
-  return language === "zh" ? "zh-CN" : "en";
+  return getLanguageDictionary(language).htmlLang;
 }
 
 export function useLanguage() {

@@ -3,7 +3,9 @@ import test from "node:test";
 
 import {
   buildProviderUpdatePayload,
+  canContinueProviderAddStep,
   createProviderEditDraft,
+  getProviderAddWizardSteps,
 } from "./providerSettingsState.mjs";
 
 test("provider edit draft never pre-fills the masked API key", () => {
@@ -66,4 +68,25 @@ test("provider update payload includes a newly entered API key", () => {
       protocol: "openai",
     }
   );
+});
+
+test("provider add wizard asks for provider name first and model name last", () => {
+  assert.deepEqual(
+    getProviderAddWizardSteps({ type: "openai" }),
+    ["name", "type", "api_key", "base_url", "model"]
+  );
+});
+
+test("provider add wizard includes protocol question only for custom endpoints", () => {
+  assert.deepEqual(
+    getProviderAddWizardSteps({ type: "custom" }),
+    ["name", "type", "protocol", "api_key", "base_url", "model"]
+  );
+});
+
+test("provider add wizard requires a name and model before continuing", () => {
+  assert.equal(canContinueProviderAddStep({ name: "   " }, "name"), false);
+  assert.equal(canContinueProviderAddStep({ name: "OpenRouter" }, "name"), true);
+  assert.equal(canContinueProviderAddStep({ model: "" }, "model"), false);
+  assert.equal(canContinueProviderAddStep({ model: "openai/gpt-4.1-mini" }, "model"), true);
 });

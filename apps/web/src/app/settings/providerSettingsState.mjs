@@ -1,3 +1,5 @@
+const BASE_PROVIDER_ADD_STEPS = ["name", "type", "api_key", "base_url", "model"];
+
 export function createProviderEditDraft(provider) {
   return {
     name: provider?.name || "",
@@ -24,4 +26,24 @@ export function buildProviderUpdatePayload(draft) {
   }
 
   return payload;
+}
+
+export function getProviderAddWizardSteps(draft) {
+  if (draft?.type === "custom") {
+    return ["name", "type", "protocol", "api_key", "base_url", "model"];
+  }
+
+  return BASE_PROVIDER_ADD_STEPS;
+}
+
+export function canContinueProviderAddStep(draft, step) {
+  if (step === "name") {
+    return Boolean((draft?.name || "").trim());
+  }
+
+  if (step === "model") {
+    return Boolean((draft?.model || "").trim());
+  }
+
+  return true;
 }

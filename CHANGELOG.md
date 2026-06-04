@@ -15,7 +15,7 @@ All notable changes to the Article Processor project.
 - **Article-list URL state** - Article list search, content search, status filter, archived toggle, sorting, and pagination are reflected in the URL for refresh-safe and shareable views.
 - **Batch JSON export from article list** - Selected articles can be exported directly from the batch action bar.
 - **Persistent upload queue** - Upload/import processing progress is stored locally and resumed after refresh for active jobs.
-- **Bilingual UI toggle** - Header language button switches the app shell, pages, placeholders, and generated chat prompts between English and Chinese.
+- **Locale-backed bilingual UI toggle** - Header language button switches the app shell, pages, placeholders, and generated chat prompts between English and Chinese, with English and Chinese strings split into per-language locale files for future languages.
 - **Frontend state tests** - Node test coverage now includes article-list URL/export state, upload queue persistence, job queue action state, graph canvas state, extraction review parsing, and article workspace helpers.
 
 ### Changed

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -26,6 +26,7 @@ import {
   getDevConfig, setActiveProvider,
 } from "@/lib/api";
 import { translateUiText } from "@/lib/languageState.mjs";
+import { normalizeHtmlTablesForMarkdown } from "@/lib/markdownHtmlTables.mjs";
 import type { ArticleSummary, ChatSession, ChatMessageResponse, Citation, ProviderEntry } from "@/lib/types";
 import { TypingDots } from "@/components/ui/animated";
 
@@ -94,19 +95,21 @@ interface BubbleData {
 }
 
 function MessageBubble({ msg }: { msg: BubbleData }) {
+  const renderedContent = useMemo(() => normalizeHtmlTablesForMarkdown(msg.content), [msg.content]);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+      className={`flex min-w-0 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
     >
       <div
-        className={`max-w-[85%] rounded-2xl px-4 py-3 ${
+        className={`max-w-[85%] min-w-0 rounded-2xl px-4 py-3 ${
           msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted/60 border"
         }`}
       >
-        <div className="prose prose-sm dark:prose-invert max-w-none break-words">
+        <div className="prose prose-sm dark:prose-invert w-full min-w-0 max-w-full overflow-x-auto break-words">
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]}
@@ -118,13 +121,22 @@ function MessageBubble({ msg }: { msg: BubbleData }) {
               h5: ({ children, ...props }: any) => <h5 className="text-xs font-semibold mt-2 mb-0.5" {...props}>{children}</h5>,
               h6: ({ children, ...props }: any) => <h6 className="text-[11px] font-semibold mt-2 mb-0.5 uppercase tracking-wide" {...props}>{children}</h6>,
               img: ({ src, alt, ...props }: any) => (
-                <span className="flex justify-center my-3 block">
-                  <img src={src} alt={alt} className="rounded-lg max-w-full" {...props} />
+                <span className="my-3 block w-full max-w-full text-center">
+                  <img {...props} src={src} alt={alt} className="inline-block h-auto max-h-[50vh] w-auto max-w-full rounded-lg object-contain align-middle" />
                 </span>
               ),
+              table: ({ children, ...props }: any) => (
+                <div className="my-3 block w-full min-w-0 max-w-full overflow-x-auto rounded-md border font-sans">
+                  <table {...props} className="w-max min-w-full border-collapse text-sm">{children}</table>
+                </div>
+              ),
+              thead: ({ children, ...props }: any) => <thead className="bg-muted/70" {...props}>{children}</thead>,
+              tr: ({ children, ...props }: any) => <tr className="border-b last:border-b-0" {...props}>{children}</tr>,
+              th: ({ children, ...props }: any) => <th className="border-r px-3 py-2 text-left font-semibold last:border-r-0" {...props}>{children}</th>,
+              td: ({ children, ...props }: any) => <td className="border-r px-3 py-2 align-top last:border-r-0" {...props}>{children}</td>,
             }}
           >
-            {msg.content}
+            {renderedContent}
           </ReactMarkdown>
         </div>
         {msg.citations && msg.citations.length > 0 && (
