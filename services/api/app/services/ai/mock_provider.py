@@ -10,6 +10,7 @@ import hashlib
 import math
 from typing import Any
 from app.services.ai.base import BaseLLMProvider
+from app.services.ai.prompts import normalize_output_language
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ class MockLLMProvider(BaseLLMProvider):
         self,
         markdown: str,
         article_title: str,
+        output_language: str = "en",
     ) -> tuple[dict | None, list[str] | None, float]:
         """Extract structured information using regex/heuristics (no real AI)."""
         try:
@@ -126,8 +128,10 @@ class MockLLMProvider(BaseLLMProvider):
         article_text: str | None = None,
         chunks: list[Any] | None = None,
         history: list[dict] | None = None,
+        output_language: str = "en",
     ) -> tuple[str, list[dict]]:
         """Mock Q&A — returns a response based on keyword matching in article text."""
+        output_language = normalize_output_language(output_language)
         question_lower = question.lower()
 
         stop_words = {'what', 'when', 'where', 'how', 'which', 'who', 'whom',
@@ -175,6 +179,11 @@ class MockLLMProvider(BaseLLMProvider):
                     relevant_sentences.append((sentence.strip(), citation))
 
         if not relevant_sentences:
+            if output_language == "zh":
+                return (
+                    "提供的文档没有足够信息回答这个问题。请换一种问法，或询问文章的其他方面。",
+                    [],
+                )
             return (
                 "The provided document does not contain sufficient information to answer this question. "
                 "Try rephrasing your question or asking about a different aspect of the article.",
@@ -183,7 +192,11 @@ class MockLLMProvider(BaseLLMProvider):
 
         top = relevant_sentences[:5]
         citations = [c for _, c in top]
-        answer_parts = [f"Based on the article \"{article_title}\", here's what I found:\n"]
+        answer_parts = (
+            [f"根据文章“{article_title}”，我找到了以下内容：\n"]
+            if output_language == "zh"
+            else [f"Based on the article \"{article_title}\", here's what I found:\n"]
+        )
         for sentence, citation in top:
             answer_parts.append(f"- {sentence.strip()}")
 
@@ -196,19 +209,26 @@ class MockLLMProvider(BaseLLMProvider):
         article_text: str | None = None,
         chunks: list[Any] | None = None,
         history: list[dict] | None = None,
+        output_language: str = "en",
     ):
         """Simulate streaming by yielding mock answer word-by-word."""
         import asyncio
         answer, _ = await self.answer_question(
-            question, article_title, article_text, chunks, history=history,
+            question,
+            article_title,
+            article_text,
+            chunks,
+            history=history,
+            output_language=output_language,
         )
         words = answer.split(" ")
         for i, word in enumerate(words):
             yield word + (" " if i < len(words) - 1 else "")
             await asyncio.sleep(0.02)  # simulate streaming delay
 
-    async def run_skill(self, skill: Any, article_markdown: str) -> dict:
+    async def run_skill(self, skill: Any, article_markdown: str, output_language: str = "en") -> dict:
         """Mock skill execution — extracts relevant section based on skill purpose."""
+        output_language = normalize_output_language(output_language)
         skill_name = skill.name if hasattr(skill, 'name') else str(skill)
         purpose = skill.purpose if hasattr(skill, 'purpose') else ""
 
@@ -221,7 +241,7 @@ class MockLLMProvider(BaseLLMProvider):
                 "title": sections.get("title", ""),
                 "relevant_sections": {k: v[:500] for k, v in sections.items() if v},
             },
-            "note": "Mock skill execution — pattern-based extraction only",
+            "note": "模拟技能执行：仅基于规则抽取" if output_language == "zh" else "Mock skill execution - pattern-based extraction only",
         }
 
     def _extract_authors(self, text: str) -> list[str]:

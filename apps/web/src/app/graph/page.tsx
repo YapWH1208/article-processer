@@ -15,6 +15,7 @@ import { getArticle, getGlobalGraph } from "@/lib/api";
 import type { ArticleDetail, GlobalGraphData } from "@/lib/types";
 import { FadeIn } from "@/components/ui/animated";
 import { createGraphNodeArticleSummary } from "./graphArticleSummary.mjs";
+import { getDefaultSelectedGraphTypes } from "./graphFilterState.mjs";
 import {
   applyGraphNodeDrag,
   createGraphViewportState,
@@ -481,10 +482,7 @@ export default function GraphPage() {
     getGlobalGraph(300)
       .then((d) => {
         setData(d);
-        // Collect all types
-        const types = new Set<string>();
-        d.entities.forEach((e) => types.add(e.type));
-        setSelectedTypes(types);
+        setSelectedTypes(getDefaultSelectedGraphTypes(d.entities));
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
       .finally(() => setLoading(false));

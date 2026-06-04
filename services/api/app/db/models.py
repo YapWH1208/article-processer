@@ -205,6 +205,7 @@ class ProcessingJob(Base):
     last_error = Column(Text, nullable=True)
     run_ai = Column(Integer, default=1)
     start_step = Column(String(32), default="parse")
+    output_language = Column(String(16), default="en")
     locked_at = Column(DateTime, nullable=True)
     worker_id = Column(String(128), nullable=True)
 

@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { uploadFile, getArticleActiveJob } from "@/lib/api";
+import { useLanguage } from "@/components/LanguageProvider";
 import { FadeIn } from "@/components/ui/animated";
 import { canOpenArticleDetail, clearFinishedProcessingFiles, createUploadQueueSnapshot, shouldResumeProcessingFile, upsertProcessingFile } from "./uploadQueueState.mjs";
 
@@ -46,6 +47,7 @@ function stepProgress(step: string | null): number {
 }
 
 export default function UploadPage() {
+  const { language } = useLanguage();
   const [dragover, setDragover] = useState(false);
   const [runAI, setRunAI] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -149,7 +151,7 @@ export default function UploadPage() {
 
     for (let i = 0; i < arr.length; i++) {
       try {
-        const r = await uploadFile(arr[i], runAI);
+        const r = await uploadFile(arr[i], runAI, language);
         startPolling(r.article_id, arr[i].name);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Upload failed");
@@ -158,7 +160,7 @@ export default function UploadPage() {
     }
     setUploading(false);
     if (arr.length > 0) { setShowSparkle(true); setTimeout(() => setShowSparkle(false), 2500); }
-  }, [runAI, startPolling]);
+  }, [language, runAI, startPolling]);
 
   const handleClearFinished = useCallback(() => {
     if (clearingFinished) return;
@@ -442,6 +444,7 @@ export default function UploadPage() {
 // ── URL Import Card ──────────────────────────────────────────────────────
 
 function UrlImportCard({ onImported }: { onImported: (articleId: number, filename: string) => void }) {
+  const { language } = useLanguage();
   const [importUrl, setImportUrl] = useState("");
   const [importing, setImporting] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
@@ -454,7 +457,7 @@ function UrlImportCard({ onImported }: { onImported: (articleId: number, filenam
     setUrlError(null);
     try {
       const { importFromUrl } = await import("@/lib/api");
-      const r = await importFromUrl(trimmed, runAI);
+      const r = await importFromUrl(trimmed, runAI, language);
       onImported(r.article_id, r.filename);
       setImportUrl("");
     } catch (e: unknown) {

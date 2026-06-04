@@ -71,7 +71,7 @@ cp .env.example apps/web/.env.local
 - **Multi-Provider AI**: 9 LLM providers — OpenAI, Anthropic, DeepSeek, OpenRouter, GLM (Zhipu), MiniMax, Kimi (Moonshot), and Custom (any OpenAI/Anthropic-compatible endpoint). Configure in Settings → Providers.
 - **PDF Original View**: Toggle between parsed Markdown and the original PDF inline in the Reader
 - **Unified Settings Page**: Single `/settings` page with 5 tabs — Providers, System Messages, Input Templates, Model Params, and General (parsers, mock AI, limits, data export/import)
-- **Locale-backed bilingual UI**: Header language button switches the app shell, pages, placeholders, and generated chat prompts between English and Chinese using per-language locale files for future expansion
+- **Locale-backed bilingual UI**: Header language button switches the app shell, pages, placeholders, generated chat prompts, and AI output-language instructions between English and Chinese using per-language locale files for future expansion
 - **Dark Mode**: Full light/dark theme with system preference detection and live OS theme switching
 - **Inline Title Editing**: Click any article title to rename it inline — defaults to the original filename
 - **Pagination & Sort**: Server-side pagination with sort controls (newest, oldest, title, status)

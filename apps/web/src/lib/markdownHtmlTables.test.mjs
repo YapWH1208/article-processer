@@ -55,19 +55,28 @@ test("markdown media stays contained in renderer boxes", async () => {
   const articleSource = await readFile(new URL("../app/articles/[id]/page.tsx", import.meta.url), "utf8");
   const scrollAreaSource = await readFile(new URL("../components/ui/scroll-area.tsx", import.meta.url), "utf8");
 
+  assert.match(articleSource, /<ScrollArea className="h-full w-full min-w-0 max-w-full">/);
+  assert.match(articleSource, /className="relative w-full min-w-0 max-w-full"/);
+
   for (const source of [chatSource, articleSource]) {
     assert.match(source, /min-w-0/);
-    assert.match(source, /block w-full min-w-0 max-w-full overflow-x-auto/);
-    assert.match(source, /w-max min-w-full border-collapse/);
-    assert.match(source, /block w-full max-w-full text-center/);
-    assert.match(source, /prose[^\n"]*w-full[^\n"]*overflow-x-auto/);
+    assert.match(source, /mx-auto block w-\[calc\(100%-0\.5rem\)\] min-w-0 max-w-\[calc\(100%-0\.5rem\)\] rounded-md border/);
+    assert.match(source, /w-full max-w-full table-fixed border-collapse/);
+    assert.match(source, /mx-auto block w-\[calc\(100%-0\.5rem\)\] max-w-\[calc\(100%-0\.5rem\)\] text-center/);
+    assert.match(source, /prose[^\n"]*w-full[^\n"]*\[overflow-wrap:anywhere\]/);
     assert.match(source, /max-h-\[[^\]]+\]/);
     assert.match(source, /h-auto/);
     assert.match(source, /w-auto/);
     assert.match(source, /max-w-full/);
     assert.match(source, /object-contain/);
+    assert.match(source, /\[overflow-wrap:anywhere\] break-words whitespace-normal/);
+    assert.doesNotMatch(source, /overflow-x-auto/);
     assert.doesNotMatch(source, /prose[^\n"]*overflow-hidden/);
   }
 
-  assert.match(scrollAreaSource, /<ScrollBar orientation="horizontal" \/>/);
+  assert.doesNotMatch(scrollAreaSource, /<ScrollBar orientation="horizontal" \/>/);
+  assert.match(scrollAreaSource, /\[&>div\]:!block/);
+  assert.match(scrollAreaSource, /\[&>div\]:!w-full/);
+  assert.match(scrollAreaSource, /\[&>div\]:!min-w-0/);
+  assert.match(scrollAreaSource, /\[&>div\]:!max-w-full/);
 });

@@ -8,11 +8,9 @@ from openai import AsyncOpenAI
 from app.core.config import settings
 from app.services.ai.base import BaseLLMProvider
 from app.services.ai.prompts import (
-    EXTRACTION_SYSTEM_PROMPT,
     EXTRACTION_CORRECTION_PROMPT,
-    QA_SYSTEM_PROMPT,
-    SKILL_SYSTEM_PROMPT,
     get_input_template,
+    get_system_message,
 )
 from app.services.ai.extraction import ExtractionService
 from app.core.security import protect_prompt_from_injection
@@ -135,6 +133,7 @@ class OpenAIProvider(BaseLLMProvider):
         self,
         markdown: str,
         article_title: str,
+        output_language: str = "en",
     ) -> tuple[dict | None, list[str] | None, float]:
         """Extract structured information using OpenAI-compatible API.
 
@@ -143,9 +142,10 @@ class OpenAIProvider(BaseLLMProvider):
         salvage malformed output from smaller / cheaper models.
         """
         protected_text = protect_prompt_from_injection(markdown)
+        system_prompt = get_system_message("extraction", output_language=output_language)
 
         messages = [
-            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"Title: {article_title}\n\n{protected_text}"},
         ]
 
@@ -287,6 +287,7 @@ class OpenAIProvider(BaseLLMProvider):
         article_text: str | None = None,
         chunks: list[Any] | None = None,
         history: list[dict] | None = None,
+        output_language: str = "en",
     ) -> tuple[str, list[dict]]:
         """Answer a question using the full article text via OpenAI.
 
@@ -308,7 +309,7 @@ class OpenAIProvider(BaseLLMProvider):
             question=question,
         )
 
-        messages = [{"role": "system", "content": QA_SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": get_system_message("chat", output_language=output_language)}]
 
         # Inject conversation history between system and latest user message
         for msg in self._truncate_history(history):
@@ -342,6 +343,7 @@ class OpenAIProvider(BaseLLMProvider):
         article_text: str | None = None,
         chunks: list[Any] | None = None,
         history: list[dict] | None = None,
+        output_language: str = "en",
     ):
         """Stream answer tokens using OpenAI's native streaming API."""
         if chunks:
@@ -358,7 +360,7 @@ class OpenAIProvider(BaseLLMProvider):
             question=question,
         )
 
-        messages = [{"role": "system", "content": QA_SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": get_system_message("chat", output_language=output_language)}]
 
         # Inject conversation history between system and latest user message
         for msg in self._truncate_history(history):
@@ -382,12 +384,12 @@ class OpenAIProvider(BaseLLMProvider):
             logger.error(f"OpenAI streaming Q&A failed: {e}")
             raise
 
-    async def run_skill(self, skill: Any, article_markdown: str) -> dict:
+    async def run_skill(self, skill: Any, article_markdown: str, output_language: str = "en") -> dict:
         """Run a skill using OpenAI."""
         protected_text = protect_prompt_from_injection(article_markdown)
 
         output_schema = skill.output_schema if hasattr(skill, 'output_schema') else "{}"
-        prompt = SKILL_SYSTEM_PROMPT.format(
+        prompt = get_system_message("skill_default", output_language=output_language).format(
             skill_name=skill.name if hasattr(skill, 'name') else "unknown",
             skill_purpose=skill.purpose if hasattr(skill, 'purpose') else "",
             skill_instructions=skill.prompt_instructions if hasattr(skill, 'prompt_instructions') else "",

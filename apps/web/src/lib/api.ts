@@ -44,20 +44,21 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 // URL Import
 
-export async function importFromUrl(url: string, runAi = true) {
+export async function importFromUrl(url: string, runAi = true, language = "en") {
   return apiFetch<import("./types").UrlImportResponse>("/imports/url", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, run_ai: runAi }),
+    body: JSON.stringify({ url, run_ai: runAi, language }),
   });
 }
 
 // Uploads
 
-export async function uploadFile(file: File, runAi = true) {
+export async function uploadFile(file: File, runAi = true, language = "en") {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("run_ai", String(runAi));
+  formData.append("language", language);
   return apiFetch<import("./types").UploadResponse>("/uploads", {
     method: "POST",
     body: formData,
@@ -153,9 +154,10 @@ export async function getArticleActiveJob(id: number) {
   );
 }
 
-export async function reprocessArticle(id: number, mode: "full" | "parse_only" | "extract_only" = "full") {
+export async function reprocessArticle(id: number, mode: "full" | "parse_only" | "extract_only" = "full", language = "en") {
+  const params = new URLSearchParams({ mode, language });
   return apiFetch<{ article_id: number; job_id: number; status: string }>(
-    `/articles/${id}/reprocess?mode=${mode}`,
+    `/articles/${id}/reprocess?${params.toString()}`,
     { method: "POST" }
   );
 }
@@ -174,13 +176,13 @@ export async function deleteArticle(id: number) {
 
 // Chat
 
-export async function sendChatMessage(articleId: number, message: string) {
+export async function sendChatMessage(articleId: number, message: string, language = "en") {
   return apiFetch<import("./types").ChatResponse>(
     `/articles/${articleId}/chat`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, language }),
     }
   );
 }
@@ -192,13 +194,14 @@ export async function streamChatMessage(
   onToken: (token: string) => void,
   onDone: (fullAnswer: string, citations?: import("./types").Citation[]) => void,
   onError: (error: string) => void,
+  language = "en",
 ): Promise<void> {
   const url = `${API_BASE}/articles/${articleId}/chat/stream`;
   try {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, language }),
     });
 
     if (!res.ok) {
@@ -257,13 +260,13 @@ export async function getChatHistory(articleId: number) {
   );
 }
 
-export async function sendMultiArticleChatMessage(articleIds: number[], message: string) {
+export async function sendMultiArticleChatMessage(articleIds: number[], message: string, language = "en") {
   return apiFetch<import("./types").MultiArticleChatResponse>(
     "/articles/chat",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ article_ids: articleIds, message }),
+      body: JSON.stringify({ article_ids: articleIds, message, language }),
     }
   );
 }
@@ -292,13 +295,13 @@ export async function getSessionMessages(sessionId: number) {
   return apiFetch<import("./types").ChatHistoryResponse>(`/articles/sessions/${sessionId}`);
 }
 
-export async function sendSessionMessage(sessionId: number, message: string, articleIds: number[] = []) {
+export async function sendSessionMessage(sessionId: number, message: string, articleIds: number[] = [], language = "en") {
   return apiFetch<import("./types").SessionMessageResponse>(
     `/articles/sessions/${sessionId}/messages`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, article_ids: articleIds }),
+      body: JSON.stringify({ message, article_ids: articleIds, language }),
     }
   );
 }
@@ -335,13 +338,13 @@ export async function listSkills() {
   return apiFetch<{ skills: import("./types").SkillDef[] }>("/skills");
 }
 
-export async function runSkill(skillName: string, articleId: number) {
+export async function runSkill(skillName: string, articleId: number, language = "en") {
   return apiFetch<{ skill: string; article_id: number; result: unknown }>(
     `/skills/${skillName}/run`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ article_id: articleId }),
+      body: JSON.stringify({ article_id: articleId, language }),
     }
   );
 }

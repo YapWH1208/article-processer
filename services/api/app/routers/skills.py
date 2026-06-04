@@ -56,6 +56,7 @@ async def run_skill(
     result = await llm.run_skill(
         skill=skill,
         article_markdown=article.markdown_text,
+        output_language=body.get("language", "en"),
     )
 
     return {

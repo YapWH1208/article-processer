@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useLanguage } from "@/components/LanguageProvider";
 import { getJobQueue, reprocessArticle } from "@/lib/api";
 import type { JobQueueItem } from "@/lib/types";
 import { getJobQueueActionState, summarizeJobQueue } from "./jobQueueState.mjs";
@@ -71,6 +72,7 @@ function formatTokens(n: number): string {
 
 export default function LogsPage() {
   const router = useRouter();
+  const { language } = useLanguage();
   const [jobs, setJobs] = useState<JobItem[]>([]);
   const [queueJobs, setQueueJobs] = useState<JobQueueItem[]>([]);
   const [queueCounts, setQueueCounts] = useState({ active: 0, queued: 0, failed: 0, completed: 0 });
@@ -100,7 +102,7 @@ export default function LogsPage() {
   const retryJob = async (job: JobQueueItem) => {
     setRetryingJobId(job.job_id);
     try {
-      await reprocessArticle(job.article_id, "full");
+      await reprocessArticle(job.article_id, "full", language);
       toast.success(`Requeued "${job.article_title}"`);
       await fetchLogs();
     } catch (e: unknown) {

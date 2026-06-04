@@ -60,7 +60,7 @@ class BaseLLMProvider(ABC):
 
     @abstractmethod
     async def extract_structured(
-        self, markdown: str, article_title: str,
+        self, markdown: str, article_title: str, output_language: str = "en",
     ) -> tuple[dict | None, list[str] | None, float]:
         ...
 
@@ -72,6 +72,7 @@ class BaseLLMProvider(ABC):
         article_text: str | None = None,
         chunks: list[Any] | None = None,
         history: list[dict] | None = None,
+        output_language: str = "en",
     ) -> tuple[str, list[dict]]:
         """Answer a question with optional conversation history.
 
@@ -81,6 +82,7 @@ class BaseLLMProvider(ABC):
             article_text: Full article Markdown text.
             chunks: Optional pre-chunked article segments.
             history: Optional list of prior messages as {"role": "user"|"assistant", "content": "..."}.
+            output_language: UI language code for the model response language.
         """
         ...
 
@@ -91,11 +93,17 @@ class BaseLLMProvider(ABC):
         article_text: str | None = None,
         chunks: list[Any] | None = None,
         history: list[dict] | None = None,
+        output_language: str = "en",
     ):
         """Stream an answer token-by-token. Default: yield full answer as one chunk."""
         from collections.abc import AsyncGenerator
         answer, _ = await self.answer_question(
-            question, article_title, article_text, chunks, history=history,
+            question,
+            article_title,
+            article_text,
+            chunks,
+            history=history,
+            output_language=output_language,
         )
         # Yield in word-sized chunks to simulate streaming
         words = answer.split(" ")
@@ -103,7 +111,7 @@ class BaseLLMProvider(ABC):
             yield word + (" " if i < len(words) - 1 else "")
 
     @abstractmethod
-    async def run_skill(self, skill: Any, article_markdown: str) -> dict:
+    async def run_skill(self, skill: Any, article_markdown: str, output_language: str = "en") -> dict:
         ...
 
 

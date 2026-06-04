@@ -4,6 +4,7 @@ import json
 import logging
 import datetime
 from pathlib import Path
+from typing import Annotated
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -27,8 +28,9 @@ storage = LocalStorage()
 
 @router.post("", response_model=UploadResponse)
 async def upload_file(
-    file: UploadFile = File(...),
-    run_ai: str = Form("true"),
+    file: Annotated[UploadFile, File()],
+    run_ai: Annotated[str, Form()] = "true",
+    language: Annotated[str, Form()] = "en",
     db: Session = Depends(get_db),
 ):
     """Upload a PDF, ZIP, HTML, MD, or TXT file for processing."""
@@ -108,6 +110,7 @@ async def upload_file(
         current_step="uploaded",
         run_ai=1 if run_ai_bool else 0,
         start_step="parse",
+        output_language=language,
         logs_json=json.dumps([
             {
                 "step": "uploaded",
@@ -122,7 +125,7 @@ async def upload_file(
     db.refresh(job)
 
     # Kick off background processing
-    run_pipeline_background(article.id, run_ai=run_ai_bool, job_id=job.id)
+    run_pipeline_background(article.id, run_ai=run_ai_bool, job_id=job.id, output_language=language)
 
     return UploadResponse(
         article_id=article.id,

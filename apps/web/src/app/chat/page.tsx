@@ -109,7 +109,7 @@ function MessageBubble({ msg }: { msg: BubbleData }) {
           msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted/60 border"
         }`}
       >
-        <div className="prose prose-sm dark:prose-invert w-full min-w-0 max-w-full overflow-x-auto break-words">
+        <div className="prose prose-sm dark:prose-invert w-full min-w-0 max-w-full [overflow-wrap:anywhere] break-words">
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]}
@@ -121,19 +121,19 @@ function MessageBubble({ msg }: { msg: BubbleData }) {
               h5: ({ children, ...props }: any) => <h5 className="text-xs font-semibold mt-2 mb-0.5" {...props}>{children}</h5>,
               h6: ({ children, ...props }: any) => <h6 className="text-[11px] font-semibold mt-2 mb-0.5 uppercase tracking-wide" {...props}>{children}</h6>,
               img: ({ src, alt, ...props }: any) => (
-                <span className="my-3 block w-full max-w-full text-center">
+                <span className="my-3 mx-auto block w-[calc(100%-0.5rem)] max-w-[calc(100%-0.5rem)] text-center">
                   <img {...props} src={src} alt={alt} className="inline-block h-auto max-h-[50vh] w-auto max-w-full rounded-lg object-contain align-middle" />
                 </span>
               ),
               table: ({ children, ...props }: any) => (
-                <div className="my-3 block w-full min-w-0 max-w-full overflow-x-auto rounded-md border font-sans">
-                  <table {...props} className="w-max min-w-full border-collapse text-sm">{children}</table>
+                <div className="my-3 mx-auto block w-[calc(100%-0.5rem)] min-w-0 max-w-[calc(100%-0.5rem)] rounded-md border font-sans">
+                  <table {...props} className="w-full max-w-full table-fixed border-collapse text-sm">{children}</table>
                 </div>
               ),
               thead: ({ children, ...props }: any) => <thead className="bg-muted/70" {...props}>{children}</thead>,
               tr: ({ children, ...props }: any) => <tr className="border-b last:border-b-0" {...props}>{children}</tr>,
-              th: ({ children, ...props }: any) => <th className="border-r px-3 py-2 text-left font-semibold last:border-r-0" {...props}>{children}</th>,
-              td: ({ children, ...props }: any) => <td className="border-r px-3 py-2 align-top last:border-r-0" {...props}>{children}</td>,
+              th: ({ children, ...props }: any) => <th className="border-r px-3 py-2 text-left align-top font-semibold [overflow-wrap:anywhere] break-words whitespace-normal last:border-r-0" {...props}>{children}</th>,
+              td: ({ children, ...props }: any) => <td className="border-r px-3 py-2 align-top [overflow-wrap:anywhere] break-words whitespace-normal last:border-r-0" {...props}>{children}</td>,
             }}
           >
             {renderedContent}
@@ -329,7 +329,7 @@ export default function ChatPage() {
     setSending(true);
 
     try {
-      const res = await sendSessionMessage(sid, text, articleIds);
+      const res = await sendSessionMessage(sid, text, articleIds, language);
       const assistantBubble: BubbleData = {
         role: "assistant",
         content: res.answer,

@@ -26,6 +26,7 @@ from app.services.pipeline.markdown_normalizer import normalize_markdown
 from app.services.pipeline.chunking import chunk_markdown, estimate_tokens
 from app.services.ai.base import get_llm_provider
 from app.services.ai.cost import compute_token_cost
+from app.services.ai.prompts import normalize_output_language
 from app.services.graph.builder import GraphBuilder
 from app.core.config import settings
 
@@ -151,6 +152,7 @@ async def run_pipeline(
     run_ai: bool = True,
     start_step: str = "parse",
     job_id: int | None = None,
+    output_language: str = "en",
 ) -> None:
     """Run the processing pipeline for an article.
 
@@ -166,6 +168,7 @@ async def run_pipeline(
     """
     db = SessionLocal()
     job: ProcessingJob | None = None
+    output_language = normalize_output_language(output_language)
 
     try:
         article = db.query(Article).filter(Article.id == article_id).first()
@@ -191,6 +194,7 @@ async def run_pipeline(
                 logs_json="[]",
                 run_ai=1 if run_ai else 0,
                 start_step=start_step,
+                output_language=output_language,
             )
             db.add(job)
             db.flush()
@@ -198,6 +202,7 @@ async def run_pipeline(
             job.status = JobStatus.RUNNING.value
             job.run_ai = 1 if run_ai else 0
             job.start_step = start_step
+            job.output_language = output_language
             job.locked_at = datetime.datetime.utcnow()
             db.commit()
 
@@ -326,6 +331,7 @@ async def run_pipeline(
                 extraction_result, validation_errors, confidence = await llm.extract_structured(
                     markdown=markdown,
                     article_title=article.title,
+                    output_language=output_language,
                 )
             except Exception as extract_err:
                 validation_errors = [str(extract_err)]
@@ -528,6 +534,7 @@ async def run_queued_pipeline_job_once() -> bool:
         job.worker_id = _WORKER_ID
         run_ai = bool(job.run_ai)
         start_step = job.start_step or "parse"
+        output_language = normalize_output_language(job.output_language)
         article_id = job.article_id
         job_id = job.id
         db.commit()
@@ -539,6 +546,7 @@ async def run_queued_pipeline_job_once() -> bool:
         run_ai=run_ai,
         start_step=start_step,
         job_id=job_id,
+        output_language=output_language,
     )
     return True
 
@@ -595,8 +603,10 @@ def run_pipeline_background(
     run_ai: bool = True,
     start_step: str = "parse",
     job_id: int | None = None,
+    output_language: str = "en",
 ) -> None:
     """Persist pipeline job options and wake the local queue worker."""
+    output_language = normalize_output_language(output_language)
     db = SessionLocal()
     try:
         if job_id is not None:
@@ -614,6 +624,7 @@ def run_pipeline_background(
         if job:
             job.run_ai = 1 if run_ai else 0
             job.start_step = start_step
+            job.output_language = output_language
             job.status = JobStatus.PENDING.value
             job.locked_at = None
             job.worker_id = None
@@ -623,9 +634,10 @@ def run_pipeline_background(
 
     ensure_pipeline_worker_started()
     logger.info(
-        "Pipeline job queued for article %s (run_ai=%s, start_step=%s, job_id=%s)",
+        "Pipeline job queued for article %s (run_ai=%s, start_step=%s, output_language=%s, job_id=%s)",
         article_id,
         run_ai,
         start_step,
+        output_language,
         job_id,
     )

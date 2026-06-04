@@ -22,7 +22,7 @@ class GraphExtractionProvider:
     def __init__(self):
         self.last_usage = TokenUsage()
 
-    async def extract_structured(self, markdown: str, article_title: str):
+    async def extract_structured(self, markdown: str, article_title: str, output_language: str = "en"):
         return (
             {
                 "title": article_title,

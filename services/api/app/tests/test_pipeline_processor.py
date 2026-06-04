@@ -24,7 +24,7 @@ class EmptyExtractionProvider:
     def __init__(self):
         self.last_usage = TokenUsage()
 
-    async def extract_structured(self, markdown: str, article_title: str):
+    async def extract_structured(self, markdown: str, article_title: str, output_language: str = "en"):
         return None, ["model returned empty response"], 0.0
 
 
@@ -36,10 +36,20 @@ class FlakyExtractionProvider:
         self.calls = 0
         self.last_usage = TokenUsage()
 
-    async def extract_structured(self, markdown: str, article_title: str):
+    async def extract_structured(self, markdown: str, article_title: str, output_language: str = "en"):
         self.calls += 1
         if self.calls <= self.fail_times:
             return None, [f"transient failure #{self.calls}"], 0.0
+        return {"title": article_title, "graph_entities": [], "graph_relationships": []}, None, 0.9
+
+
+class CapturingLanguageProvider:
+    def __init__(self):
+        self.last_usage = TokenUsage()
+        self.output_language = None
+
+    async def extract_structured(self, markdown: str, article_title: str, output_language: str = "en"):
+        self.output_language = output_language
         return {"title": article_title, "graph_entities": [], "graph_relationships": []}, None, 0.9
 
 
@@ -158,3 +168,37 @@ async def test_pipeline_retries_extraction_then_succeeds(tmp_path, monkeypatch):
     extracting_logs = [entry for entry in logs if entry.get("step") == "extracting"]
     assert len(extracting_logs) >= 3
     db.close()
+
+
+@pytest.mark.asyncio
+async def test_pipeline_passes_output_language_to_extraction(tmp_path, monkeypatch):
+    db_path = tmp_path / "pipeline_language.sqlite3"
+    engine = create_engine(
+        f"sqlite:///{db_path}",
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(bind=engine)
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    monkeypatch.setattr(processor, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(processor, "GraphBuilder", lambda: type("B", (), {"build_from_extraction": lambda self, **kwargs: ([], [])})())
+
+    provider = CapturingLanguageProvider()
+    monkeypatch.setattr(processor, "get_llm_provider", lambda: provider)
+
+    db = TestingSessionLocal()
+    article = Article(
+        title="French paper",
+        status=ArticleStatus.COMPLETED.value,
+        original_filename="french.md",
+        source_type="md",
+        storage_path=str(tmp_path / "french.md"),
+        markdown_text="# Papier\n\nCeci est un article en français.",
+    )
+    db.add(article)
+    db.commit()
+    article_id = article.id
+    db.close()
+
+    await processor.run_pipeline(article_id, run_ai=True, start_step="extract", output_language="zh")
+
+    assert provider.output_language == "zh"

@@ -151,3 +151,24 @@ def test_extract_citations_preserves_article_metadata_from_retrieved_chunks():
             "snippet": "Retrieved evidence text.",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_answer_question_adds_output_language_instruction_to_system_prompt():
+    provider = _provider_with_responses([
+        _chat_response("这是中文回答。")
+    ])
+
+    answer, citations = await provider.answer_question(
+        question="Résume cet article.",
+        article_title="Étude française",
+        article_text="Ceci est un article en français sur la récupération.",
+        output_language="zh",
+    )
+
+    messages = provider.client.chat.completions.calls[0]["messages"]
+    assert "Respond in Chinese" in messages[0]["content"]
+    assert "source document may be in any language" in messages[0]["content"]
+    assert "Ceci est un article en français" in messages[-1]["content"]
+    assert answer == "这是中文回答。"
+    assert citations == []

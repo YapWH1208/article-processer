@@ -225,7 +225,7 @@ export default function ArticleDetailPage() {
         // Remove the empty streaming placeholder
         setMessages((prev) => prev.slice(0, -1));
         try {
-          const res = await sendChatMessage(articleId, userMsg.content);
+          const res = await sendChatMessage(articleId, userMsg.content, language);
           setMessages((prev) => [
             ...prev.slice(0, -1),
             { ...prev[prev.length - 1], prompt_tokens: res.prompt_tokens || 0 },
@@ -236,6 +236,7 @@ export default function ArticleDetailPage() {
         }
         setChatting(false);
       },
+      language,
     );
     return true;
   }, [articleId, contextText, language]);
@@ -257,7 +258,7 @@ export default function ArticleDetailPage() {
   const handleReprocess = async (mode: "full" | "extract_only" = "extract_only") => {
     setReprocessing(true);
     try {
-      await reprocessArticle(articleId, mode);
+      await reprocessArticle(articleId, mode, language);
       setArticle((prev) => prev ? { ...prev, status: "extracting", processing_error: null } : prev);
       setExtractionErrors([]);
       toast.success(mode === "extract_only" ? "AI extraction started" : "Full reprocessing started");
@@ -537,7 +538,7 @@ export default function ArticleDetailPage() {
                           </div>
                         )}
                       </CardHeader>
-                      <CardContent className="flex-1 min-h-0 p-4 pt-0">
+                      <CardContent className="flex-1 min-h-0 min-w-0 p-4 pt-0">
                         {readerView === "pdf" && article.source_type === "pdf" ? (
                           <iframe
                             src={`${API_BASE}/articles/${articleId}/file`}
@@ -545,7 +546,7 @@ export default function ArticleDetailPage() {
                             title="Original PDF"
                           />
                         ) : markdown ? (
-                          <ScrollArea className="h-full min-w-0">
+                          <ScrollArea className="h-full w-full min-w-0 max-w-full">
                             <MarkdownReader text={markdown} onSelect={addToChat} />
                           </ScrollArea>
                         ) : (
@@ -655,7 +656,7 @@ export default function ArticleDetailPage() {
                                     onClick={async () => {
                                       setRunningSkill(s.name); setSkillResult(null);
                                       try {
-                                        const res = await runSkill(s.name, articleId);
+                                        const res = await runSkill(s.name, articleId, language);
                                         setSkillResult(res as { skill: string; result: unknown });
                                         toast.success(`"${s.purpose}" completed`);
                                       } catch (e: unknown) {
@@ -1002,19 +1003,19 @@ const mdComponents = {
   h5: ({ children, ...props }: any) => <h5 id={slugify(children)} className="text-sm font-semibold mt-3 mb-1 scroll-mt-20" {...props}>{children}</h5>,
   h6: ({ children, ...props }: any) => <h6 id={slugify(children)} className="text-xs font-semibold mt-3 mb-1 uppercase tracking-wide scroll-mt-20" {...props}>{children}</h6>,
   img: ({ src, alt, ...props }: any) => (
-    <span className="my-4 block w-full max-w-full text-center">
+    <span className="my-4 mx-auto block w-[calc(100%-0.5rem)] max-w-[calc(100%-0.5rem)] text-center">
       <img {...props} src={src} alt={alt} className="inline-block h-auto max-h-[70vh] w-auto max-w-full rounded-lg object-contain align-middle" />
     </span>
   ),
   table: ({ children, ...props }: any) => (
-    <div className="my-4 block w-full min-w-0 max-w-full overflow-x-auto rounded-md border font-sans">
-      <table {...props} className="w-max min-w-full border-collapse text-sm">{children}</table>
+    <div className="my-4 mx-auto block w-[calc(100%-0.5rem)] min-w-0 max-w-[calc(100%-0.5rem)] rounded-md border font-sans">
+      <table {...props} className="w-full max-w-full table-fixed border-collapse text-sm">{children}</table>
     </div>
   ),
   thead: ({ children, ...props }: any) => <thead className="bg-muted/70" {...props}>{children}</thead>,
   tr: ({ children, ...props }: any) => <tr className="border-b last:border-b-0" {...props}>{children}</tr>,
-  th: ({ children, ...props }: any) => <th className="border-r px-3 py-2 text-left font-semibold last:border-r-0" {...props}>{children}</th>,
-  td: ({ children, ...props }: any) => <td className="border-r px-3 py-2 align-top last:border-r-0" {...props}>{children}</td>,
+  th: ({ children, ...props }: any) => <th className="border-r px-3 py-2 text-left align-top font-semibold [overflow-wrap:anywhere] break-words whitespace-normal last:border-r-0" {...props}>{children}</th>,
+  td: ({ children, ...props }: any) => <td className="border-r px-3 py-2 align-top [overflow-wrap:anywhere] break-words whitespace-normal last:border-r-0" {...props}>{children}</td>,
 };
 
 /** Renders Markdown via react-markdown with text-selection "Add to Chat" support. */
@@ -1040,8 +1041,8 @@ function MarkdownReader({ text, onSelect }: { text: string; onSelect: (t: string
   };
 
   return (
-    <div onMouseUp={handleMouseUp} className="relative min-w-0">
-      <div className="prose prose-sm dark:prose-invert w-full min-w-0 max-w-full overflow-x-auto font-serif
+    <div onMouseUp={handleMouseUp} className="relative w-full min-w-0 max-w-full">
+      <div className="prose prose-sm dark:prose-invert w-full min-w-0 max-w-full [overflow-wrap:anywhere] font-serif
         prose-headings:scroll-mt-20 prose-headings:font-sans prose-a:text-primary prose-code:bg-muted prose-code:px-1 prose-code:rounded prose-code:font-mono prose-pre:bg-muted prose-img:rounded-lg">
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkMath]}

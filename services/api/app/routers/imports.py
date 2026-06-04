@@ -32,6 +32,7 @@ router = APIRouter()
 class UrlImportRequest(BaseModel):
     url: str = Field(..., min_length=5, max_length=2048, description="URL to an arXiv abstract, DOI, or direct PDF")
     run_ai: bool = Field(default=True, description="Whether to run AI extraction after import")
+    language: str = Field(default="en", max_length=16, description="UI language for AI output")
 
 
 class UrlImportResponse(BaseModel):
@@ -280,6 +281,7 @@ async def import_from_url(
         current_step="url_import_queued",
         run_ai=1 if body.run_ai else 0,
         start_step="parse",
+        output_language=body.language,
         logs_json=json.dumps([{
             "step": "url_import_queued",
             "timestamp": datetime.datetime.utcnow().isoformat(),
@@ -293,7 +295,7 @@ async def import_from_url(
 
     # Start background processing
     from app.services.pipeline.processor import run_pipeline_background
-    run_pipeline_background(article.id, run_ai=body.run_ai, job_id=job.id)
+    run_pipeline_background(article.id, run_ai=body.run_ai, job_id=job.id, output_language=body.language)
 
     logger.info(f"URL import created article {article.id} from {url_type}: {url}")
 

@@ -11,10 +11,8 @@ from typing import Any
 from app.core.config import settings
 from app.services.ai.base import BaseLLMProvider
 from app.services.ai.prompts import (
-    EXTRACTION_SYSTEM_PROMPT,
-    QA_SYSTEM_PROMPT,
-    SKILL_SYSTEM_PROMPT,
     get_input_template,
+    get_system_message,
 )
 from app.core.security import protect_prompt_from_injection
 from app.services.ai.extraction import ExtractionService
@@ -50,11 +48,11 @@ class AnthropicProvider(BaseLLMProvider):
         self._provider_name = provider_name
 
     async def extract_structured(
-        self, markdown: str, article_title: str,
+        self, markdown: str, article_title: str, output_language: str = "en",
     ) -> tuple[dict | None, list[str] | None, float]:
         protected_text = protect_prompt_from_injection(markdown)
         prompt = (
-            f"{EXTRACTION_SYSTEM_PROMPT}\n\n"
+            f"{get_system_message('extraction', output_language=output_language)}\n\n"
             f"Title: {article_title}\n\n"
             f"{protected_text}\n\n"
             f"Respond with a JSON object only, no other text."
@@ -77,6 +75,7 @@ class AnthropicProvider(BaseLLMProvider):
         article_text: str | None = None,
         chunks: list[Any] | None = None,
         history: list[dict] | None = None,
+        output_language: str = "en",
     ) -> tuple[str, list[dict]]:
         """Answer a question with optional conversation history.
 
@@ -98,7 +97,7 @@ class AnthropicProvider(BaseLLMProvider):
         )
 
         # Build conversation with history
-        parts = [f"{QA_SYSTEM_PROMPT}\n\n"]
+        parts = [f"{get_system_message('chat', output_language=output_language)}\n\n"]
         for msg in self._truncate_history(history):
             role = msg.get("role", "user")
             content = msg.get("content", "")
@@ -110,10 +109,10 @@ class AnthropicProvider(BaseLLMProvider):
         citations = self._extract_citations(answer, chunks or [])
         return answer, citations
 
-    async def run_skill(self, skill: Any, article_markdown: str) -> dict:
+    async def run_skill(self, skill: Any, article_markdown: str, output_language: str = "en") -> dict:
         protected_text = protect_prompt_from_injection(article_markdown)
         output_schema = skill.output_schema if hasattr(skill, 'output_schema') else "{}"
-        prompt = SKILL_SYSTEM_PROMPT.format(
+        prompt = get_system_message("skill_default", output_language=output_language).format(
             skill_name=skill.name if hasattr(skill, 'name') else "unknown",
             skill_purpose=skill.purpose if hasattr(skill, 'purpose') else "",
             skill_instructions=skill.prompt_instructions if hasattr(skill, 'prompt_instructions') else "",

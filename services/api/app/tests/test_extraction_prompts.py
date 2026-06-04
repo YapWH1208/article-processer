@@ -4,7 +4,7 @@ import pytest
 
 from app.routers.dev import DEFAULT_DEV_CONFIG
 from app.schemas.extraction import ExtractionResult
-from app.services.ai.prompts import get_system_message
+from app.services.ai.prompts import get_system_message, normalize_output_language
 
 
 @pytest.mark.parametrize(
@@ -58,3 +58,12 @@ def test_extraction_system_prompt_specifies_empty_values_and_nested_shapes(
     missing = [fragment for fragment in required_fragments if fragment not in prompt]
 
     assert missing == [], f"{name} is missing guardrail fragments: {missing}"
+
+
+def test_system_prompt_can_force_chinese_output_for_foreign_documents():
+    prompt = get_system_message("extraction", output_language="zh")
+
+    assert normalize_output_language("zh-CN") == "zh"
+    assert "Respond in Chinese" in prompt
+    assert "source document may be in any language" in prompt
+    assert "Keep JSON keys" in prompt

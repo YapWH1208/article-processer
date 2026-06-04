@@ -80,6 +80,7 @@ async def chat_with_article(
         article_title=article.title or article.original_filename,
         article_text=None if chunks else article.markdown_text,
         chunks=chunks or None,
+        output_language=request.language,
     )
 
     # Use real token counts from LLM when available; fall back to estimate
@@ -166,6 +167,7 @@ async def chat_with_article_stream(
                 article_title=article.title or article.original_filename,
                 article_text=None if chunks else article.markdown_text,
                 chunks=chunks or None,
+                output_language=request.language,
             ):
                 full_answer += token
                 yield f"data: {json.dumps({'token': token})}\n\n"
@@ -177,6 +179,7 @@ async def chat_with_article_stream(
                     article_title=article.title or article.original_filename,
                     article_text=None if chunks else article.markdown_text,
                     chunks=chunks or None,
+                    output_language=request.language,
                 )
             except Exception as e:
                 logger.warning(f"Failed to compute citations for streamed chat: {e}")
@@ -307,6 +310,7 @@ async def multi_article_chat(
                 question=request.message,
                 article_title=f"Library ({len(articles)} articles)",
                 chunks=chunks,
+                output_language=request.language,
             )
             article_ids = sorted({chunk.article_id for chunk in chunks})
         else:
@@ -327,6 +331,7 @@ async def multi_article_chat(
                 question=request.message,
                 article_title=f"Library ({len(articles)} articles)",
                 article_text=context,
+                output_language=request.language,
             )
             article_ids = [a.id for a in articles]
 
@@ -370,6 +375,7 @@ async def multi_article_chat(
         article_title=f"{len(articles)} articles including '{primary_title}'",
         article_text=combined_text,
         chunks=chunks or None,
+        output_language=request.language,
     )
 
     # Token counts
@@ -415,6 +421,7 @@ class SessionCreateRequest(PydanticBaseModel):
 class SessionMessageRequest(PydanticBaseModel):
     message: str
     article_ids: list[int] = []
+    language: str = "en"
 
 
 class SessionMessageResponse(PydanticBaseModel):
@@ -592,6 +599,7 @@ async def send_session_message(
         article_text=article_text,
         chunks=chunks or None,
         history=history,
+        output_language=request.language,
     )
 
     if llm.last_usage and llm.last_usage.total_tokens > 0:
@@ -706,6 +714,7 @@ async def stream_session_message(
                 article_text=article_text,
                 chunks=chunks or None,
                 history=history,
+                output_language=request.language,
             ):
                 full_answer += token
                 yield f"data: {json.dumps({'token': token})}\n\n"

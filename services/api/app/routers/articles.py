@@ -438,6 +438,7 @@ def get_article_jobs(article_id: int, db: Session = Depends(get_db)):
 def reprocess_article(
     article_id: int,
     mode: str = "full",
+    language: str = "en",
     db: Session = Depends(get_db),
 ):
     """Re-run processing for an article.
@@ -463,6 +464,7 @@ def reprocess_article(
         current_step="reprocess_queued",
         run_ai=0 if mode == "parse_only" else 1,
         start_step="extract" if mode == "extract_only" else "parse",
+        output_language=language,
         logs_json=json.dumps([
             {
                 "step": "reprocess_queued",
@@ -478,11 +480,11 @@ def reprocess_article(
     from app.services.pipeline.processor import run_pipeline_background
 
     if mode == "parse_only":
-        run_pipeline_background(article.id, run_ai=False, start_step="parse", job_id=job.id)
+        run_pipeline_background(article.id, run_ai=False, start_step="parse", job_id=job.id, output_language=language)
     elif mode == "extract_only":
-        run_pipeline_background(article.id, run_ai=True, start_step="extract", job_id=job.id)
+        run_pipeline_background(article.id, run_ai=True, start_step="extract", job_id=job.id, output_language=language)
     else:
-        run_pipeline_background(article.id, run_ai=True, start_step="parse", job_id=job.id)
+        run_pipeline_background(article.id, run_ai=True, start_step="parse", job_id=job.id, output_language=language)
 
     return ReprocessResponse(
         article_id=article.id,

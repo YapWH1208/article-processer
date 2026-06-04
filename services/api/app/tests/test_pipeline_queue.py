@@ -21,8 +21,14 @@ async def test_run_queued_pipeline_job_uses_persisted_payload(tmp_path, monkeypa
 
     calls = []
 
-    async def fake_run_pipeline(article_id: int, run_ai: bool = True, start_step: str = "parse", job_id: int | None = None):
-        calls.append((article_id, run_ai, start_step, job_id))
+    async def fake_run_pipeline(
+        article_id: int,
+        run_ai: bool = True,
+        start_step: str = "parse",
+        job_id: int | None = None,
+        output_language: str = "en",
+    ):
+        calls.append((article_id, run_ai, start_step, job_id, output_language))
         db = TestingSessionLocal()
         job = db.query(ProcessingJob).filter(ProcessingJob.id == job_id).one()
         job.status = JobStatus.COMPLETED.value
@@ -48,6 +54,7 @@ async def test_run_queued_pipeline_job_uses_persisted_payload(tmp_path, monkeypa
         logs_json=json.dumps([]),
         run_ai=0,
         start_step="parse",
+        output_language="zh",
     )
     db.add(job)
     db.commit()
@@ -58,4 +65,4 @@ async def test_run_queued_pipeline_job_uses_persisted_payload(tmp_path, monkeypa
     processed = await processor.run_queued_pipeline_job_once()
 
     assert processed is True
-    assert calls == [(article_id, False, "parse", job_id)]
+    assert calls == [(article_id, False, "parse", job_id, "zh")]

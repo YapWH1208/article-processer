@@ -127,6 +127,63 @@ _FALLBACK_INPUT_TEMPLATES = {
 }
 
 
+_OUTPUT_LANGUAGE_ALIASES = {
+    "en": "en",
+    "en-us": "en",
+    "en-gb": "en",
+    "english": "en",
+    "zh": "zh",
+    "zh-cn": "zh",
+    "zh-hans": "zh",
+    "chinese": "zh",
+    "中文": "zh",
+}
+
+_OUTPUT_LANGUAGE_NAMES = {
+    "en": "English",
+    "zh": "Chinese",
+}
+
+
+def normalize_output_language(language: str | None) -> str:
+    """Normalize UI language codes to supported LLM output language codes."""
+    key = str(language or "").strip().lower().replace("_", "-")
+    return _OUTPUT_LANGUAGE_ALIASES.get(key, "en")
+
+
+def get_output_language_instruction(language: str | None, *, json_output: bool = False) -> str:
+    """Build the instruction that binds model output to the selected UI language."""
+    normalized = normalize_output_language(language)
+    language_name = _OUTPUT_LANGUAGE_NAMES[normalized]
+    base = (
+        f"Respond in {language_name}. The source document may be in any language; "
+        f"do not copy the source document language unless it is also {language_name}. "
+    )
+    if json_output:
+        return (
+            base
+            + "Keep JSON keys, schema shape, identifiers, author names, titles, citations, "
+            "code, formulas, and exact quoted evidence unchanged. Write natural-language "
+            f"summary, explanation, claim, limitation, and note values in {language_name}."
+        )
+    return (
+        base
+        + "Keep direct quotations, citations, identifiers, code, formulas, and proper nouns "
+        "unchanged when they need to match the source."
+    )
+
+
+def with_output_language_instruction(
+    prompt: str,
+    language: str | None,
+    *,
+    json_output: bool = False,
+) -> str:
+    """Append an output-language contract to a system prompt."""
+    instruction = get_output_language_instruction(language, json_output=json_output)
+    return f"{prompt.rstrip()}\n\nOUTPUT LANGUAGE:\n{instruction}"
+
+
 def _load_dev_config() -> dict:
     """Load dev config from JSON, returning {} if missing."""
     if DEV_CONFIG_PATH.exists():
@@ -140,19 +197,28 @@ def _load_dev_config() -> dict:
 
 # ── Public API ────────────────────────────────────────────────────────────
 
-def get_system_message(task: str) -> str:
+def get_system_message(task: str, output_language: str | None = None) -> str:
     """Get the system message for a task from dev config, falling back to hardcoded."""
     config = _load_dev_config()
     messages = config.get("system_messages", {})
+    prompt = ""
     if task in messages:
         val = messages[task]
         if isinstance(val, str) and val.strip():
-            return val
+            prompt = val
         if isinstance(val, dict):
             content = val.get("content")
             if isinstance(content, str) and content.strip():
-                return content
-    return _FALLBACK_SYSTEM_MESSAGES.get(task, "")
+                prompt = content
+    if not prompt:
+        prompt = _FALLBACK_SYSTEM_MESSAGES.get(task, "")
+    if output_language:
+        return with_output_language_instruction(
+            prompt,
+            output_language,
+            json_output=task in {"extraction", "skill_default"},
+        )
+    return prompt
 
 
 def get_input_template(task: str) -> str:

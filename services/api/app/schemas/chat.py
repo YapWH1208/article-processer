@@ -17,6 +17,7 @@ class Citation(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
+    language: str = Field(default="en", max_length=16)
 
 
 class ChatResponse(BaseModel):
@@ -48,6 +49,7 @@ class ChatHistoryResponse(BaseModel):
 class MultiArticleChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
     article_ids: list[int] = Field(default_factory=list, max_length=10)
+    language: str = Field(default="en", max_length=16)
 
 
 class MultiArticleChatResponse(BaseModel):
