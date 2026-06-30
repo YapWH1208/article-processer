@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createChatStartState } from "./chatStartState.mjs";
+import { createChatStartState, createChatStarterPromptDraft } from "./chatStartState.mjs";
 
 test("chat start state routes empty libraries to upload", () => {
   assert.deepEqual(
@@ -39,5 +39,16 @@ test("chat start state switches to tagged-article prompts when context is select
       "Compare methods across tagged articles.",
       "Find agreements and conflicts in tagged articles.",
     ],
+  );
+});
+
+test("chat starter prompt draft follows the selected language", () => {
+  assert.equal(
+    createChatStarterPromptDraft({ text: "What are the main themes across my library?" }, "zh"),
+    "我的文库有哪些主要主题？",
+  );
+  assert.equal(
+    createChatStarterPromptDraft({ text: "我的文库有哪些主要主题？" }, "en"),
+    "What are the main themes across my library?",
   );
 });

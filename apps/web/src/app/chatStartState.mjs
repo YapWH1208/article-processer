@@ -1,3 +1,5 @@
+import { translateUiText } from "../lib/languageState.mjs";
+
 const LIBRARY_PROMPTS = [
   "What are the main themes across my library?",
   "Which articles need follow-up?",
@@ -23,6 +25,10 @@ const TAGGED_PROMPTS = [
 
 function toPromptItems(prompts) {
   return prompts.map((text) => ({ text, label: text }));
+}
+
+export function createChatStarterPromptDraft(prompt, language = "en") {
+  return translateUiText(prompt?.text || "", language);
 }
 
 /**

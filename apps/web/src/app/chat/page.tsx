@@ -30,7 +30,7 @@ import { translateUiText } from "@/lib/languageState.mjs";
 import { normalizeHtmlTablesForMarkdown } from "@/lib/markdownHtmlTables.mjs";
 import type { ArticleSummary, ChatSession, ChatMessageResponse, Citation, ProviderEntry } from "@/lib/types";
 import { TypingDots } from "@/components/ui/animated";
-import { createChatStartState } from "../chatStartState.mjs";
+import { createChatStartState, createChatStarterPromptDraft } from "../chatStartState.mjs";
 
 // ── Mention Popover ──────────────────────────────────────────────────────
 
@@ -584,7 +584,7 @@ export default function ChatPage() {
                           key={prompt.text}
                           className="rounded-md border bg-background px-3 py-2 text-left text-xs text-foreground transition-colors hover:bg-accent"
                           onClick={() => {
-                            setInput(prompt.text);
+                            setInput(createChatStarterPromptDraft(prompt, language));
                             inputRef.current?.focus();
                           }}
                         >
