@@ -58,14 +58,14 @@ cp .env.example apps/web/.env.local
 - **Global Job Queue**: Jobs navigation and the Logs page show active, queued, failed, and completed processing jobs with current step, age, worker, errors, article links, and retry for failed jobs
 - **AI Extraction**: Extract structured research information (authors, methodology, results, claims, entities, references) with evidence trails and confidence scoring
 - **Extraction Review**: Edit and save reviewed structured extraction JSON from the article workspace before using it for search and analysis
-- **Article Workspace**: Reader-first article detail page with a tabbed side panel for Chat, Jobs, and Context, plus source chips that jump back to cited reader chunks or sections
-- **Retrieval-Based Chat**: Ask questions about articles with cited, source-linked answers drawn from relevant chunks. @-mention articles for focused context or let AI search your entire library. Multi-turn sessions persist across refreshes.
+- **Article Workspace**: Reader-first article detail page with a tabbed side panel for Chat, Jobs, and Context, source chips that jump back to cited reader chunks or sections, and recovery callouts for failed or review-needed processing
+- **Retrieval-Based Chat**: Ask questions about articles with cited, source-linked answers drawn from relevant chunks. @-mention articles for focused context or use starter prompts for library-wide questions. Multi-turn sessions persist across refreshes.
 - **Model Selector**: Switch LLM providers on-the-fly from the Chat page — no reload required
 - **Built-in AI Skills**: Research summary, methodology extraction, experiment extraction, literature review notes, reviewer critique — with structured results. Create, edit, import, and export custom skills.
 - **Global Knowledge Graph**: Interactive canvas-based force-directed graph of all entities and relationships across articles (Obsidian-style), with zoom/pan, type filtering, and click-to-navigate
 - **Metrics Dashboard**: Professional analytics with time-range filter, KPI cards, charts (line, bar, donut), and top articles table — track token usage, article throughput, and processing metrics
 - **Batch Operations**: Select multiple articles for bulk archive/restore, delete, or JSON export
-- **Shareable Article Lists**: Search, content search, status filter, archived toggle, sort, and page state are preserved in the URL
+- **Shareable Article Lists**: Search, content search, status filter, archived toggle, sort, and page state are preserved in the URL, with clear-filter and upload recovery actions for empty states
 - **Global Search**: Full-text search across all article content from the home page
 - **Export**: Individual article export (JSON, Markdown) and unified export/import (settings + articles + skills) from Settings
 - **Multi-Provider AI**: 9 LLM providers — OpenAI, Anthropic, DeepSeek, OpenRouter, GLM (Zhipu), MiniMax, Kimi (Moonshot), and Custom (any OpenAI/Anthropic-compatible endpoint). Configure in Settings → Providers.
