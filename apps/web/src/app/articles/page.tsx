@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight, ArrowUpDown, CheckSquare, Square, Trash2, ArchiveRestore, X, FileType, Globe, FileCode, FileDown } from "lucide-react";
+import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight, ArrowUpDown, CheckSquare, Square, Trash2, ArchiveRestore, X, FileType, Globe, FileCode, FileDown, RotateCcw, Upload } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { toast } from "sonner";
 import { StaggerContainer, StaggerItem, HoverCard, FadeIn } from "@/components/ui/animated";
 import { deleteArticle, exportArticles, toggleArchiveArticle } from "@/lib/api";
-import { createArticleExportDownload, parseArticleListQuery, serializeArticleListQuery } from "./articleListState.mjs";
+import { createArticleExportDownload, createArticleListEmptyState, hasActiveArticleListFilters, parseArticleListQuery, serializeArticleListQuery } from "./articleListState.mjs";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 const TERMINAL_ARTICLE_STATUSES = new Set(["completed", "failed", "needs_review"]);
@@ -146,6 +146,14 @@ export default function ArticlesPage() {
     setRefreshKey((k) => k + 1);
   };
 
+  const clearFilters = () => {
+    setSearch("");
+    setSearchContent("");
+    setStatusFilter("all");
+    setIncludeArchived(false);
+    setPage(1);
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   useEffect(() => {
@@ -224,6 +232,8 @@ export default function ArticlesPage() {
   };
 
   const isProcessingStatus = (s: string) => !TERMINAL_ARTICLE_STATUSES.has(s);
+  const activeFilters = hasActiveArticleListFilters({ search, searchContent, statusFilter, includeArchived });
+  const emptyState = createArticleListEmptyState({ total, activeFilters });
 
   return (
     <div className="space-y-6">
@@ -276,6 +286,12 @@ export default function ArticlesPage() {
             <Archive className="h-3.5 w-3.5" />
             {includeArchived ? "Hide Archived" : "Show Archived"}
           </Button>
+          {activeFilters && (
+            <Button variant="ghost" size="sm" className="gap-1.5" onClick={clearFilters}>
+              <RotateCcw className="h-3.5 w-3.5" />
+              Clear filters
+            </Button>
+          )}
           <Select value={`${sortBy}:${sortOrder}`} onValueChange={(v) => { const [by, ord] = v.split(":"); setSortBy(by); setSortOrder(ord); }}>
             <SelectTrigger className="w-[170px]">
               <ArrowUpDown className="h-4 w-4 mr-2" />
@@ -358,11 +374,35 @@ export default function ArticlesPage() {
                 </div>
               </motion.div>
               <p className="text-muted-foreground text-lg font-medium">
-                {total === 0 ? "No articles yet" : "No matching articles"}
+                {emptyState.title}
               </p>
               <p className="text-muted-foreground/60 text-sm mt-1">
-                {total === 0 ? "Upload a paper to get started." : "Try adjusting your search or filters."}
+                {emptyState.detail}
               </p>
+              <div className="relative mt-5 flex flex-wrap items-center justify-center gap-2">
+                {emptyState.primaryAction === "upload" && (
+                  <Button asChild className="gap-1.5">
+                    <Link href="/upload">
+                      <Upload className="h-4 w-4" />
+                      {emptyState.primaryLabel}
+                    </Link>
+                  </Button>
+                )}
+                {emptyState.primaryAction === "clear" && (
+                  <Button onClick={clearFilters} className="gap-1.5">
+                    <RotateCcw className="h-4 w-4" />
+                    {emptyState.primaryLabel}
+                  </Button>
+                )}
+                {emptyState.secondaryAction === "upload" && (
+                  <Button asChild variant="outline" className="gap-1.5">
+                    <Link href="/upload">
+                      <Upload className="h-4 w-4" />
+                      {emptyState.secondaryLabel}
+                    </Link>
+                  </Button>
+                )}
+              </div>
             </CardContent>
           </Card>
         </FadeIn>
