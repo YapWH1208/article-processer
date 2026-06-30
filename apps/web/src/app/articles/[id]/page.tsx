@@ -33,7 +33,7 @@ import { getPromptText, translateUiText } from "@/lib/languageState.mjs";
 import { normalizeHtmlTablesForMarkdown } from "@/lib/markdownHtmlTables.mjs";
 import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
-import { createChatSubmission, createCitationReaderTarget, createWorkspacePanelSummary, slugifyWorkspaceText } from "../articleWorkspaceState.mjs";
+import { createArticleStatusCallout, createChatSubmission, createCitationReaderTarget, createWorkspacePanelSummary, slugifyWorkspaceText } from "../articleWorkspaceState.mjs";
 import { formatExtractionForReview, parseReviewedExtraction } from "../extractionReviewState.mjs";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
@@ -327,6 +327,7 @@ export default function ArticleDetailPage() {
 
   const isProcessing = article && !isTerminalArticleStatus(article.status);
   const workspaceSummary = createWorkspacePanelSummary({ messages, jobs, graph });
+  const statusCallout = createArticleStatusCallout({ article, extractionErrors });
   const citations = (msg: ChatMessage): Citation[] => {
     try { return msg.citations_json ? JSON.parse(msg.citations_json) : []; }
     catch { return []; }
@@ -383,24 +384,67 @@ export default function ArticleDetailPage() {
 
       {/* Header */}
       <FadeIn delay={0.05}>
-        {/* Processing error */}
-        {article.status === "failed" && article.processing_error && (
+        {statusCallout && (
           <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
-            className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/20 text-sm text-destructive mb-3">
-            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5"/>
-            <div>
-              <p className="font-medium">Processing failed</p>
-              <p className="text-xs opacity-80 mt-0.5">{article.processing_error}</p>
+            className={`flex flex-col gap-3 rounded-md border p-3 text-sm mb-3 sm:flex-row sm:items-start sm:justify-between ${
+              statusCallout.tone === "destructive"
+                ? "bg-destructive/10 border-destructive/20 text-destructive"
+                : "bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-300"
+            }`}>
+            <div className="flex items-start gap-2 min-w-0">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5"/>
+              <div className="min-w-0">
+                <p className="font-medium">{statusCallout.title}</p>
+                <p className="text-xs opacity-80 mt-0.5 break-words">{statusCallout.detail}</p>
+              </div>
             </div>
-          </motion.div>
-        )}
-        {article.status === "needs_review" && extractionErrors.length > 0 && (
-          <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
-            className="flex items-start gap-2 p-3 rounded-md bg-amber-500/10 border border-amber-500/20 text-sm text-amber-700 dark:text-amber-300 mb-3">
-            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5"/>
-            <div>
-              <p className="font-medium">Extraction needs review</p>
-              <p className="text-xs opacity-80 mt-0.5">{extractionErrors.join("; ")}</p>
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              {statusCallout.actions.map((action) => {
+                if (action.id === "retry_extraction" || action.id === "rerun_extraction") {
+                  return (
+                    <Button
+                      key={action.id}
+                      variant="outline"
+                      size="sm"
+                      className="h-8 bg-background/70"
+                      disabled={reprocessing}
+                      onClick={() => handleReprocess("extract_only")}
+                    >
+                      {reprocessing ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RotateCw className="h-3.5 w-3.5 mr-1" />}
+                      {action.label}
+                    </Button>
+                  );
+                }
+                if (action.id === "view_jobs") {
+                  return (
+                    <Button
+                      key={action.id}
+                      variant="outline"
+                      size="sm"
+                      className="h-8 bg-background/70"
+                      onClick={() => { setChatOpen(true); setSidePanelTab("jobs"); }}
+                    >
+                      <ScrollText className="h-3.5 w-3.5 mr-1" />
+                      {action.label}
+                    </Button>
+                  );
+                }
+                if (action.id === "review_extraction") {
+                  return (
+                    <Button
+                      key={action.id}
+                      variant="outline"
+                      size="sm"
+                      className="h-8 bg-background/70"
+                      onClick={openExtractionReview}
+                    >
+                      <Wand2 className="h-3.5 w-3.5 mr-1" />
+                      {action.label}
+                    </Button>
+                  );
+                }
+                return null;
+              })}
             </div>
           </motion.div>
         )}

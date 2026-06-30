@@ -87,3 +87,39 @@ export function createWorkspacePanelSummary({ messages = [], jobs = [], graph = 
     relationshipCount: Array.isArray(graph?.relationships) ? graph.relationships.length : 0,
   };
 }
+
+/**
+ * @param {{
+ *   article?: { status?: string, processing_error?: string | null } | null,
+ *   extractionErrors?: string[],
+ * }} input
+ */
+export function createArticleStatusCallout({ article = null, extractionErrors = [] } = {}) {
+  if (!article) return null;
+
+  if (article.status === "failed") {
+    return {
+      tone: "destructive",
+      title: "Processing failed",
+      detail: article.processing_error || "The latest processing job failed.",
+      actions: [
+        { id: "retry_extraction", label: "Retry extraction" },
+        { id: "view_jobs", label: "View jobs" },
+      ],
+    };
+  }
+
+  if (article.status === "needs_review" && extractionErrors.length > 0) {
+    return {
+      tone: "warning",
+      title: "Extraction needs review",
+      detail: extractionErrors.join("; "),
+      actions: [
+        { id: "review_extraction", label: "Review extraction" },
+        { id: "rerun_extraction", label: "Rerun extraction" },
+      ],
+    };
+  }
+
+  return null;
+}

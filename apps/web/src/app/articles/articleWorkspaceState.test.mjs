@@ -4,6 +4,7 @@ import test from "node:test";
 import * as workspaceState from "./articleWorkspaceState.mjs";
 
 const {
+  createArticleStatusCallout,
   createWorkspacePanelSummary,
   createCitationReaderTarget,
   shouldUseWorkspaceSplit,
@@ -76,6 +77,55 @@ test("workspace panel summary counts chat, sources, jobs, and graph context", ()
     entityCount: 2,
     relationshipCount: 1,
   });
+});
+
+test("article status callout exposes recovery actions for failed articles", () => {
+  assert.deepEqual(
+    createArticleStatusCallout({
+      article: {
+        status: "failed",
+        processing_error: "Provider timed out",
+      },
+      extractionErrors: [],
+    }),
+    {
+      tone: "destructive",
+      title: "Processing failed",
+      detail: "Provider timed out",
+      actions: [
+        { id: "retry_extraction", label: "Retry extraction" },
+        { id: "view_jobs", label: "View jobs" },
+      ],
+    },
+  );
+});
+
+test("article status callout exposes review actions for needs-review articles", () => {
+  assert.deepEqual(
+    createArticleStatusCallout({
+      article: { status: "needs_review" },
+      extractionErrors: ["Missing methodology", "Invalid year"],
+    }),
+    {
+      tone: "warning",
+      title: "Extraction needs review",
+      detail: "Missing methodology; Invalid year",
+      actions: [
+        { id: "review_extraction", label: "Review extraction" },
+        { id: "rerun_extraction", label: "Rerun extraction" },
+      ],
+    },
+  );
+});
+
+test("article status callout stays hidden for healthy articles", () => {
+  assert.equal(
+    createArticleStatusCallout({
+      article: { status: "completed" },
+      extractionErrors: [],
+    }),
+    null,
+  );
 });
 
 test("chat submission preserves selected context without making empty prompts", () => {
