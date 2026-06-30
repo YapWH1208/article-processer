@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, FileText, Home, FileUp, MessageCircle,
   GitBranch, BarChart3, Settings2, BookOpen,
-  ArrowRight, CornerDownLeft,
+  ScrollText, ArrowRight, CornerDownLeft,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useLanguage } from "@/components/LanguageProvider";
@@ -50,6 +50,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     { id: "library", label: translateUiText("Go to Library", language), icon: BookOpen, href: "/articles", keywords: ["articles", "library", "papers", "文库"] },
     { id: "upload", label: translateUiText("Go to Upload", language), icon: FileUp, href: "/upload", keywords: ["upload", "add", "import", "上传"] },
     { id: "chat", label: translateUiText("Go to Chat", language), icon: MessageCircle, href: "/chat", keywords: ["chat", "ask", "conversation", "聊天"] },
+    { id: "jobs", label: translateUiText("Go to Jobs", language), icon: ScrollText, href: "/logs", keywords: ["jobs", "logs", "processing", "任务"] },
     { id: "graph", label: translateUiText("Go to Graph", language), icon: GitBranch, href: "/graph", keywords: ["graph", "knowledge", "entities", "图谱"] },
     { id: "dashboard", label: translateUiText("Go to Dashboard", language), icon: BarChart3, href: "/dashboard", keywords: ["dashboard", "metrics", "stats", "仪表盘"] },
     { id: "settings", label: translateUiText("Go to Settings", language), icon: Settings2, href: "/settings", keywords: ["settings", "config", "preferences", "设置"] },

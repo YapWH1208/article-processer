@@ -104,6 +104,7 @@ test("language shell copy provides English and Chinese labels", () => {
     library: "Library",
     upload: "Upload",
     chat: "Chat",
+    jobs: "Jobs",
     graph: "Graph",
     dashboard: "Dashboard",
   });
@@ -113,6 +114,7 @@ test("language shell copy provides English and Chinese labels", () => {
     library: "文库",
     upload: "上传",
     chat: "聊天",
+    jobs: "任务",
     graph: "图谱",
     dashboard: "仪表盘",
   });

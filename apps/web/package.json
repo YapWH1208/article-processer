@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --test src/app/*.test.mjs src/app/graph/*.test.mjs src/app/articles/*.test.mjs src/app/logs/*.test.mjs src/app/upload/*.test.mjs src/app/settings/*.test.mjs src/lib/*.test.mjs",
+    "test": "node --test src/app/*.test.mjs src/app/graph/*.test.mjs src/app/articles/*.test.mjs src/app/logs/*.test.mjs src/app/upload/*.test.mjs src/app/settings/*.test.mjs src/components/*.test.mjs src/lib/*.test.mjs",
     "lint": "next lint"
   },
   "dependencies": {
