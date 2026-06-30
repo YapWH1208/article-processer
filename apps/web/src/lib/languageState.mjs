@@ -94,6 +94,8 @@ function translateDynamicText(text, language) {
     if (match) return `已切换到 ${match[1]}`;
     match = text.match(/^(.+) processing$/);
     if (match) return `${match[1]} 个处理中`;
+    match = text.match(/^(\d+)\/(\d+) ready$/);
+    if (match) return `${match[1]}/${match[2]} 已就绪`;
     match = text.match(/^~(.+) tokens$/);
     if (match) return `约 ${match[1]} tokens`;
     match = text.match(/^Step: (.+)$/);
@@ -113,6 +115,8 @@ function translateDynamicText(text, language) {
   if (match) return `Switched to ${match[1]}`;
   match = text.match(/^(.+) 个处理中$/);
   if (match) return `${match[1]} processing`;
+  match = text.match(/^(\d+)\/(\d+) 已就绪$/);
+  if (match) return `${match[1]}/${match[2]} ready`;
   match = text.match(/^约 (.+) tokens$/);
   if (match) return `~${match[1]} tokens`;
   match = text.match(/^步骤：(.+)$/);
