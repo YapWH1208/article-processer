@@ -51,11 +51,11 @@ cp .env.example apps/web/.env.local
 
 ## Features
 
-- **Immersive Landing Page**: Particle canvas, floating orbs, typewriter headline, animated stats, and accurate 5-step pipeline diagram (Upload → Parse → Chunk → Extract → Graph) with hover interactions
-- **Document Ingestion**: Upload PDF, ZIP (containing PDFs/HTML/MD/TXT), HTML, Markdown, or plain text, with upload/import progress that resumes after refresh
+- **Operational Home Cockpit**: The home page opens directly into workspace status, full-text search, AI/provider health, queue attention, recent articles, and primary actions
+- **Document Ingestion**: Upload PDF, ZIP (containing PDFs/HTML/MD/TXT), HTML, Markdown, or plain text, with setup readiness checks and upload/import progress that resumes after refresh
 - **Automatic Parsing**: Convert documents to canonical Markdown with structure preservation — MinerU v3.x (best), Docling, or pypdf
 - **5-Step Processing Pipeline**: Parse → Semantic Chunk → AI Extract → Build Graph → Complete. Live progress bar with step-by-step status.
-- **Global Job Queue**: Logs page shows active, queued, failed, and completed processing jobs with current step, age, worker, errors, article links, and retry for failed jobs
+- **Global Job Queue**: Jobs navigation and the Logs page show active, queued, failed, and completed processing jobs with current step, age, worker, errors, article links, and retry for failed jobs
 - **AI Extraction**: Extract structured research information (authors, methodology, results, claims, entities, references) with evidence trails and confidence scoring
 - **Extraction Review**: Edit and save reviewed structured extraction JSON from the article workspace before using it for search and analysis
 - **Article Workspace**: Reader-first article detail page with a tabbed side panel for Chat, Jobs, and Context, plus source chips that jump back to cited reader chunks or sections
