@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   createHomeArticleSummary,
+  createHomeContentSearchHref,
   createHomeHealthSummary,
   createHomeQueueSummary,
 } from "./homeCockpitState.mjs";
@@ -75,4 +76,9 @@ test("home queue summary prioritizes active and failed work", () => {
     completed: 1,
   });
   assert.deepEqual(summary.focusJobs.map((job) => job.job_id), [4, 3, 2]);
+});
+
+test("home content search links to the article content query parameter", () => {
+  assert.equal(createHomeContentSearchHref(" retrieval augmented generation "), "/articles?q=retrieval+augmented+generation");
+  assert.equal(createHomeContentSearchHref(""), null);
 });

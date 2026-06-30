@@ -29,6 +29,7 @@ import { getJobQueue, healthCheck, listArticles } from "@/lib/api";
 import type { HealthInfo } from "@/lib/types";
 import {
   createHomeArticleSummary,
+  createHomeContentSearchHref,
   createHomeHealthSummary,
   createHomeQueueSummary,
 } from "./homeCockpitState.mjs";
@@ -174,8 +175,8 @@ export default function HomePage() {
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const trimmed = query.trim();
-    if (trimmed) router.push(`/articles?search_content=${encodeURIComponent(trimmed)}`);
+    const href = createHomeContentSearchHref(query);
+    if (href) router.push(href);
   };
 
   return (

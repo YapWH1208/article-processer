@@ -73,3 +73,11 @@ export function createHomeQueueSummary(jobs = []) {
       .slice(0, 5),
   };
 }
+
+export function createHomeContentSearchHref(query = "") {
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+
+  const params = new URLSearchParams({ q: trimmed });
+  return `/articles?${params.toString()}`;
+}
