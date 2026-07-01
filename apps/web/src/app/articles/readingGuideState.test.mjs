@@ -84,6 +84,7 @@ test("article reading guide returns a recovery state when extraction is missing"
 
 test("library reading guide ranks related articles and creates comparison prompts", () => {
   const guide = createLibraryReadingGuide({
+    articleId: 7,
     articleTitle: "Source Linked RAG",
     related: [
       {
@@ -113,6 +114,7 @@ test("library reading guide ranks related articles and creates comparison prompt
     guide.comparePrompt,
     "Compare Source Linked RAG with Document Chunking and Graph Retrieval. Focus on shared concepts, methods, results, and limitations.",
   );
+  assert.deepEqual(guide.compareArticleIds, [7, 12, 10]);
 });
 
 test("library reading guide explains when there is no related reading yet", () => {
@@ -124,6 +126,47 @@ test("library reading guide explains when there is no related reading yet", () =
       detail: "Process more articles to discover shared concepts and comparison paths.",
       readNext: [],
       comparePrompt: "",
+      compareArticleIds: [],
     },
+  );
+});
+
+test("reading guides localize generated prompts and recovery copy", () => {
+  const articleGuide = createArticleReadingGuide({
+    articleTitle: "Source Linked RAG",
+    extraction,
+    graph,
+    language: "zh",
+  });
+
+  assert.deepEqual(
+    articleGuide.questions.map((question) => question.text),
+    [
+      "这篇文章解决了什么问题？",
+      "请用通俗语言解释这篇文章的方法。",
+      "最重要的结果是什么？",
+      "我应该注意哪些局限？",
+    ],
+  );
+
+  const missingGuide = createArticleReadingGuide({
+    articleTitle: "Unprocessed paper",
+    extraction: null,
+    graph: null,
+    language: "zh",
+  });
+  assert.equal(missingGuide.detail, "运行 AI 抽取，为这篇文章生成阅读指南。");
+  assert.equal(missingGuide.actions[0].label, "运行抽取");
+
+  const libraryGuide = createLibraryReadingGuide({
+    articleId: 7,
+    articleTitle: "Source Linked RAG",
+    related: [{ id: 12, title: "Document Chunking", similarity: 0.46 }],
+    language: "zh",
+  });
+
+  assert.equal(
+    libraryGuide.comparePrompt,
+    "比较 Source Linked RAG 和 Document Chunking，重点关注共同概念、方法、结果和局限。",
   );
 });

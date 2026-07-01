@@ -1,3 +1,5 @@
+import { getPromptText, translateUiText } from "../../lib/languageState.mjs";
+
 const CONCEPT_EXCLUDE_TYPES = new Set(["Article", "Author", "Institution", "Citation"]);
 
 const READ_FIRST_FIELDS = [
@@ -15,6 +17,31 @@ function text(value) {
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function ui(value, language) {
+  return translateUiText(value, language);
+}
+
+function prompt(key, language, params = {}, fallback = "") {
+  return getPromptText(key, language, params) || fallback;
+}
+
+function numberId(value) {
+  const id = Number(value);
+  return Number.isFinite(id) ? id : null;
+}
+
+function uniqueIds(values) {
+  const seen = new Set();
+  const ids = [];
+  for (const value of values) {
+    const id = numberId(value);
+    if (id === null || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
 }
 
 function claimText(claim) {
@@ -53,42 +80,48 @@ function createConcepts(extraction, graph) {
     .slice(0, 8);
 }
 
-function createReadFirst(extraction) {
+function createReadFirst(extraction, language) {
   return READ_FIRST_FIELDS
     .map(([title, field, reason]) => ({
-      title,
+      title: ui(title, language),
       field,
-      reason,
+      reason: ui(reason, language),
       text: text(extraction?.[field]),
+      prompt: prompt(
+        "readingSection",
+        language,
+        { section: title },
+        `Walk me through the ${String(title).toLowerCase()} section.`,
+      ),
     }))
     .filter((section) => section.text)
     .slice(0, 4);
 }
 
-function createQuestions(extraction) {
+function createQuestions(extraction, language) {
   const questions = [];
   if (text(extraction?.research_problem)) {
     questions.push({
-      label: "Problem",
-      text: "What problem does this article solve?",
+      label: ui("Problem", language),
+      text: prompt("readingProblem", language, {}, "What problem does this article solve?"),
     });
   }
   if (text(extraction?.methodology)) {
     questions.push({
-      label: "Method",
-      text: "Explain the methodology in plain language.",
+      label: ui("Method", language),
+      text: prompt("readingMethodPlain", language, {}, "Explain the methodology in plain language."),
     });
   }
   if (text(extraction?.results)) {
     questions.push({
-      label: "Results",
-      text: "What are the most important results?",
+      label: ui("Results", language),
+      text: prompt("readingResults", language, {}, "What are the most important results?"),
     });
   }
   if (text(extraction?.limitations)) {
     questions.push({
-      label: "Limits",
-      text: "What limitations should I keep in mind?",
+      label: ui("Limits", language),
+      text: prompt("readingLimitations", language, {}, "What limitations should I keep in mind?"),
     });
   }
   return questions;
@@ -99,6 +132,7 @@ function createQuestions(extraction) {
  *   articleTitle?: string,
  *   extraction?: Record<string, any> | null,
  *   graph?: { entities?: any[] } | null,
+ *   language?: string,
  * }} input
  * @returns {any}
  */
@@ -106,14 +140,15 @@ export function createArticleReadingGuide({
   articleTitle = "Untitled article",
   extraction = null,
   graph = null,
+  language = "en",
 } = {}) {
-  const title = text(articleTitle) || "Untitled article";
+  const title = text(articleTitle) || ui("Untitled article", language);
   if (!extraction || typeof extraction !== "object") {
     return {
       status: "missing_extraction",
       title,
-      detail: "Run AI extraction to build a reading guide for this article.",
-      actions: [{ id: "run_extraction", label: "Run extraction", mode: "extract_only" }],
+      detail: ui("Run AI extraction to build a reading guide for this article.", language),
+      actions: [{ id: "run_extraction", label: ui("Run extraction", language), mode: "extract_only" }],
     };
   }
 
@@ -127,8 +162,8 @@ export function createArticleReadingGuide({
     limitations: text(extraction.limitations),
     claims: asArray(extraction.key_claims).map(claimText).filter(Boolean).slice(0, 2),
     concepts: createConcepts(extraction, graph),
-    readFirst: createReadFirst(extraction),
-    questions: createQuestions(extraction),
+    readFirst: createReadFirst(extraction, language),
+    questions: createQuestions(extraction, language),
   };
 }
 
@@ -136,23 +171,29 @@ function relatedTitle(item) {
   return text(item?.title || item?.original_filename || `Article #${item?.id ?? ""}`) || "Untitled article";
 }
 
-function relatedReason(item) {
+function relatedReason(item, language) {
   const shared = asArray(item?.shared_entities).map(text).filter(Boolean);
-  if (shared.length > 0) return `Shared concepts: ${shared.slice(0, 3).join(", ")}`;
+  if (shared.length > 0) return `${ui("Shared concepts:", language)} ${shared.slice(0, 3).join(", ")}`;
   const similarity = Number(item?.similarity);
-  return Number.isFinite(similarity) ? `Similarity: ${Math.round(similarity * 100)}%` : "Related by extracted concepts";
+  return Number.isFinite(similarity)
+    ? `${ui("Similarity:", language)} ${Math.round(similarity * 100)}%`
+    : ui("Related by extracted concepts", language);
 }
 
 /**
  * @param {{
+ *   articleId?: number,
  *   articleTitle?: string,
  *   related?: Array<Record<string, any>>,
+ *   language?: string,
  * }} input
  * @returns {any}
  */
 export function createLibraryReadingGuide({
+  articleId,
   articleTitle = "this article",
   related = [],
+  language = "en",
 } = {}) {
   const sorted = asArray(related)
     .slice()
@@ -161,10 +202,11 @@ export function createLibraryReadingGuide({
   if (sorted.length === 0) {
     return {
       status: "empty",
-      title: "No read-next suggestions yet",
-      detail: "Process more articles to discover shared concepts and comparison paths.",
+      title: ui("No read-next suggestions yet", language),
+      detail: ui("Process more articles to discover shared concepts and comparison paths.", language),
       readNext: [],
       comparePrompt: "",
+      compareArticleIds: [],
     };
   }
 
@@ -174,13 +216,20 @@ export function createLibraryReadingGuide({
     title: relatedTitle(item),
     similarity: Number(item.similarity || 0),
     sharedEntities: asArray(item.shared_entities).map(text).filter(Boolean),
-    reason: relatedReason(item),
+    reason: relatedReason(item, language),
   }));
 
   const compareTitles = readNext.slice(0, 3).map((item) => item.title);
+  const compareArticleIds = uniqueIds([articleId, ...readNext.slice(0, 3).map((item) => item.articleId)]);
   return {
     status: "ready",
     readNext,
-    comparePrompt: `Compare ${text(articleTitle) || "this article"} with ${compareTitles.join(" and ")}. Focus on shared concepts, methods, results, and limitations.`,
+    comparePrompt: prompt(
+      "readingCompare",
+      language,
+      { articleTitle: text(articleTitle) || ui("this article", language), compareTitles },
+      `Compare ${text(articleTitle) || "this article"} with ${compareTitles.join(" and ")}. Focus on shared concepts, methods, results, and limitations.`,
+    ),
+    compareArticleIds,
   };
 }

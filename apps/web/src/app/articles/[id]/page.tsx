@@ -28,7 +28,7 @@ import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useLanguage } from "@/components/LanguageProvider";
-import { sendChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, updateArticleExtraction, toggleArchiveArticle, deleteArticle, getRelatedArticles } from "@/lib/api";
+import { sendChatMessage, sendMultiArticleChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, updateArticleExtraction, toggleArchiveArticle, deleteArticle, getRelatedArticles } from "@/lib/api";
 import { getPromptText, translateUiText } from "@/lib/languageState.mjs";
 import { normalizeHtmlTablesForMarkdown } from "@/lib/markdownHtmlTables.mjs";
 import type { ExtractionResult } from "@/lib/types";
@@ -256,6 +256,38 @@ export default function ArticleDetailPage() {
     setChatDraftSeed((prev) => ({ id: prev.id + 1, text }));
     setChatOpen(true);
   };
+
+  const compareArticles = useCallback(async (prompt: string, articleIds: number[]) => {
+    const normalizedIds = Array.from(new Set(articleIds.map(Number).filter(Number.isFinite)));
+    const message = prompt.trim();
+    if (!message || normalizedIds.length < 2) return;
+
+    setChatOpen(true);
+    setSidePanelTab("chat");
+    setChatting(true);
+    setMessages((prev) => [...prev, { role: "user", content: message }]);
+
+    try {
+      const res = await sendMultiArticleChatMessage(normalizedIds, message, language);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: res.answer,
+          citations_json: JSON.stringify(res.citations || []),
+          prompt_tokens: res.prompt_tokens || 0,
+          completion_tokens: res.completion_tokens || 0,
+        },
+      ]);
+    } catch (error) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: `Error: ${error instanceof Error ? error.message : "Compare failed"}` },
+      ]);
+    } finally {
+      setChatting(false);
+    }
+  }, [language]);
 
   const handleReprocess = async (mode: "full" | "extract_only" = "extract_only") => {
     setReprocessing(true);
@@ -545,7 +577,7 @@ export default function ArticleDetailPage() {
           <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col min-h-0">
             <div className="flex items-center justify-between gap-2 mb-3">
               <TabsList>
-                <TabsTrigger value="guide" className="gap-1.5"><ChevronRight className="h-4 w-4"/>Guide</TabsTrigger>
+                <TabsTrigger value="guide" className="gap-1.5"><ChevronRight className="h-4 w-4"/>{translateUiText("Guide", language)}</TabsTrigger>
                 <TabsTrigger value="reader" className="gap-1.5"><ScrollText className="h-4 w-4"/>Reader</TabsTrigger>
                 <TabsTrigger value="summary" className="gap-1.5"><FileText className="h-4 w-4"/>Summary</TabsTrigger>
                 <TabsTrigger value="skills" className="gap-1.5"><Wand2 className="h-4 w-4"/>Skills</TabsTrigger>
@@ -564,11 +596,11 @@ export default function ArticleDetailPage() {
                     <Card className="h-full flex flex-col">
                       <CardHeader className="shrink-0 flex flex-row items-center justify-between">
                         <div>
-                          <CardTitle className="text-lg">Reading Guide</CardTitle>
-                          <CardDescription>Start with the brief, then follow the suggested questions and related papers.</CardDescription>
+                          <CardTitle className="text-lg">{translateUiText("Reading Guide", language)}</CardTitle>
+                          <CardDescription>{translateUiText("Start with the brief, then follow the suggested questions and related papers.", language)}</CardDescription>
                         </div>
                         <Button variant="outline" size="sm" onClick={() => setTab("reader")} className="gap-1">
-                          <ScrollText className="h-3.5 w-3.5" /> Open Reader
+                          <ScrollText className="h-3.5 w-3.5" /> {translateUiText("Open Reader", language)}
                         </Button>
                       </CardHeader>
                       <CardContent className="flex-1 min-h-0 p-4">
@@ -581,7 +613,10 @@ export default function ArticleDetailPage() {
                             reprocessing={reprocessing}
                             onAsk={askAbout}
                             onAdd={addToChat}
+                            onCompare={compareArticles}
                             onRunExtraction={() => handleReprocess("extract_only")}
+                            comparing={chatting}
+                            language={language}
                           />
                         </ScrollArea>
                       </CardContent>
@@ -1155,7 +1190,10 @@ function ReadingGuideContent({
   reprocessing,
   onAsk,
   onAdd,
+  onCompare,
   onRunExtraction,
+  comparing,
+  language,
 }: {
   articleId: number;
   articleTitle: string;
@@ -1164,10 +1202,14 @@ function ReadingGuideContent({
   reprocessing: boolean;
   onAsk: (text: string) => void;
   onAdd: (text: string, source: string) => void;
+  onCompare: (prompt: string, articleIds: number[]) => void;
   onRunExtraction: () => void;
+  comparing: boolean;
+  language: "en" | "zh";
 }) {
   const [related, setRelated] = useState<RelatedArticleItem[]>([]);
   const [loadingRelated, setLoadingRelated] = useState(true);
+  const guideText = useCallback((value: string) => translateUiText(value, language), [language]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1186,12 +1228,12 @@ function ReadingGuideContent({
   }, [articleId]);
 
   const articleGuide = useMemo(
-    () => createArticleReadingGuide({ articleTitle, extraction, graph }),
-    [articleTitle, extraction, graph],
+    () => createArticleReadingGuide({ articleTitle, extraction, graph, language }),
+    [articleTitle, extraction, graph, language],
   );
   const libraryGuide = useMemo(
-    () => createLibraryReadingGuide({ articleTitle, related }),
-    [articleTitle, related],
+    () => createLibraryReadingGuide({ articleId, articleTitle, related, language }),
+    [articleId, articleTitle, related, language],
   );
 
   if (articleGuide.status === "missing_extraction") {
@@ -1204,7 +1246,7 @@ function ReadingGuideContent({
         </div>
         <Button size="sm" onClick={onRunExtraction} disabled={reprocessing} className="gap-1">
           <RotateCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`} />
-          {reprocessing ? "Starting..." : articleGuide.actions[0]?.label || "Run extraction"}
+          {reprocessing ? guideText("Starting...") : articleGuide.actions[0]?.label || guideText("Run extraction")}
         </Button>
       </div>
     );
@@ -1215,31 +1257,31 @@ function ReadingGuideContent({
       <section className="rounded-md border bg-muted/20 p-4">
         <div className="mb-2 flex items-center justify-between gap-3">
           <div>
-            <h3 className="font-semibold">TL;DR</h3>
-            <p className="text-xs text-muted-foreground">Fast orientation before you read the full article.</p>
+            <h3 className="font-semibold">{guideText("TL;DR")}</h3>
+            <p className="text-xs text-muted-foreground">{guideText("Fast orientation before you read the full article.")}</p>
           </div>
           {articleGuide.tldr && (
-            <Button variant="outline" size="sm" className="gap-1" onClick={() => onAdd(articleGuide.tldr, "Reading Guide")}>
-              <Plus className="h-3.5 w-3.5" /> Add
+            <Button variant="outline" size="sm" className="gap-1" onClick={() => onAdd(articleGuide.tldr, guideText("Reading Guide"))}>
+              <Plus className="h-3.5 w-3.5" /> {guideText("Add")}
             </Button>
           )}
         </div>
-        <p className="leading-6 text-foreground">{articleGuide.tldr || "No abstract or summary was extracted."}</p>
+        <p className="leading-6 text-foreground">{articleGuide.tldr || guideText("No abstract or summary was extracted.")}</p>
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <GuideBlock title="Main Contribution" text={articleGuide.contribution} onAsk={() => onAsk("What is the main contribution of this article?")} />
-        <GuideBlock title="Method In Plain Language" text={articleGuide.method} onAsk={() => onAsk("Explain the methodology in plain language.")} />
+        <GuideBlock title={guideText("Main Contribution")} text={articleGuide.contribution} onAsk={() => onAsk(getPromptText("readingMainContribution", language))} language={language} />
+        <GuideBlock title={guideText("Method In Plain Language")} text={articleGuide.method} onAsk={() => onAsk(getPromptText("readingMethodPlain", language))} language={language} />
       </div>
 
       {articleGuide.claims.length > 0 && (
         <section>
-          <h3 className="mb-2 font-semibold">Key Claims</h3>
+          <h3 className="mb-2 font-semibold">{guideText("Key Claims")}</h3>
           <div className="space-y-2">
             {articleGuide.claims.map((claim: string, index: number) => (
               <div key={index} className="flex items-start justify-between gap-3 rounded-md border p-3">
                 <p className="text-muted-foreground">{claim}</p>
-                <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => onAsk(`Tell me more about this claim: ${claim}`)} aria-label="Ask about claim">
+                <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => onAsk(getPromptText("readingClaim", language, { claim }))} aria-label={guideText("Ask about claim")}>
                   <MessageCircle className="h-3.5 w-3.5" />
                 </Button>
               </div>
@@ -1251,9 +1293,9 @@ function ReadingGuideContent({
       {articleGuide.limitations && (
         <section className="rounded-md border border-amber-500/30 bg-amber-500/5 p-4">
           <div className="mb-1 flex items-center justify-between gap-3">
-            <h3 className="font-semibold">Limitations</h3>
-            <Button variant="ghost" size="sm" className="gap-1" onClick={() => onAsk("What limitations should I keep in mind?")}>
-              <MessageCircle className="h-3.5 w-3.5" /> Ask
+            <h3 className="font-semibold">{guideText("Limitations")}</h3>
+            <Button variant="ghost" size="sm" className="gap-1" onClick={() => onAsk(getPromptText("readingLimitations", language))}>
+              <MessageCircle className="h-3.5 w-3.5" /> {guideText("Ask")}
             </Button>
           </div>
           <p className="text-muted-foreground">{articleGuide.limitations}</p>
@@ -1262,13 +1304,13 @@ function ReadingGuideContent({
 
       <div className="grid gap-4 lg:grid-cols-2">
         <section>
-          <h3 className="mb-2 font-semibold">Read First</h3>
+          <h3 className="mb-2 font-semibold">{guideText("Read First")}</h3>
           <div className="space-y-2">
-            {articleGuide.readFirst.map((section: { title: string; reason: string }, index: number) => (
+            {articleGuide.readFirst.map((section: { title: string; reason: string; prompt: string }, index: number) => (
               <button
                 key={section.title}
                 type="button"
-                onClick={() => onAsk(`Walk me through the ${section.title.toLowerCase()} section.`)}
+                onClick={() => onAsk(section.prompt)}
                 className="flex w-full items-center gap-3 rounded-md border p-3 text-left transition-colors hover:border-primary hover:bg-primary/5"
               >
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">{index + 1}</span>
@@ -1282,7 +1324,7 @@ function ReadingGuideContent({
         </section>
 
         <section>
-          <h3 className="mb-2 font-semibold">Concepts To Know</h3>
+          <h3 className="mb-2 font-semibold">{guideText("Concepts To Know")}</h3>
           {articleGuide.concepts.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {articleGuide.concepts.map((concept: { name: string; type: string }) => (
@@ -1293,14 +1335,14 @@ function ReadingGuideContent({
               ))}
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">No concepts were extracted yet.</p>
+            <p className="text-xs text-muted-foreground">{guideText("No concepts were extracted yet.")}</p>
           )}
         </section>
       </div>
 
       {articleGuide.questions.length > 0 && (
         <section>
-          <h3 className="mb-2 font-semibold">Suggested Questions</h3>
+          <h3 className="mb-2 font-semibold">{guideText("Suggested Questions")}</h3>
           <div className="flex flex-wrap gap-2">
             {articleGuide.questions.map((question: { label: string; text: string }) => (
               <Button key={question.text} variant="outline" size="sm" className="gap-1" onClick={() => onAsk(question.text)}>
@@ -1316,17 +1358,17 @@ function ReadingGuideContent({
       <section>
         <div className="mb-2 flex items-center justify-between gap-3">
           <div>
-            <h3 className="font-semibold">Read Next</h3>
-            <p className="text-xs text-muted-foreground">Suggested from shared extracted concepts.</p>
+            <h3 className="font-semibold">{guideText("Read Next")}</h3>
+            <p className="text-xs text-muted-foreground">{guideText("Suggested from shared extracted concepts.")}</p>
           </div>
-          {libraryGuide.comparePrompt && (
-            <Button variant="outline" size="sm" className="gap-1" onClick={() => onAsk(libraryGuide.comparePrompt)}>
-              <MessageCircle className="h-3.5 w-3.5" /> Compare
+          {libraryGuide.comparePrompt && libraryGuide.compareArticleIds.length > 1 && (
+            <Button variant="outline" size="sm" className="gap-1" disabled={comparing} onClick={() => onCompare(libraryGuide.comparePrompt, libraryGuide.compareArticleIds)}>
+              <MessageCircle className="h-3.5 w-3.5" /> {guideText("Compare")}
             </Button>
           )}
         </div>
         {loadingRelated ? (
-          <p className="text-xs text-muted-foreground">Loading related articles...</p>
+          <p className="text-xs text-muted-foreground">{guideText("Loading related articles...")}</p>
         ) : libraryGuide.status === "empty" ? (
           <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">{libraryGuide.detail}</p>
         ) : (
@@ -1348,18 +1390,18 @@ function ReadingGuideContent({
   );
 }
 
-function GuideBlock({ title, text, onAsk }: { title: string; text: string; onAsk: () => void }) {
+function GuideBlock({ title, text, onAsk, language }: { title: string; text: string; onAsk: () => void; language: "en" | "zh" }) {
   return (
     <section className="rounded-md border p-4">
       <div className="mb-1 flex items-center justify-between gap-3">
         <h3 className="font-semibold">{title}</h3>
         {text && (
           <Button variant="ghost" size="sm" className="gap-1" onClick={onAsk}>
-            <MessageCircle className="h-3.5 w-3.5" /> Ask
+            <MessageCircle className="h-3.5 w-3.5" /> {translateUiText("Ask", language)}
           </Button>
         )}
       </div>
-      <p className="text-muted-foreground">{text || "Not extracted yet."}</p>
+      <p className="text-muted-foreground">{text || translateUiText("Not extracted yet.", language)}</p>
     </section>
   );
 }
