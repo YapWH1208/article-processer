@@ -8,6 +8,7 @@ All notable changes to the Article Processor project.
 
 ### Added
 
+- **Reading Intelligence Guide** - Article detail pages now open with a guide-first brief derived from existing extraction, graph entities, and related-article overlap. The guide shows TL;DR, read-first sections, key claims, limitations, concepts, suggested chat questions, and read-next recommendations.
 - **Local-first article workspace** - Article detail pages now use a two-pane workspace with reader-first content and a tabbed side panel for Chat, Jobs, and Context. Source chips in chat answers link back to reader chunks or sections when citation metadata is available.
 - **Operational home cockpit** - The home page now prioritizes workspace status, content search, AI/provider health, queue attention, recent articles, and primary actions instead of a marketing landing page.
 - **Jobs navigation and queue badge** - `/logs` is now exposed as Jobs in the desktop/mobile navigation and command palette, with a queue badge that links directly to active or failed processing work.
