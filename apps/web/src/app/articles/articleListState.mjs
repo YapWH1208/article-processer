@@ -60,6 +60,37 @@ export function serializeArticleListQuery(state) {
   return params.toString();
 }
 
+export function hasActiveArticleListFilters(state) {
+  return Boolean(
+    state?.search ||
+    state?.searchContent ||
+    (state?.statusFilter && state.statusFilter !== DEFAULT_STATE.statusFilter) ||
+    state?.includeArchived
+  );
+}
+
+export function createArticleListEmptyState({ total = 0, activeFilters = false } = {}) {
+  if (activeFilters) {
+    return {
+      title: "No matching articles",
+      detail: "Clear filters or adjust your search to see more articles.",
+      primaryAction: "clear",
+      primaryLabel: "Clear filters",
+      secondaryAction: "upload",
+      secondaryLabel: "Upload articles",
+    };
+  }
+
+  return {
+    title: total === 0 ? "No articles yet" : "No matching articles",
+    detail: total === 0 ? "Upload a paper to get started." : "Try adjusting your search or filters.",
+    primaryAction: total === 0 ? "upload" : null,
+    primaryLabel: total === 0 ? "Upload articles" : "",
+    secondaryAction: null,
+    secondaryLabel: "",
+  };
+}
+
 export function createArticleExportDownload(payload, date = new Date()) {
   return {
     filename: `articles-export-${date.toISOString().slice(0, 10)}.json`,

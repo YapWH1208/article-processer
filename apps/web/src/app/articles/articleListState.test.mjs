@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  createArticleListEmptyState,
   createArticleExportDownload,
+  hasActiveArticleListFilters,
   parseArticleListQuery,
   serializeArticleListQuery,
 } from "./articleListState.mjs";
@@ -54,4 +56,44 @@ test("article export download uses a stable dated filename and pretty JSON", () 
   assert.equal(download.filename, "articles-export-2026-05-31.json");
   assert.equal(download.count, 2);
   assert.equal(download.content, '{\n  "count": 2,\n  "articles": [\n    {\n      "id": 1\n    },\n    {\n      "id": 2\n    }\n  ]\n}');
+});
+
+test("article list state detects active filters", () => {
+  assert.equal(hasActiveArticleListFilters(parseArticleListQuery(new URLSearchParams())), false);
+  assert.equal(hasActiveArticleListFilters(parseArticleListQuery(new URLSearchParams("search=rag"))), true);
+  assert.equal(hasActiveArticleListFilters(parseArticleListQuery(new URLSearchParams("q=tables"))), true);
+  assert.equal(hasActiveArticleListFilters(parseArticleListQuery(new URLSearchParams("status=failed"))), true);
+  assert.equal(hasActiveArticleListFilters(parseArticleListQuery(new URLSearchParams("archived=1"))), true);
+});
+
+test("article list empty state recommends upload or clearing filters", () => {
+  assert.deepEqual(
+    createArticleListEmptyState({
+      total: 0,
+      activeFilters: false,
+    }),
+    {
+      title: "No articles yet",
+      detail: "Upload a paper to get started.",
+      primaryAction: "upload",
+      primaryLabel: "Upload articles",
+      secondaryAction: null,
+      secondaryLabel: "",
+    },
+  );
+
+  assert.deepEqual(
+    createArticleListEmptyState({
+      total: 0,
+      activeFilters: true,
+    }),
+    {
+      title: "No matching articles",
+      detail: "Clear filters or adjust your search to see more articles.",
+      primaryAction: "clear",
+      primaryLabel: "Clear filters",
+      secondaryAction: "upload",
+      secondaryLabel: "Upload articles",
+    },
+  );
 });

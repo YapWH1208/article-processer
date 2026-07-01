@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileText, CheckCircle2, AlertCircle, Inbox, Sparkles, Brain, Loader2, Eye, X } from "lucide-react";
+import { Upload, FileText, CheckCircle2, AlertCircle, Inbox, Sparkles, Brain, Loader2, Eye, X, Settings2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ import { uploadFile, getArticleActiveJob } from "@/lib/api";
 import { useLanguage } from "@/components/LanguageProvider";
 import { FadeIn } from "@/components/ui/animated";
 import { canOpenArticleDetail, clearFinishedProcessingFiles, createUploadQueueSnapshot, shouldResumeProcessingFile, upsertProcessingFile } from "./uploadQueueState.mjs";
+import { createUploadSetupChecklist } from "./setupChecklistState.mjs";
 
 interface ProcessingFile {
   filename: string;
@@ -174,6 +175,7 @@ export default function UploadPage() {
   }, [clearingFinished]);
 
   const hasFinishedProcessingFiles = processingFiles.some((file) => !shouldResumeProcessingFile(file));
+  const setupChecklist = createUploadSetupChecklist({ modelInfo, runAI, queueRestored });
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
@@ -204,6 +206,52 @@ export default function UploadPage() {
             </div>
           )}
         </div>
+      </FadeIn>
+
+      {/* Setup checklist */}
+      <FadeIn delay={0.05}>
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="text-base">Setup Checklist</CardTitle>
+                <CardDescription>{setupChecklist.primaryMessage}</CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline">
+                  {setupChecklist.readyCount}/{setupChecklist.total} ready
+                </Badge>
+                {setupChecklist.needsProviderSetup && (
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href="/settings" className="gap-1.5">
+                      <Settings2 className="h-3.5 w-3.5" />
+                      Settings
+                    </Link>
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {setupChecklist.items.map((item) => (
+                <div key={item.id} className="rounded-md border bg-background px-3 py-2">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    {item.state === "complete" ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    ) : item.state === "warning" ? (
+                      <AlertCircle className="h-4 w-4 text-amber-600" />
+                    ) : (
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    )}
+                    <span>{item.label}</span>
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.detail}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       </FadeIn>
 
       {/* Drop Zone */}

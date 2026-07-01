@@ -27,10 +27,18 @@ const REQUIRED_TRANSLATED_UI_STRINGS = [
   "Browse Files",
   "Import from URL",
   "Paste an arXiv, DOI, or direct PDF link",
+  "Setup Checklist",
+  "Checking local backend",
+  "AI pipeline",
+  "Upload queue",
   "No articles found",
   "Add one in Settings →",
   "Clear all",
   "Start a conversation",
+  "Upload articles to start chatting",
+  "Use a starter or ask your own question. Tag articles with @ for focused context.",
+  "What are the main themes across my library?",
+  "Summarize the tagged articles.",
   "Processing Logs",
   "No processing jobs found.",
   "Upload an article to see logs here.",
@@ -104,6 +112,7 @@ test("language shell copy provides English and Chinese labels", () => {
     library: "Library",
     upload: "Upload",
     chat: "Chat",
+    jobs: "Jobs",
     graph: "Graph",
     dashboard: "Dashboard",
   });
@@ -113,6 +122,7 @@ test("language shell copy provides English and Chinese labels", () => {
     library: "文库",
     upload: "上传",
     chat: "聊天",
+    jobs: "任务",
     graph: "图谱",
     dashboard: "仪表盘",
   });
@@ -144,8 +154,10 @@ test("language state translates dynamic UI text", () => {
   assert.equal(translateUiText("2 article(s) tagged", "zh"), "已标记 2 篇文章");
   assert.equal(translateUiText("No results found for “graph”", "zh"), "未找到“graph”的结果");
   assert.equal(translateUiText("ID 42 does not exist.", "zh"), "ID 42 不存在。");
+  assert.equal(translateUiText("2/3 ready", "zh"), "2/3 已就绪");
   assert.equal(translateUiText("~128 tokens", "zh"), "约 128 tokens");
   assert.equal(translateUiText("步骤：parse", "en"), "Step: parse");
+  assert.equal(translateUiText("2/3 已就绪", "en"), "2/3 ready");
 });
 
 test("language state translates generated prompts and prompt wrappers", () => {

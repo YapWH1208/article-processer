@@ -9,6 +9,12 @@ All notable changes to the Article Processor project.
 ### Added
 
 - **Local-first article workspace** - Article detail pages now use a two-pane workspace with reader-first content and a tabbed side panel for Chat, Jobs, and Context. Source chips in chat answers link back to reader chunks or sections when citation metadata is available.
+- **Operational home cockpit** - The home page now prioritizes workspace status, content search, AI/provider health, queue attention, recent articles, and primary actions instead of a marketing landing page.
+- **Jobs navigation and queue badge** - `/logs` is now exposed as Jobs in the desktop/mobile navigation and command palette, with a queue badge that links directly to active or failed processing work.
+- **Upload setup checklist** - Upload now shows backend, AI pipeline, and local queue readiness before file drop/import, with provider setup guidance when AI details are incomplete.
+- **Library recovery states** - Article list empty states now distinguish an empty library from filtered no-results views and expose upload or clear-filter actions.
+- **Article recovery callouts** - Failed and review-needed article detail states now include retry, review, and job-history actions directly in the status banner.
+- **Chat starter guidance** - Empty chats now show upload guidance for empty libraries and one-click starter prompts for library-wide or tagged-article questions.
 - **Extraction review editor** - Structured AI extraction JSON can be edited and saved from the article detail page. Saving reviewed extraction data updates review status and refreshes search-derived data.
 - **Global job queue visibility** - Logs now include a queue overview with active, queued, failed, and completed jobs, current step, age, article title, worker information, and errors.
 - **Retry failed jobs from Logs** - Failed queue items expose a retry action that requeues full article processing from the global queue surface.

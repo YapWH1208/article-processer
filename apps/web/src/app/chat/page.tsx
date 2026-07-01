@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -29,6 +30,7 @@ import { translateUiText } from "@/lib/languageState.mjs";
 import { normalizeHtmlTablesForMarkdown } from "@/lib/markdownHtmlTables.mjs";
 import type { ArticleSummary, ChatSession, ChatMessageResponse, Citation, ProviderEntry } from "@/lib/types";
 import { TypingDots } from "@/components/ui/animated";
+import { createChatStartState, createChatStarterPromptDraft } from "../chatStartState.mjs";
 
 // ── Mention Popover ──────────────────────────────────────────────────────
 
@@ -208,6 +210,10 @@ export default function ChatPage() {
   };
 
   const activeProvider = providers.find((p) => p.id === activeProviderId);
+  const chatStartState = createChatStartState({
+    articleCount: articles.length,
+    taggedCount: taggedArticles.length,
+  });
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -559,13 +565,34 @@ export default function ChatPage() {
               </motion.div>
             ) : messages.length === 0 ? (
               <div className="flex items-center justify-center h-full text-center text-muted-foreground py-12">
-                <div>
+                <div className="max-w-md">
                   <MessageCircle className="h-12 w-12 mx-auto mb-3 opacity-20" />
-                  <p className="text-sm font-medium">Start a conversation</p>
-                  <p className="text-xs mt-1 max-w-xs mx-auto">
-                    Tag articles with <kbd className="px-1 py-0.5 rounded bg-muted text-[10px]">@</kbd> for
-                    focused context, or just ask a question — the AI will search your library.
-                  </p>
+                  <p className="text-sm font-medium">{chatStartState.title}</p>
+                  <p className="text-xs mt-1 max-w-xs mx-auto">{chatStartState.detail}</p>
+                  {chatStartState.primaryAction === "upload" && (
+                    <Button asChild size="sm" className="mt-4 gap-1.5">
+                      <Link href="/upload">
+                        <Plus className="h-3.5 w-3.5" />
+                        {chatStartState.primaryLabel}
+                      </Link>
+                    </Button>
+                  )}
+                  {chatStartState.prompts.length > 0 && (
+                    <div className="mt-4 grid gap-2">
+                      {chatStartState.prompts.map((prompt) => (
+                        <button
+                          key={prompt.text}
+                          className="rounded-md border bg-background px-3 py-2 text-left text-xs text-foreground transition-colors hover:bg-accent"
+                          onClick={() => {
+                            setInput(createChatStarterPromptDraft(prompt, language));
+                            inputRef.current?.focus();
+                          }}
+                        >
+                          {prompt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (

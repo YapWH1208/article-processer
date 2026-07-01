@@ -7,15 +7,14 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Toaster } from "sonner";
 import {
   FileText, Sun, Moon, Home, FileUp, MessageCircle,
-  GitBranch, BarChart3, Settings2, BookOpen, Menu, X,
+  GitBranch, BarChart3, Settings2, BookOpen, Menu, X, ScrollText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/CommandPalette";
 import { LanguageProvider, useLanguage } from "@/components/LanguageProvider";
-import {
-  formatProcessingCount,
-  getLanguageButtonLabel,
-} from "@/lib/languageState.mjs";
+import { getLanguageButtonLabel } from "@/lib/languageState.mjs";
+import { getJobQueue } from "@/lib/api";
+import { summarizeNavQueue } from "./navQueueState.mjs";
 
 // ── Theme toggle ──────────────────────────────────────────────────────────
 
@@ -88,6 +87,7 @@ const navLinks = [
   { href: "/articles", labelKey: "library", icon: BookOpen },
   { href: "/upload", labelKey: "upload", icon: FileUp },
   { href: "/chat", labelKey: "chat", icon: MessageCircle },
+  { href: "/logs", labelKey: "jobs", icon: ScrollText },
   { href: "/graph", labelKey: "graph", icon: GitBranch },
   { href: "/dashboard", labelKey: "dashboard", icon: BarChart3 },
 ] as const;
@@ -96,10 +96,9 @@ const navLinks = [
 
 function NavBar() {
   const pathname = usePathname();
-  const { language, copy } = useLanguage();
+  const { copy } = useLanguage();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [processingCount, setProcessingCount] = useState(0);
-  const PROCESSING_STATUSES = ["uploaded", "parsing", "extracting", "indexing"];
+  const [queueSummary, setQueueSummary] = useState(() => summarizeNavQueue([]));
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
@@ -108,21 +107,12 @@ function NavBar() {
 
   const closeMobile = () => setMobileOpen(false);
 
-  // Poll for in-progress articles every 10s
+  // Keep the processing state visible without requiring users to visit logs.
   useEffect(() => {
-    const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
     const poll = async () => {
       try {
-        // Query each non-terminal status and sum counts
-        let total = 0;
-        for (const status of PROCESSING_STATUSES) {
-          const res = await fetch(`${API_BASE}/articles?status=${status}&limit=1`);
-          if (res.ok) {
-            const data = await res.json();
-            total += data.total || 0;
-          }
-        }
-        setProcessingCount(total);
+        const queue = await getJobQueue(100);
+        setQueueSummary(summarizeNavQueue(queue.jobs || []));
       } catch { /* ignore poll errors */ }
     };
     poll();
@@ -176,14 +166,28 @@ function NavBar() {
         {/* Right */}
         <div className="flex items-center gap-2 flex-shrink-0">
           {/* Processing indicator */}
-          {processingCount > 0 && (
-            <Link href="/articles">
-              <Button variant="ghost" size="sm" className="gap-1.5 h-8 text-xs">
+          {queueSummary.shouldShowBadge && (
+            <Link href="/logs">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`gap-1.5 h-8 text-xs ${
+                  queueSummary.badgeTone === "destructive" ? "text-destructive hover:text-destructive" : ""
+                }`}
+              >
                 <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+                  <span
+                    className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                      queueSummary.badgeTone === "destructive" ? "bg-destructive" : "bg-amber-400"
+                    }`}
+                  />
+                  <span
+                    className={`relative inline-flex rounded-full h-2 w-2 ${
+                      queueSummary.badgeTone === "destructive" ? "bg-destructive" : "bg-amber-500"
+                    }`}
+                  />
                 </span>
-                <span className="hidden sm:inline">{formatProcessingCount(processingCount, language)}</span>
+                <span className="hidden sm:inline">{queueSummary.badgeLabel}</span>
               </Button>
             </Link>
           )}
