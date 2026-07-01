@@ -10,7 +10,11 @@ function articleTimestamp(article) {
   return new Date(article?.updated_at || article?.created_at || 0).getTime() || 0;
 }
 
-export function createHomeArticleSummary(articles = []) {
+function numericCount(value, fallback) {
+  return Number.isFinite(value) ? value : fallback;
+}
+
+export function createHomeArticleSummary(articles = [], totals = {}) {
   const normalizedArticles = Array.isArray(articles) ? articles : [];
   const recentArticles = normalizedArticles
     .map((article) => ({
@@ -20,12 +24,20 @@ export function createHomeArticleSummary(articles = []) {
     .sort((a, b) => articleTimestamp(b) - articleTimestamp(a))
     .slice(0, 5);
 
-  return {
+  const fallbackCounts = {
     total: normalizedArticles.length,
     completed: normalizedArticles.filter((article) => article?.status === "completed").length,
     failed: normalizedArticles.filter((article) => article?.status === "failed").length,
-    needsReview: normalizedArticles.filter((article) => article?.status === "needs_review" || article?.needs_review).length,
+    needsReview: normalizedArticles.filter((article) => article?.status === "needs_review").length,
     processing: normalizedArticles.filter((article) => article?.status && !TERMINAL_STATUSES.has(article.status)).length,
+  };
+
+  return {
+    total: numericCount(totals?.total, fallbackCounts.total),
+    completed: numericCount(totals?.completed, fallbackCounts.completed),
+    failed: numericCount(totals?.failed, fallbackCounts.failed),
+    needsReview: numericCount(totals?.needsReview, fallbackCounts.needsReview),
+    processing: numericCount(totals?.processing, fallbackCounts.processing),
     recentArticles,
   };
 }

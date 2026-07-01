@@ -93,7 +93,7 @@ test("article status callout exposes recovery actions for failed articles", () =
       title: "Processing failed",
       detail: "Provider timed out",
       actions: [
-        { id: "retry_extraction", label: "Retry extraction" },
+        { id: "retry_processing", label: "Retry processing", mode: "full" },
         { id: "view_jobs", label: "View jobs" },
       ],
     },
@@ -112,7 +112,7 @@ test("article status callout exposes review actions for needs-review articles", 
       detail: "Missing methodology; Invalid year",
       actions: [
         { id: "review_extraction", label: "Review extraction" },
-        { id: "rerun_extraction", label: "Rerun extraction" },
+        { id: "rerun_extraction", label: "Rerun extraction", mode: "extract_only" },
       ],
     },
   );

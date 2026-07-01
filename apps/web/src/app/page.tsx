@@ -57,6 +57,34 @@ type HomeHealth = HealthInfo & {
   llm_provider_name?: string;
 };
 
+type HomeArticleTotals = {
+  total: number;
+  completed: number;
+  failed: number;
+  needsReview: number;
+  processing: number;
+};
+
+const HOME_PROCESSING_STATUSES = ["uploaded", "parsing", "extracting", "indexing"] as const;
+
+async function loadHomeArticleTotals(): Promise<HomeArticleTotals> {
+  const [all, completed, failed, needsReview, ...processing] = await Promise.all([
+    listArticles({ limit: 1 }),
+    listArticles({ status: "completed", limit: 1 }),
+    listArticles({ status: "failed", limit: 1 }),
+    listArticles({ status: "needs_review", limit: 1 }),
+    ...HOME_PROCESSING_STATUSES.map((status) => listArticles({ status, limit: 1 })),
+  ]);
+
+  return {
+    total: all.total || 0,
+    completed: completed.total || 0,
+    failed: failed.total || 0,
+    needsReview: needsReview.total || 0,
+    processing: processing.reduce((sum, response) => sum + (response.total || 0), 0),
+  };
+}
+
 function StatCard({
   title,
   value,
@@ -129,6 +157,7 @@ function formatDate(value?: string) {
 export default function HomePage() {
   const router = useRouter();
   const [articles, setArticles] = useState<ArticleHit[]>([]);
+  const [articleTotals, setArticleTotals] = useState<HomeArticleTotals | null>(null);
   const [health, setHealth] = useState<HomeHealth | null>(null);
   const [queueJobs, setQueueJobs] = useState<QueueJob[]>([]);
   const [query, setQuery] = useState("");
@@ -139,9 +168,10 @@ export default function HomePage() {
   const loadCockpit = useCallback(async () => {
     setError(null);
     setRefreshing(true);
-    const [healthResult, articlesResult, queueResult] = await Promise.allSettled([
+    const [healthResult, articlesResult, articleTotalsResult, queueResult] = await Promise.allSettled([
       healthCheck(),
-      listArticles({ limit: 1000, sort_by: "updated_at", sort_order: "desc" }),
+      listArticles({ limit: 5, sort_by: "updated_at", sort_order: "desc" }),
+      loadHomeArticleTotals(),
       getJobQueue(100),
     ]);
 
@@ -152,6 +182,12 @@ export default function HomePage() {
     } else {
       setArticles([]);
       setError("Unable to load articles.");
+    }
+
+    if (articleTotalsResult.status === "fulfilled") {
+      setArticleTotals(articleTotalsResult.value);
+    } else {
+      setArticleTotals(null);
     }
 
     if (queueResult.status === "fulfilled") {
@@ -168,7 +204,7 @@ export default function HomePage() {
     void loadCockpit();
   }, [loadCockpit]);
 
-  const articleSummary = useMemo(() => createHomeArticleSummary(articles), [articles]);
+  const articleSummary = useMemo(() => createHomeArticleSummary(articles, articleTotals ?? undefined), [articles, articleTotals]);
   const healthSummary = useMemo(() => createHomeHealthSummary(health), [health]);
   const queueSummary = useMemo(() => createHomeQueueSummary(queueJobs), [queueJobs]);
   const attentionCount = articleSummary.failed + articleSummary.needsReview + queueSummary.counts.failed;

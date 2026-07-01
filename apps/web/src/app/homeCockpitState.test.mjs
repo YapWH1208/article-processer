@@ -26,6 +26,38 @@ test("home article summary counts operational states and recent articles", () =>
   assert.equal(summary.recentArticles[4].displayTitle, "extra.pdf");
 });
 
+test("home article summary uses server totals when the recent article list is paged", () => {
+  const summary = createHomeArticleSummary(
+    [
+      { id: 1, title: "Recent", original_filename: "recent.pdf", status: "completed", updated_at: "2026-06-04T10:00:00Z" },
+    ],
+    {
+      total: 250,
+      completed: 180,
+      failed: 12,
+      needsReview: 9,
+      processing: 6,
+    },
+  );
+
+  assert.equal(summary.total, 250);
+  assert.equal(summary.completed, 180);
+  assert.equal(summary.failed, 12);
+  assert.equal(summary.needsReview, 9);
+  assert.equal(summary.processing, 6);
+  assert.deepEqual(summary.recentArticles.map((article) => article.id), [1]);
+});
+
+test("home article summary only counts needs-review status in the review bucket", () => {
+  const summary = createHomeArticleSummary([
+    { id: 1, status: "failed", needs_review: 1 },
+    { id: 2, status: "needs_review", needs_review: 1 },
+  ]);
+
+  assert.equal(summary.failed, 1);
+  assert.equal(summary.needsReview, 1);
+});
+
 test("home health summary distinguishes connected mock and real providers", () => {
   assert.deepEqual(createHomeHealthSummary(null), {
     connected: false,

@@ -400,7 +400,8 @@ export default function ArticleDetailPage() {
             </div>
             <div className="flex flex-wrap gap-2 sm:justify-end">
               {statusCallout.actions.map((action) => {
-                if (action.id === "retry_extraction" || action.id === "rerun_extraction") {
+                if (action.mode) {
+                  const mode = action.mode === "full" ? "full" : "extract_only";
                   return (
                     <Button
                       key={action.id}
@@ -408,7 +409,7 @@ export default function ArticleDetailPage() {
                       size="sm"
                       className="h-8 bg-background/70"
                       disabled={reprocessing}
-                      onClick={() => handleReprocess("extract_only")}
+                      onClick={() => handleReprocess(mode)}
                     >
                       {reprocessing ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RotateCw className="h-3.5 w-3.5 mr-1" />}
                       {action.label}

@@ -103,7 +103,7 @@ export function createArticleStatusCallout({ article = null, extractionErrors = 
       title: "Processing failed",
       detail: article.processing_error || "The latest processing job failed.",
       actions: [
-        { id: "retry_extraction", label: "Retry extraction" },
+        { id: "retry_processing", label: "Retry processing", mode: "full" },
         { id: "view_jobs", label: "View jobs" },
       ],
     };
@@ -116,7 +116,7 @@ export function createArticleStatusCallout({ article = null, extractionErrors = 
       detail: extractionErrors.join("; "),
       actions: [
         { id: "review_extraction", label: "Review extraction" },
-        { id: "rerun_extraction", label: "Rerun extraction" },
+        { id: "rerun_extraction", label: "Rerun extraction", mode: "extract_only" },
       ],
     };
   }
