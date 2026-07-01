@@ -94,6 +94,14 @@ function createQuestions(extraction) {
   return questions;
 }
 
+/**
+ * @param {{
+ *   articleTitle?: string,
+ *   extraction?: Record<string, any> | null,
+ *   graph?: { entities?: any[] } | null,
+ * }} input
+ * @returns {any}
+ */
 export function createArticleReadingGuide({
   articleTitle = "Untitled article",
   extraction = null,
@@ -135,6 +143,13 @@ function relatedReason(item) {
   return Number.isFinite(similarity) ? `Similarity: ${Math.round(similarity * 100)}%` : "Related by extracted concepts";
 }
 
+/**
+ * @param {{
+ *   articleTitle?: string,
+ *   related?: Array<Record<string, any>>,
+ * }} input
+ * @returns {any}
+ */
 export function createLibraryReadingGuide({
   articleTitle = "this article",
   related = [],

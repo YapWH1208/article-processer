@@ -35,6 +35,7 @@ import type { ExtractionResult } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
 import { createArticleStatusCallout, createChatSubmission, createCitationReaderTarget, createWorkspacePanelSummary, slugifyWorkspaceText } from "../articleWorkspaceState.mjs";
 import { formatExtractionForReview, parseReviewedExtraction } from "../extractionReviewState.mjs";
+import { createArticleReadingGuide, createLibraryReadingGuide } from "../readingGuideState.mjs";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -60,6 +61,7 @@ interface Citation {
   page_end?: number | null;
 }
 interface JobInfo { id: number; status: string; current_step: string | null; logs: Record<string, unknown>[] | null; error: string | null; created_at: string; completed_at: string | null; }
+interface RelatedArticleItem { id: number; title: string; status: string; source_type: string; similarity: number; shared_entities: string[]; }
 
 const TERMINAL_ARTICLE_STATUSES = new Set(["completed", "failed", "needs_review"]);
 
@@ -83,7 +85,7 @@ export default function ArticleDetailPage() {
   const [reviewSaving, setReviewSaving] = useState(false);
   const [graph, setGraph] = useState<{ entities: unknown[]; relationships: unknown[] } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState("reader");
+  const [tab, setTab] = useState("guide");
   const [sidePanelTab, setSidePanelTab] = useState("chat");
   const [readerView, setReaderView] = useState<"markdown" | "pdf">("markdown");
 
@@ -543,6 +545,7 @@ export default function ArticleDetailPage() {
           <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col min-h-0">
             <div className="flex items-center justify-between gap-2 mb-3">
               <TabsList>
+                <TabsTrigger value="guide" className="gap-1.5"><ChevronRight className="h-4 w-4"/>Guide</TabsTrigger>
                 <TabsTrigger value="reader" className="gap-1.5"><ScrollText className="h-4 w-4"/>Reader</TabsTrigger>
                 <TabsTrigger value="summary" className="gap-1.5"><FileText className="h-4 w-4"/>Summary</TabsTrigger>
                 <TabsTrigger value="skills" className="gap-1.5"><Wand2 className="h-4 w-4"/>Skills</TabsTrigger>
@@ -554,6 +557,39 @@ export default function ArticleDetailPage() {
             </div>
 
             <AnimatePresence mode="wait">
+              {/* Guide */}
+              {tab === "guide" && (
+                <motion.div key="guide" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 min-h-0">
+                  <TabsContent value="guide" forceMount className="h-full m-0">
+                    <Card className="h-full flex flex-col">
+                      <CardHeader className="shrink-0 flex flex-row items-center justify-between">
+                        <div>
+                          <CardTitle className="text-lg">Reading Guide</CardTitle>
+                          <CardDescription>Start with the brief, then follow the suggested questions and related papers.</CardDescription>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={() => setTab("reader")} className="gap-1">
+                          <ScrollText className="h-3.5 w-3.5" /> Open Reader
+                        </Button>
+                      </CardHeader>
+                      <CardContent className="flex-1 min-h-0 p-4">
+                        <ScrollArea className="h-full">
+                          <ReadingGuideContent
+                            articleId={articleId}
+                            articleTitle={article.title || article.original_filename}
+                            extraction={extraction}
+                            graph={graph}
+                            reprocessing={reprocessing}
+                            onAsk={askAbout}
+                            onAdd={addToChat}
+                            onRunExtraction={() => handleReprocess("extract_only")}
+                          />
+                        </ScrollArea>
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+                </motion.div>
+              )}
+
               {/* Reader */}
               {tab === "reader" && (
                 <motion.div key="reader" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 min-h-0">
@@ -1108,6 +1144,223 @@ function MarkdownReader({ text, onSelect }: { text: string; onSelect: (t: string
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+function ReadingGuideContent({
+  articleId,
+  articleTitle,
+  extraction,
+  graph,
+  reprocessing,
+  onAsk,
+  onAdd,
+  onRunExtraction,
+}: {
+  articleId: number;
+  articleTitle: string;
+  extraction: ExtractionResult | null;
+  graph: { entities: unknown[]; relationships: unknown[] } | null;
+  reprocessing: boolean;
+  onAsk: (text: string) => void;
+  onAdd: (text: string, source: string) => void;
+  onRunExtraction: () => void;
+}) {
+  const [related, setRelated] = useState<RelatedArticleItem[]>([]);
+  const [loadingRelated, setLoadingRelated] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingRelated(true);
+    getRelatedArticles(articleId, 5)
+      .then((response) => {
+        if (!cancelled) setRelated(response.related || []);
+      })
+      .catch(() => {
+        if (!cancelled) setRelated([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingRelated(false);
+      });
+    return () => { cancelled = true; };
+  }, [articleId]);
+
+  const articleGuide = useMemo(
+    () => createArticleReadingGuide({ articleTitle, extraction, graph }),
+    [articleTitle, extraction, graph],
+  );
+  const libraryGuide = useMemo(
+    () => createLibraryReadingGuide({ articleTitle, related }),
+    [articleTitle, related],
+  );
+
+  if (articleGuide.status === "missing_extraction") {
+    return (
+      <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 text-center text-muted-foreground">
+        <AlertCircle className="h-10 w-10 text-amber-500" />
+        <div>
+          <p className="font-medium text-foreground">{articleGuide.title}</p>
+          <p className="mt-1 max-w-md text-sm">{articleGuide.detail}</p>
+        </div>
+        <Button size="sm" onClick={onRunExtraction} disabled={reprocessing} className="gap-1">
+          <RotateCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`} />
+          {reprocessing ? "Starting..." : articleGuide.actions[0]?.label || "Run extraction"}
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5 pr-3 text-sm">
+      <section className="rounded-md border bg-muted/20 p-4">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="font-semibold">TL;DR</h3>
+            <p className="text-xs text-muted-foreground">Fast orientation before you read the full article.</p>
+          </div>
+          {articleGuide.tldr && (
+            <Button variant="outline" size="sm" className="gap-1" onClick={() => onAdd(articleGuide.tldr, "Reading Guide")}>
+              <Plus className="h-3.5 w-3.5" /> Add
+            </Button>
+          )}
+        </div>
+        <p className="leading-6 text-foreground">{articleGuide.tldr || "No abstract or summary was extracted."}</p>
+      </section>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <GuideBlock title="Main Contribution" text={articleGuide.contribution} onAsk={() => onAsk("What is the main contribution of this article?")} />
+        <GuideBlock title="Method In Plain Language" text={articleGuide.method} onAsk={() => onAsk("Explain the methodology in plain language.")} />
+      </div>
+
+      {articleGuide.claims.length > 0 && (
+        <section>
+          <h3 className="mb-2 font-semibold">Key Claims</h3>
+          <div className="space-y-2">
+            {articleGuide.claims.map((claim: string, index: number) => (
+              <div key={index} className="flex items-start justify-between gap-3 rounded-md border p-3">
+                <p className="text-muted-foreground">{claim}</p>
+                <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => onAsk(`Tell me more about this claim: ${claim}`)} aria-label="Ask about claim">
+                  <MessageCircle className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {articleGuide.limitations && (
+        <section className="rounded-md border border-amber-500/30 bg-amber-500/5 p-4">
+          <div className="mb-1 flex items-center justify-between gap-3">
+            <h3 className="font-semibold">Limitations</h3>
+            <Button variant="ghost" size="sm" className="gap-1" onClick={() => onAsk("What limitations should I keep in mind?")}>
+              <MessageCircle className="h-3.5 w-3.5" /> Ask
+            </Button>
+          </div>
+          <p className="text-muted-foreground">{articleGuide.limitations}</p>
+        </section>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section>
+          <h3 className="mb-2 font-semibold">Read First</h3>
+          <div className="space-y-2">
+            {articleGuide.readFirst.map((section: { title: string; reason: string }, index: number) => (
+              <button
+                key={section.title}
+                type="button"
+                onClick={() => onAsk(`Walk me through the ${section.title.toLowerCase()} section.`)}
+                className="flex w-full items-center gap-3 rounded-md border p-3 text-left transition-colors hover:border-primary hover:bg-primary/5"
+              >
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">{index + 1}</span>
+                <span>
+                  <span className="block font-medium">{section.title}</span>
+                  <span className="block text-xs text-muted-foreground">{section.reason}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <h3 className="mb-2 font-semibold">Concepts To Know</h3>
+          {articleGuide.concepts.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {articleGuide.concepts.map((concept: { name: string; type: string }) => (
+                <Badge key={`${concept.type}-${concept.name}`} variant="secondary" className="gap-1">
+                  <span className="text-[10px] uppercase text-muted-foreground">{concept.type}</span>
+                  {concept.name}
+                </Badge>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">No concepts were extracted yet.</p>
+          )}
+        </section>
+      </div>
+
+      {articleGuide.questions.length > 0 && (
+        <section>
+          <h3 className="mb-2 font-semibold">Suggested Questions</h3>
+          <div className="flex flex-wrap gap-2">
+            {articleGuide.questions.map((question: { label: string; text: string }) => (
+              <Button key={question.text} variant="outline" size="sm" className="gap-1" onClick={() => onAsk(question.text)}>
+                <MessageCircle className="h-3.5 w-3.5" /> {question.label}
+              </Button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <Separator />
+
+      <section>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="font-semibold">Read Next</h3>
+            <p className="text-xs text-muted-foreground">Suggested from shared extracted concepts.</p>
+          </div>
+          {libraryGuide.comparePrompt && (
+            <Button variant="outline" size="sm" className="gap-1" onClick={() => onAsk(libraryGuide.comparePrompt)}>
+              <MessageCircle className="h-3.5 w-3.5" /> Compare
+            </Button>
+          )}
+        </div>
+        {loadingRelated ? (
+          <p className="text-xs text-muted-foreground">Loading related articles...</p>
+        ) : libraryGuide.status === "empty" ? (
+          <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">{libraryGuide.detail}</p>
+        ) : (
+          <div className="space-y-2">
+            {libraryGuide.readNext.map((item: { rank: number; articleId: number; title: string; reason: string }) => (
+              <Link key={item.articleId} href={`/articles/${item.articleId}`} className="flex items-center gap-3 rounded-md border p-3 transition-colors hover:border-primary hover:bg-primary/5">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">{item.rank}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{item.title}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{item.reason}</span>
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function GuideBlock({ title, text, onAsk }: { title: string; text: string; onAsk: () => void }) {
+  return (
+    <section className="rounded-md border p-4">
+      <div className="mb-1 flex items-center justify-between gap-3">
+        <h3 className="font-semibold">{title}</h3>
+        {text && (
+          <Button variant="ghost" size="sm" className="gap-1" onClick={onAsk}>
+            <MessageCircle className="h-3.5 w-3.5" /> Ask
+          </Button>
+        )}
+      </div>
+      <p className="text-muted-foreground">{text || "Not extracted yet."}</p>
+    </section>
   );
 }
 
