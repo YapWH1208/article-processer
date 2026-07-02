@@ -1,6 +1,8 @@
 // API client for the backend
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+import { resolveApiBaseUrl } from "./apiBase.mjs";
+
+const API_BASE = resolveApiBaseUrl();
 
 function buildRequest(path: string, options?: RequestInit): { url: string; init: RequestInit } {
   const url = `${API_BASE}${path}`;
@@ -260,13 +262,23 @@ export async function getChatHistory(articleId: number) {
   );
 }
 
-export async function sendMultiArticleChatMessage(articleIds: number[], message: string, language = "en") {
+export async function sendMultiArticleChatMessage(
+  articleIds: number[],
+  message: string,
+  language = "en",
+  persistToArticleId?: number,
+) {
   return apiFetch<import("./types").MultiArticleChatResponse>(
     "/articles/chat",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ article_ids: articleIds, message, language }),
+      body: JSON.stringify({
+        article_ids: articleIds,
+        message,
+        language,
+        ...(Number.isFinite(persistToArticleId) ? { persist_to_article_id: persistToArticleId } : {}),
+      }),
     }
   );
 }

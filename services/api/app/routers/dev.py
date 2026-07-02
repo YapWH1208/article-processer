@@ -14,7 +14,7 @@ router = APIRouter()
 
 # ── Dev config file (for prompts and non-env settings) ────────────────────
 
-DEV_CONFIG_PATH = settings.project_root / "data" / "dev_config.json"
+DEV_CONFIG_PATH = settings.data_path / "data" / "dev_config.json"
 
 DEFAULT_DEV_CONFIG = {
     "temperature": 0.7,

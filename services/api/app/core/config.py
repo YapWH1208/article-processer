@@ -12,26 +12,48 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # ── Project root detection ───────────────────────────────────────────────
 # config.py lives at <project-root>/services/api/app/core/config.py
 # Walk up: core → app → api → services → project root (4 levels)
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+_APP_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+_PROJECT_ROOT = _APP_ROOT
+_DESKTOP_DATA_DIR = os.environ.get("ARTICLE_PROCESSOR_DESKTOP_DATA_DIR", "").strip()
+_DATA_ROOT = (
+    Path(_DESKTOP_DATA_DIR).expanduser().resolve()
+    if _DESKTOP_DATA_DIR
+    else _APP_ROOT
+)
 
 # Ensure data/ and storage/ directories exist
-(_PROJECT_ROOT / "data").mkdir(exist_ok=True)
-(_PROJECT_ROOT / "storage" / "uploads").mkdir(parents=True, exist_ok=True)
-(_PROJECT_ROOT / "storage" / "markdown").mkdir(parents=True, exist_ok=True)
-(_PROJECT_ROOT / "storage" / "exports").mkdir(parents=True, exist_ok=True)
-(_PROJECT_ROOT / "storage" / "images").mkdir(parents=True, exist_ok=True)
+(_DATA_ROOT / "data").mkdir(parents=True, exist_ok=True)
+(_DATA_ROOT / "storage" / "uploads").mkdir(parents=True, exist_ok=True)
+(_DATA_ROOT / "storage" / "markdown").mkdir(parents=True, exist_ok=True)
+(_DATA_ROOT / "storage" / "exports").mkdir(parents=True, exist_ok=True)
+(_DATA_ROOT / "storage" / "images").mkdir(parents=True, exist_ok=True)
 
 
 def _resolve_path(raw: str) -> str:
-    """If *raw* starts with ``./``, resolve it against the project root."""
+    """If *raw* starts with ``./``, resolve it against the mutable data root."""
     if raw.startswith("./"):
-        return str(_PROJECT_ROOT / raw[2:])
+        return str(_DATA_ROOT / raw[2:])
     return raw
+
+
+def _resolve_sqlite_url(raw: str) -> str:
+    """Resolve sqlite URLs with ``./`` paths against the mutable data root."""
+    if "sqlite:///./" in raw:
+        prefix, rel = raw.split("sqlite:///./", 1)
+        return f"{prefix}sqlite:///{_DATA_ROOT / rel}"
+    return raw
+
+
+def _settings_env_path() -> Path:
+    desktop_env_path = _DATA_ROOT / ".env"
+    if _DESKTOP_DATA_DIR:
+        return desktop_env_path
+    return _APP_ROOT / "services" / "api" / ".env"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=str(_PROJECT_ROOT / "services" / "api" / ".env"),
+        env_file=str(_settings_env_path()),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -103,13 +125,8 @@ class Settings(BaseSettings):
 
     @property
     def database_url_resolved(self) -> str:
-        """Return database_url with ``./`` resolved to project root."""
-        url = self.database_url
-        # sqlite:///./data/app.sqlite3 → sqlite:///<project-root>/data/app.sqlite3
-        if "sqlite:///./" in url:
-            prefix, rel = url.split("sqlite:///./", 1)
-            return f"{prefix}sqlite:///{_PROJECT_ROOT / rel}"
-        return url
+        """Return database_url with ``./`` resolved to the mutable data root."""
+        return _resolve_sqlite_url(self.database_url)
 
     @property
     def storage_path(self) -> Path:
@@ -128,6 +145,10 @@ class Settings(BaseSettings):
         return self.storage_path / "exports"
 
     @property
+    def images_path(self) -> Path:
+        return self.storage_path / "images"
+
+    @property
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024
 
@@ -135,9 +156,13 @@ class Settings(BaseSettings):
     def project_root(self) -> Path:
         return _PROJECT_ROOT
 
+    @property
+    def data_path(self) -> Path:
+        return _DATA_ROOT
+
 
 # Expose the .env path for the settings router
-DOTENV_PATH = _PROJECT_ROOT / "services" / "api" / ".env"
+DOTENV_PATH = _settings_env_path()
 
 
 def reload_settings() -> None:
@@ -149,7 +174,7 @@ def reload_settings() -> None:
     global settings
     new_settings = Settings()
     # Copy the resolved paths
-    new_settings.database_url = new_settings.database_url_resolved
+    new_settings.database_url = _resolve_sqlite_url(new_settings.database_url)
     new_settings.storage_dir = _resolve_path(new_settings.storage_dir)
     settings = new_settings
 
@@ -157,5 +182,5 @@ def reload_settings() -> None:
 settings = Settings()
 
 # Patch the database URL used by SQLAlchemy / Alembic
-settings.database_url = settings.database_url_resolved
+settings.database_url = _resolve_sqlite_url(settings.database_url)
 settings.storage_dir = _resolve_path(settings.storage_dir)

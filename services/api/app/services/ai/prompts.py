@@ -17,7 +17,7 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-DEV_CONFIG_PATH = settings.project_root / "data" / "dev_config.json"
+DEV_CONFIG_PATH = settings.data_path / "data" / "dev_config.json"
 
 # ── Hardcoded fallbacks (used when dev_config.json is missing) ────────────
 

@@ -29,6 +29,9 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "httpx>=0.25.0",
 ]
+desktop = [
+    "pyinstaller>=6.0.0",
+]
 # High-quality PDF parsing (layout-aware, table extraction)
 docling = [
     "docling>=2.0.0",

@@ -267,9 +267,9 @@ class MinerUAdapter(BaseParser):
     # ── Shared helpers ───────────────────────────────────────────────────
 
     def _store_images(self, image_paths: list[str]) -> str:
-        """Copy extracted images to project storage under storage/images/<ts>/."""
+        """Copy extracted images to mutable storage under storage/images/<ts>/."""
         try:
-            images_root = settings.project_root / "storage" / "images"
+            images_root = settings.images_path
             import datetime
             ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
             dest_dir = images_root / ts
@@ -281,7 +281,7 @@ class MinerUAdapter(BaseParser):
                 if not dest.exists():
                     shutil.copy2(img_path, dest)
 
-            return str(dest_dir.relative_to(settings.project_root))
+            return str(dest_dir.relative_to(settings.data_path))
         except Exception as e:
             logger.warning(f"Failed to store images: {e}")
             return ""

@@ -353,6 +353,11 @@ async def multi_article_chat(
         raise HTTPException(status_code=404, detail="No articles found")
 
     article_map = {a.id: a for a in articles}
+    if request.persist_to_article_id is not None and request.persist_to_article_id not in article_map:
+        raise HTTPException(
+            status_code=400,
+            detail="persist_to_article_id must be included in article_ids",
+        )
 
     chunks = retrieve_relevant_chunks(db, request.message, article_ids=request.article_ids, limit=10)
     combined_text_parts = []
@@ -385,6 +390,40 @@ async def multi_article_chat(
     else:
         prompt_tokens = max(1, len(request.message) // 4)
         completion_tokens = max(1, len(answer) // 4)
+
+    if request.persist_to_article_id is not None:
+        citations_json = json.dumps([c.model_dump() if hasattr(c, 'model_dump') else c for c in citations])
+        db.add(ChatMessage(
+            article_id=request.persist_to_article_id,
+            role="user",
+            content=request.message,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=0,
+        ))
+        db.add(ChatMessage(
+            article_id=request.persist_to_article_id,
+            role="assistant",
+            content=answer,
+            citations_json=citations_json,
+            prompt_tokens=0,
+            completion_tokens=completion_tokens,
+        ))
+        if llm.last_usage and llm.last_usage.total_tokens > 0:
+            db.add(TokenUsage(
+                article_id=request.persist_to_article_id,
+                step="chat",
+                model=llm.last_usage.model,
+                provider=llm.last_usage.provider,
+                prompt_tokens=llm.last_usage.prompt_tokens,
+                completion_tokens=llm.last_usage.completion_tokens,
+                total_tokens=llm.last_usage.total_tokens,
+                cost=compute_token_cost(
+                    llm.last_usage.model,
+                    llm.last_usage.prompt_tokens,
+                    llm.last_usage.completion_tokens,
+                ),
+            ))
+        db.commit()
 
     return MultiArticleChatResponse(
         answer=answer,

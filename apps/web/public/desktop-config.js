@@ -1,0 +1,1 @@
+window.__ARTICLE_PROCESSOR_CONFIG__ = window.__ARTICLE_PROCESSOR_CONFIG__ || {};

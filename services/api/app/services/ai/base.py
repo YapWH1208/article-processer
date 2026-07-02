@@ -117,7 +117,7 @@ class BaseLLMProvider(ABC):
 
 # ── LLM Factory ───────────────────────────────────────────────────────────
 
-DEV_CONFIG_PATH = settings.project_root / "data" / "dev_config.json"
+DEV_CONFIG_PATH = settings.data_path / "data" / "dev_config.json"
 
 # Known provider presets (base URL + default model for common providers)
 KNOWN_PROVIDER_PRESETS: dict[str, dict] = {

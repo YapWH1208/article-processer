@@ -50,6 +50,7 @@ class MultiArticleChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
     article_ids: list[int] = Field(default_factory=list, max_length=10)
     language: str = Field(default="en", max_length=16)
+    persist_to_article_id: Optional[int] = None
 
 
 class MultiArticleChatResponse(BaseModel):

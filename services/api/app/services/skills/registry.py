@@ -11,7 +11,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 # File path for persisting user-created/edited skills
-SKILLS_FILE = settings.project_root / "data" / "skills.json"
+SKILLS_FILE = settings.data_path / "data" / "skills.json"
 
 
 @dataclass
