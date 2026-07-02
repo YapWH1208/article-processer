@@ -82,6 +82,17 @@ test("article reading guide returns a recovery state when extraction is missing"
   });
 });
 
+test("article reading guide uses full recovery when extraction is missing before parsing", () => {
+  const guide = createArticleReadingGuide({
+    articleTitle: "Failed before parse",
+    extraction: null,
+    graph: null,
+    hasMarkdown: false,
+  });
+
+  assert.equal(guide.actions[0].mode, "full");
+});
+
 test("library reading guide ranks related articles and creates comparison prompts", () => {
   const guide = createLibraryReadingGuide({
     articleId: 7,

@@ -132,6 +132,7 @@ function createQuestions(extraction, language) {
  *   articleTitle?: string,
  *   extraction?: Record<string, any> | null,
  *   graph?: { entities?: any[] } | null,
+ *   hasMarkdown?: boolean,
  *   language?: string,
  * }} input
  * @returns {any}
@@ -140,15 +141,17 @@ export function createArticleReadingGuide({
   articleTitle = "Untitled article",
   extraction = null,
   graph = null,
+  hasMarkdown = true,
   language = "en",
 } = {}) {
   const title = text(articleTitle) || ui("Untitled article", language);
   if (!extraction || typeof extraction !== "object") {
+    const mode = hasMarkdown ? "extract_only" : "full";
     return {
       status: "missing_extraction",
       title,
       detail: ui("Run AI extraction to build a reading guide for this article.", language),
-      actions: [{ id: "run_extraction", label: ui("Run extraction", language), mode: "extract_only" }],
+      actions: [{ id: "run_extraction", label: ui("Run extraction", language), mode }],
     };
   }
 

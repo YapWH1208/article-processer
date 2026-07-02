@@ -268,7 +268,7 @@ export default function ArticleDetailPage() {
     setMessages((prev) => [...prev, { role: "user", content: message }]);
 
     try {
-      const res = await sendMultiArticleChatMessage(normalizedIds, message, language);
+      const res = await sendMultiArticleChatMessage(normalizedIds, message, language, articleId);
       setMessages((prev) => [
         ...prev,
         {
@@ -287,7 +287,7 @@ export default function ArticleDetailPage() {
     } finally {
       setChatting(false);
     }
-  }, [language]);
+  }, [articleId, language]);
 
   const handleReprocess = async (mode: "full" | "extract_only" = "extract_only") => {
     setReprocessing(true);
@@ -610,11 +610,12 @@ export default function ArticleDetailPage() {
                             articleTitle={article.title || article.original_filename}
                             extraction={extraction}
                             graph={graph}
+                            hasMarkdown={Boolean(markdown.trim())}
                             reprocessing={reprocessing}
                             onAsk={askAbout}
                             onAdd={addToChat}
                             onCompare={compareArticles}
-                            onRunExtraction={() => handleReprocess("extract_only")}
+                            onRunExtraction={handleReprocess}
                             comparing={chatting}
                             language={language}
                           />
@@ -1187,6 +1188,7 @@ function ReadingGuideContent({
   articleTitle,
   extraction,
   graph,
+  hasMarkdown,
   reprocessing,
   onAsk,
   onAdd,
@@ -1199,11 +1201,12 @@ function ReadingGuideContent({
   articleTitle: string;
   extraction: ExtractionResult | null;
   graph: { entities: unknown[]; relationships: unknown[] } | null;
+  hasMarkdown: boolean;
   reprocessing: boolean;
   onAsk: (text: string) => void;
   onAdd: (text: string, source: string) => void;
   onCompare: (prompt: string, articleIds: number[]) => void;
-  onRunExtraction: () => void;
+  onRunExtraction: (mode: "full" | "extract_only") => void;
   comparing: boolean;
   language: "en" | "zh";
 }) {
@@ -1228,8 +1231,8 @@ function ReadingGuideContent({
   }, [articleId]);
 
   const articleGuide = useMemo(
-    () => createArticleReadingGuide({ articleTitle, extraction, graph, language }),
-    [articleTitle, extraction, graph, language],
+    () => createArticleReadingGuide({ articleTitle, extraction, graph, hasMarkdown, language }),
+    [articleTitle, extraction, graph, hasMarkdown, language],
   );
   const libraryGuide = useMemo(
     () => createLibraryReadingGuide({ articleId, articleTitle, related, language }),
@@ -1237,6 +1240,7 @@ function ReadingGuideContent({
   );
 
   if (articleGuide.status === "missing_extraction") {
+    const extractionMode = articleGuide.actions[0]?.mode === "full" ? "full" : "extract_only";
     return (
       <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 text-center text-muted-foreground">
         <AlertCircle className="h-10 w-10 text-amber-500" />
@@ -1244,7 +1248,7 @@ function ReadingGuideContent({
           <p className="font-medium text-foreground">{articleGuide.title}</p>
           <p className="mt-1 max-w-md text-sm">{articleGuide.detail}</p>
         </div>
-        <Button size="sm" onClick={onRunExtraction} disabled={reprocessing} className="gap-1">
+        <Button size="sm" onClick={() => onRunExtraction(extractionMode)} disabled={reprocessing} className="gap-1">
           <RotateCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`} />
           {reprocessing ? guideText("Starting...") : articleGuide.actions[0]?.label || guideText("Run extraction")}
         </Button>
