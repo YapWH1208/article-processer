@@ -5,11 +5,13 @@ __pycache__/
 .venv/
 dist/
 *.egg
+build/
 
 # Node
 node_modules/
 .next/
 out/
+apps/desktop/dist/
 
 # Database
 data/*.sqlite3

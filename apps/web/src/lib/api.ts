@@ -1,6 +1,8 @@
 // API client for the backend
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+import { resolveApiBaseUrl } from "./apiBase.mjs";
+
+const API_BASE = resolveApiBaseUrl();
 
 function buildRequest(path: string, options?: RequestInit): { url: string; init: RequestInit } {
   const url = `${API_BASE}${path}`;
