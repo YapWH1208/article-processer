@@ -59,6 +59,7 @@ cp .env.example apps/web/.env.local
 - **AI Extraction**: Extract structured research information (authors, methodology, results, claims, entities, references) with evidence trails and confidence scoring
 - **Extraction Review**: Edit and save reviewed structured extraction JSON from the article workspace before using it for search and analysis
 - **Article Workspace**: Reader-first article detail page with a tabbed side panel for Chat, Jobs, and Context, source chips that jump back to cited reader chunks or sections, and recovery callouts for failed or review-needed processing
+- **Reading Intelligence Guide**: Article pages open with a guide-first brief that turns extraction, graph entities, and related-article overlap into TL;DR, read-first sections, key claims, concepts, suggested questions, and read-next recommendations
 - **Retrieval-Based Chat**: Ask questions about articles with cited, source-linked answers drawn from relevant chunks. @-mention articles for focused context or use starter prompts for library-wide questions. Multi-turn sessions persist across refreshes.
 - **Model Selector**: Switch LLM providers on-the-fly from the Chat page — no reload required
 - **Built-in AI Skills**: Research summary, methodology extraction, experiment extraction, literature review notes, reviewer critique — with structured results. Create, edit, import, and export custom skills.
