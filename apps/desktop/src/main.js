@@ -4,6 +4,8 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { app, BrowserWindow, dialog } = require("electron");
 
+const { buildBackendEnv } = require("./backendEnv");
+const { createLauncherController } = require("./launcherController");
 const { getBackendExecutablePath, getRepoRoot, getWebPublicDir, getWebServerPath, getWebRoot } = require("./paths");
 const { getFreePort } = require("./ports");
 const { writeRuntimeConfig } = require("./runtimeConfig");
@@ -64,15 +66,7 @@ function waitForHttp(url, timeoutMs = 30000) {
 }
 
 function startBackend(apiPort, dataDir, logDir) {
-  const env = {
-    ...process.env,
-    ARTICLE_PROCESSOR_DESKTOP_DATA_DIR: dataDir,
-    DATABASE_URL: "sqlite:///./data/app.sqlite3",
-    HOST: "127.0.0.1",
-    PORT: String(apiPort),
-    STORAGE_DIR: "./storage",
-    USE_MOCK_AI: process.env.USE_MOCK_AI || "true",
-  };
+  const env = buildBackendEnv(process.env, { apiPort, dataDir });
 
   if (app.isPackaged) {
     const executable = getBackendExecutablePath(app);
@@ -137,7 +131,7 @@ function createWindow(webUrl, apiBaseUrl) {
   return win;
 }
 
-async function start() {
+async function startServices() {
   const dataDir = ensureDir(app.getPath("userData"));
   const logDir = ensureDir(path.join(dataDir, "logs"));
   const apiPort = await getFreePort();
@@ -151,7 +145,7 @@ async function start() {
   startWeb(webPort, apiBaseUrl, logDir);
   await waitForHttp(webUrl);
 
-  createWindow(webUrl, apiBaseUrl);
+  return { apiBaseUrl, webUrl };
 }
 
 function stopChildren() {
@@ -160,8 +154,14 @@ function stopChildren() {
   }
 }
 
+const launcher = createLauncherController({
+  startServices,
+  createWindow,
+  stopServices: stopChildren,
+});
+
 app.whenReady().then(() => {
-  start().catch((error) => {
+  launcher.openWindow().catch((error) => {
     dialog.showErrorBox(
       "Article Processor failed to start",
       `${error.message}\n\nLogs: ${path.join(app.getPath("userData"), "logs")}`
@@ -170,7 +170,7 @@ app.whenReady().then(() => {
   });
 });
 
-app.on("before-quit", stopChildren);
+app.on("before-quit", () => launcher.stop());
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
@@ -179,6 +179,6 @@ app.on("window-all-closed", () => {
 
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    start().catch((error) => dialog.showErrorBox("Article Processor failed to start", error.message));
+    launcher.openWindow().catch((error) => dialog.showErrorBox("Article Processor failed to start", error.message));
   }
 });

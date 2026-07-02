@@ -8,18 +8,18 @@ Prerequisites:
 
 - Python 3.12
 - Node.js 22
-- PowerShell. Use Windows PowerShell on Windows or PowerShell 7 (`pwsh`) on macOS/Linux.
+- PowerShell. Windows uses Windows PowerShell; macOS/Linux require PowerShell 7 (`pwsh`).
 
 Build everything locally:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop.ps1
+npm run desktop:build
 ```
 
 Skip dependency installation when the environment is already prepared:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop.ps1 -SkipInstall
+npm run desktop:build -- -SkipInstall
 ```
 
 Artifacts are written to `apps/desktop/dist/`.

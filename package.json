@@ -2,7 +2,7 @@
   "scripts": {
     "desktop:install": "npm --prefix apps/web ci && npm --prefix apps/desktop ci",
     "desktop:test": "npm --prefix apps/desktop test",
-    "desktop:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop.ps1"
+    "desktop:build": "node scripts/build-desktop.js"
   },
   "dependencies": {
     "recharts": "^3.8.1"

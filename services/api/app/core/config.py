@@ -46,7 +46,7 @@ def _resolve_sqlite_url(raw: str) -> str:
 
 def _settings_env_path() -> Path:
     desktop_env_path = _DATA_ROOT / ".env"
-    if _DESKTOP_DATA_DIR and desktop_env_path.exists():
+    if _DESKTOP_DATA_DIR:
         return desktop_env_path
     return _APP_ROOT / "services" / "api" / ".env"
 
@@ -143,6 +143,10 @@ class Settings(BaseSettings):
     @property
     def exports_path(self) -> Path:
         return self.storage_path / "exports"
+
+    @property
+    def images_path(self) -> Path:
+        return self.storage_path / "images"
 
     @property
     def max_upload_bytes(self) -> int:

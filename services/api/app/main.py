@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
     settings.uploads_path.mkdir(parents=True, exist_ok=True)
     settings.markdown_path.mkdir(parents=True, exist_ok=True)
     settings.exports_path.mkdir(parents=True, exist_ok=True)
-    (settings.project_root / "storage" / "images").mkdir(parents=True, exist_ok=True)
+    settings.images_path.mkdir(parents=True, exist_ok=True)
     resume_incomplete_pipeline_jobs()
     ensure_pipeline_worker_started()
     yield
@@ -88,8 +88,7 @@ def _resolve_active_provider() -> tuple[str | None, str | None, str | None, str 
     Returns (name, model, protocol, type) or (None, None, None, None).
     """
     import json
-    from pathlib import Path
-    dev_config_path = settings.project_root / "data" / "dev_config.json"
+    dev_config_path = settings.data_path / "data" / "dev_config.json"
     if not dev_config_path.exists():
         return None, None, None, None
     try:
@@ -154,7 +153,7 @@ app.include_router(dev.router, prefix="/dev", tags=["dev"])
 
 # ── Extracted image serving ─────────────────────────────────────────────────
 
-_images_dir = settings.project_root / "storage" / "images"
+_images_dir = settings.images_path
 _images_dir.mkdir(parents=True, exist_ok=True)
 
 

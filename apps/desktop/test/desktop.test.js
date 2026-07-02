@@ -70,3 +70,62 @@ test("sidecar paths use repo build outputs in development", () => {
     path.join(repoRoot, "apps", "web", "public")
   );
 });
+
+test("backend environment lets desktop settings control mock AI by default", () => {
+  const { buildBackendEnv } = require("../src/backendEnv");
+
+  const env = buildBackendEnv(
+    { PATH: "system-path" },
+    { apiPort: 4123, dataDir: path.join("C:", "Users", "me", "Article Processor") }
+  );
+
+  assert.equal(env.ARTICLE_PROCESSOR_DESKTOP_DATA_DIR, path.join("C:", "Users", "me", "Article Processor"));
+  assert.equal(env.DATABASE_URL, "sqlite:///./data/app.sqlite3");
+  assert.equal(env.PORT, "4123");
+  assert.equal(env.USE_MOCK_AI, undefined);
+});
+
+test("backend environment preserves an explicit mock AI override", () => {
+  const { buildBackendEnv } = require("../src/backendEnv");
+
+  const env = buildBackendEnv(
+    { USE_MOCK_AI: "false" },
+    { apiPort: 4123, dataDir: "/tmp/article-processor" }
+  );
+
+  assert.equal(env.USE_MOCK_AI, "false");
+});
+
+test("launcher controller reopens windows without restarting services", async () => {
+  const { createLauncherController } = require("../src/launcherController");
+  const windows = [];
+  let starts = 0;
+
+  const controller = createLauncherController({
+    startServices: async () => {
+      starts += 1;
+      return { apiBaseUrl: "http://127.0.0.1:4101", webUrl: "http://127.0.0.1:4102" };
+    },
+    createWindow: (webUrl, apiBaseUrl) => {
+      windows.push({ webUrl, apiBaseUrl });
+      return { webUrl, apiBaseUrl };
+    },
+  });
+
+  await controller.openWindow();
+  await controller.openWindow();
+
+  assert.equal(starts, 1);
+  assert.deepEqual(windows, [
+    { webUrl: "http://127.0.0.1:4102", apiBaseUrl: "http://127.0.0.1:4101" },
+    { webUrl: "http://127.0.0.1:4102", apiBaseUrl: "http://127.0.0.1:4101" },
+  ]);
+});
+
+test("desktop build wrapper uses pwsh off Windows and Windows PowerShell on Windows", () => {
+  const { resolvePowerShellCommand } = require("../../../scripts/build-desktop");
+
+  assert.equal(resolvePowerShellCommand("win32"), "powershell.exe");
+  assert.equal(resolvePowerShellCommand("linux"), "pwsh");
+  assert.equal(resolvePowerShellCommand("darwin"), "pwsh");
+});
