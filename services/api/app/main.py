@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.rate_limit import RateLimitMiddleware
 from app.db.session import engine, Base
-from app.routers import uploads, articles, chat, exports, imports, skills as skills_router, settings_page, dashboard, dev
+from app.routers import uploads, articles, chat, exports, imports, discover, skills as skills_router, settings_page, dashboard, dev
 from app.services.pipeline.processor import ensure_pipeline_worker_started, resume_incomplete_pipeline_jobs
 
 
@@ -146,6 +146,7 @@ app.include_router(articles.router, prefix="/articles", tags=["articles"])
 app.include_router(chat.router, prefix="/articles", tags=["chat"])
 app.include_router(exports.router, prefix="/articles", tags=["exports"])
 app.include_router(imports.router, prefix="/imports", tags=["imports"])
+app.include_router(discover.router, prefix="/discover", tags=["discover"])
 app.include_router(settings_page.router, prefix="/settings", tags=["settings"])
 app.include_router(skills_router.router, prefix="/skills", tags=["skills"])
 app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])

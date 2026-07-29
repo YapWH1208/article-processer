@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.db.models import (
     Article,
+    ArticleMetadata,
     ArticleExtraction,
     GraphEntity,
     GraphRelationship,
@@ -27,6 +28,7 @@ from app.schemas.article import (
     ArticleSummary,
     ArticleDetail,
     ArticleListResponse,
+    ArticleProvenance,
     ReprocessResponse,
 )
 from app.schemas.extraction import ExtractionResponse, ExtractionUpdateRequest
@@ -173,7 +175,18 @@ def get_article(article_id: int, db: Session = Depends(get_db)):
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
-    return ArticleDetail.model_validate(article)
+    detail = ArticleDetail.model_validate(article)
+    metadata = article.metadata_items
+    if metadata and metadata.source_provider:
+        detail.provenance = ArticleProvenance(
+            source_provider=metadata.source_provider,
+            source_external_id=metadata.source_external_id,
+            source_landing_url=metadata.source_landing_url,
+            source_pdf_url=metadata.source_pdf_url,
+            source_collection=metadata.source_collection,
+            source_retrieved_at=metadata.source_retrieved_at,
+        )
+    return detail
 
 
 @router.get("/{article_id}/file")

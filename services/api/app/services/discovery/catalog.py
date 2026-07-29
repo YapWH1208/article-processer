@@ -24,6 +24,14 @@ SUPPORTED_CONFERENCE_KEYS = frozenset({
     "icml_2025",
 })
 
+CONFERENCE_COLLECTIONS = (
+    {"key": "iclr_2026", "label": "ICLR 2026", "year": 2026},
+    {"key": "chi_2026", "label": "CHI 2026", "year": 2026},
+    {"key": "cvpr_2026", "label": "CVPR 2026", "year": 2026},
+    {"key": "neurips_2025", "label": "NeurIPS 2025", "year": 2025},
+    {"key": "icml_2025", "label": "ICML 2025", "year": 2025},
+)
+
 
 class CatalogValidationError(ValueError):
     """Raised when a catalogue key or source row cannot be safely normalized."""
@@ -223,3 +231,56 @@ def import_catalog_snapshot(db: Session, conference_key: str, input_path: Path) 
         raise
 
     return summary
+
+
+def get_catalog_paper(db: Session, conference_key: str, paper_id: int) -> ConferenceCatalogPaper | None:
+    """Return one local catalogue record after validating its approved collection."""
+    conference_key = validate_conference_key(conference_key)
+    return (
+        db.query(ConferenceCatalogPaper)
+        .filter(
+            ConferenceCatalogPaper.conference_key == conference_key,
+            ConferenceCatalogPaper.id == paper_id,
+        )
+        .one_or_none()
+    )
+
+
+def search_catalog_papers(
+    db: Session,
+    conference_key: str,
+    *,
+    query: str | None,
+    scope: str,
+    offset: int,
+    limit: int,
+) -> tuple[list[ConferenceCatalogPaper], int]:
+    """Search a local collection without performing network work."""
+    conference_key = validate_conference_key(conference_key)
+    scope = str(scope or "title").strip().lower()
+    if scope not in {"title", "abstract", "keywords"}:
+        raise CatalogValidationError(f"Unsupported catalogue search scope: {scope!r}")
+
+    result_limit = max(1, min(int(limit), 25))
+    result_offset = max(0, int(offset))
+    records = db.query(ConferenceCatalogPaper).filter(
+        ConferenceCatalogPaper.conference_key == conference_key,
+    )
+    needle = str(query or "").strip()
+    if needle:
+        match = f"%{needle}%"
+        field = {
+            "title": ConferenceCatalogPaper.title,
+            "abstract": ConferenceCatalogPaper.abstract,
+            "keywords": ConferenceCatalogPaper.keywords_json,
+        }[scope]
+        records = records.filter(field.ilike(match))
+
+    total = records.count()
+    papers = (
+        records.order_by(ConferenceCatalogPaper.title.asc(), ConferenceCatalogPaper.id.asc())
+        .offset(result_offset)
+        .limit(result_limit)
+        .all()
+    )
+    return papers, total

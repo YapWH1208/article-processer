@@ -13,14 +13,26 @@ import shutil
 import socket
 import ipaddress
 from pathlib import Path
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.db.models import Article, ArticleExtraction, GraphEntity, GraphRelationship, ProcessingJob, ArticleStatus, JobStatus
+from app.db.models import (
+    Article,
+    ArticleExtraction,
+    ArticleMetadata,
+    ConferenceCatalogPaper,
+    GraphEntity,
+    GraphRelationship,
+    ProcessingJob,
+    ArticleStatus,
+    JobStatus,
+)
 from app.core.security import compute_file_hash
 from app.core.config import settings
+from app.schemas.discover import ArxivProvenanceRequest
 from app.services.article_duplicates import find_active_article_by_hash
 
 logger = logging.getLogger(__name__)
@@ -30,9 +42,21 @@ router = APIRouter()
 # ── URL Import Request ────────────────────────────────────────────────────
 
 class UrlImportRequest(BaseModel):
-    url: str = Field(..., min_length=5, max_length=2048, description="URL to an arXiv abstract, DOI, or direct PDF")
+    url: str | None = Field(default=None, min_length=5, max_length=2048, description="URL to an arXiv abstract, DOI, or direct PDF")
+    catalog_paper_id: int | None = Field(default=None, ge=1, description="Local conference catalogue record selected for import")
+    provenance: ArxivProvenanceRequest | None = None
     run_ai: bool = Field(default=True, description="Whether to run AI extraction after import")
     language: str = Field(default="en", max_length=16, description="UI language for AI output")
+
+    @model_validator(mode="after")
+    def _require_one_import_source(self):
+        if bool(self.url) == bool(self.catalog_paper_id):
+            raise ValueError("Provide exactly one of url or catalog_paper_id")
+        if self.catalog_paper_id and self.provenance:
+            raise ValueError("Catalogue imports resolve provenance from the local catalogue")
+        if self.provenance and not self.url:
+            raise ValueError("arXiv provenance requires a URL")
+        return self
 
 
 class UrlImportResponse(BaseModel):
@@ -124,10 +148,52 @@ def _detect_url_type(url: str) -> tuple[str, str | None]:
         if m:
             return ("doi", m.group(1))
 
+    if host.endswith("openreview.net") and path.rstrip("/").lower() == "/pdf":
+        paper_id = urllib.parse.parse_qs(parsed.query).get("id", [None])[0]
+        if paper_id:
+            return ("direct-pdf", url)
+
     if path.lower().endswith(".pdf") or _PDF_URL_RE.search(url):
         return ("direct-pdf", url)
 
     return ("unknown", None)
+
+
+def _metadata_from_catalog_paper(paper: ConferenceCatalogPaper) -> dict[str, Any]:
+    return {
+        "title": paper.title,
+        "authors": json.loads(paper.authors_json or "[]"),
+        "abstract": paper.abstract,
+        "venue": paper.venue,
+        "source_provider": "conference_catalog",
+        "source_external_id": paper.source_external_id,
+        "source_landing_url": paper.landing_url,
+        "source_pdf_url": paper.pdf_url,
+        "source_collection": paper.conference_key,
+        "source_retrieved_at": paper.imported_at,
+        "source_payload_json": paper.raw_payload_json,
+    }
+
+
+def _metadata_from_arxiv_provenance(provenance: ArxivProvenanceRequest, identifier: str | None) -> dict[str, Any]:
+    if identifier is None or provenance.source_external_id != identifier:
+        raise UnsafeUrlError("arXiv provenance identifier must match the selected arXiv URL")
+    landing_type, landing_identifier = _detect_url_type(provenance.source_landing_url)
+    if landing_type != "arxiv" or landing_identifier != identifier:
+        raise UnsafeUrlError("arXiv provenance landing URL must match the selected arXiv URL")
+    return {
+        "title": provenance.title,
+        "authors": provenance.authors,
+        "abstract": provenance.abstract,
+        "venue": provenance.venue,
+        "source_provider": "arxiv",
+        "source_external_id": provenance.source_external_id,
+        "source_landing_url": provenance.source_landing_url,
+        "source_pdf_url": provenance.source_pdf_url,
+        "source_collection": None,
+        "source_retrieved_at": provenance.source_retrieved_at,
+        "source_payload_json": json.dumps(provenance.source_payload, ensure_ascii=False) if provenance.source_payload else None,
+    }
 
 
 def _download_file(url: str, dest_path: Path, max_bytes: int, timeout: int = 60) -> None:
@@ -175,13 +241,29 @@ async def import_from_url(
     Downloads the PDF to local storage, creates an article record,
     and starts the processing pipeline.
     """
-    url = body.url.strip()
+    source_metadata: dict[str, Any] | None = None
+    if body.catalog_paper_id is not None:
+        catalog_paper = db.query(ConferenceCatalogPaper).filter(ConferenceCatalogPaper.id == body.catalog_paper_id).first()
+        if not catalog_paper:
+            raise HTTPException(status_code=404, detail="Conference catalogue paper not found")
+        if not catalog_paper.pdf_url:
+            raise HTTPException(status_code=422, detail="Selected conference paper has no PDF URL")
+        url = catalog_paper.pdf_url.strip()
+        source_metadata = _metadata_from_catalog_paper(catalog_paper)
+    else:
+        url = (body.url or "").strip()
     try:
         _validate_public_http_url(url)
     except UnsafeUrlError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     url_type, identifier = _detect_url_type(url)
+
+    if body.provenance:
+        try:
+            source_metadata = _metadata_from_arxiv_provenance(body.provenance, identifier)
+        except UnsafeUrlError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
 
     if url_type == "unknown":
         raise HTTPException(
@@ -264,7 +346,7 @@ async def import_from_url(
 
     # Create article record
     article = Article(
-        title=filename.rsplit(".", 1)[0],
+        title=(source_metadata or {}).get("title") or filename.rsplit(".", 1)[0],
         status=ArticleStatus.UPLOADED.value,
         original_filename=filename,
         file_hash=file_hash,
@@ -273,6 +355,26 @@ async def import_from_url(
     )
     db.add(article)
     db.flush()
+
+    if source_metadata:
+        authors = source_metadata.get("authors")
+        source_payload_json = source_metadata.get("source_payload_json")
+        db.add(ArticleMetadata(
+            article_id=article.id,
+            authors=json.dumps(authors, ensure_ascii=False) if authors else None,
+            venue=source_metadata.get("venue"),
+            arxiv_id=source_metadata.get("source_external_id") if source_metadata.get("source_provider") == "arxiv" else None,
+            url=source_metadata.get("source_landing_url"),
+            abstract=source_metadata.get("abstract"),
+            raw_metadata_json=source_payload_json,
+            source_provider=source_metadata.get("source_provider"),
+            source_external_id=source_metadata.get("source_external_id"),
+            source_landing_url=source_metadata.get("source_landing_url"),
+            source_pdf_url=source_metadata.get("source_pdf_url"),
+            source_collection=source_metadata.get("source_collection"),
+            source_retrieved_at=source_metadata.get("source_retrieved_at"),
+            source_payload_json=source_payload_json,
+        ))
 
     # Create processing job
     job = ProcessingJob(

@@ -42,6 +42,15 @@ class ArticleSummary(BaseModel):
         return self
 
 
+class ArticleProvenance(BaseModel):
+    source_provider: str
+    source_external_id: Optional[str] = None
+    source_landing_url: Optional[str] = None
+    source_pdf_url: Optional[str] = None
+    source_collection: Optional[str] = None
+    source_retrieved_at: Optional[datetime] = None
+
+
 class ArticleDetail(BaseModel):
     id: int
     title: str
@@ -55,6 +64,7 @@ class ArticleDetail(BaseModel):
     processing_error: Optional[str] = None
     needs_review: bool = False
     is_archived: int = 0
+    provenance: Optional[ArticleProvenance] = None
 
     model_config = {"from_attributes": True}
 
