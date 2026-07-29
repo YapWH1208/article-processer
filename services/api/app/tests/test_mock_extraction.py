@@ -54,6 +54,8 @@ test-driven development, code quality, software engineering
         assert len(extraction["authors"]) > 0
         assert extraction["abstract"] is not None
         assert extraction["methodology"] is not None
+        assert extraction["triage"]["method"]["text"] is not None
+        assert extraction["triage"]["code_status"]["status"] == "not_stated"
         assert any("test-driven" in t.lower() or "tdd" in t.lower() for t in extraction.get("tags", []))
         assert isinstance(confidence, float)
         assert 0.0 <= confidence <= 1.0

@@ -15,6 +15,8 @@ EXPECTED_EXTRACTION_KEYS = {
     "graph_entities", "graph_relationships",
 }
 
+OPTIONAL_EXTRACTION_KEYS = {"triage"}
+
 SCALAR_FIELDS = {
     "title", "venue", "doi", "arxiv_id", "url", "abstract", "background",
     "research_problem", "methodology", "results", "limitations", "future_work",
@@ -126,8 +128,12 @@ class ExtractionService:
         normalized["graph_relationships"] = ExtractionService._coerce_graph_relationships(
             source.get("graph_relationships")
         )
+        normalized["triage"] = ExtractionService._coerce_triage(source.get("triage"))
 
-        return {key: normalized[key] for key in sorted(EXPECTED_EXTRACTION_KEYS)}
+        return {
+            key: normalized.get(key)
+            for key in sorted(EXPECTED_EXTRACTION_KEYS | OPTIONAL_EXTRACTION_KEYS)
+        }
 
     @staticmethod
     def validate_schema(extraction: dict) -> list[str]:
@@ -171,6 +177,71 @@ class ExtractionService:
                         errors.append(f"graph_relationships[{i}] has invalid type: '{rtype}'. Allowed: {ALLOWED_RELATIONSHIP_TYPES}")
 
         return errors
+
+    @staticmethod
+    def _coerce_triage(value: Any) -> dict | None:
+        if not isinstance(value, dict):
+            return None
+
+        def fact(raw: Any) -> dict:
+            if isinstance(raw, str):
+                return {"text": ExtractionService._coerce_optional_string(raw), "evidence": None}
+            if not isinstance(raw, dict):
+                return {"text": None, "evidence": None}
+            return {
+                "text": ExtractionService._coerce_optional_string(
+                    raw.get("text") or raw.get("summary") or raw.get("value")
+                ),
+                "evidence": ExtractionService._coerce_evidence(raw.get("evidence")),
+            }
+
+        raw_code = value.get("code_status")
+        raw_code = raw_code if isinstance(raw_code, dict) else {}
+        status = ExtractionService._coerce_optional_string(raw_code.get("status")) or "unknown"
+        if status not in {"linked_in_paper", "not_stated", "unknown"}:
+            status = "unknown"
+        repository_url = ExtractionService._coerce_optional_string(raw_code.get("repository_url"))
+        evidence = ExtractionService._coerce_evidence(raw_code.get("evidence"))
+        if repository_url and evidence is None:
+            repository_url = None
+            status = "unknown"
+
+        return {
+            "verdict": fact(value.get("verdict")),
+            "problem": fact(value.get("problem")),
+            "method": fact(value.get("method")),
+            "results": fact(value.get("results")),
+            "limitations": fact(value.get("limitations")),
+            "code_status": {
+                "status": status,
+                "repository_url": repository_url,
+                "evidence": evidence,
+            },
+        }
+
+    @staticmethod
+    def _coerce_evidence(value: Any) -> dict | None:
+        if not isinstance(value, dict):
+            return None
+        page_number = value.get("page_number")
+        try:
+            page_number = int(page_number) if page_number is not None else None
+        except (TypeError, ValueError):
+            page_number = None
+        evidence = {
+            "source_section": ExtractionService._coerce_optional_string(value.get("source_section")),
+            "page_number": page_number,
+            "chunk_id": None,
+            "snippet": ExtractionService._coerce_optional_string(value.get("snippet")),
+        }
+        chunk_id = value.get("chunk_id")
+        try:
+            evidence["chunk_id"] = int(chunk_id) if chunk_id is not None else None
+        except (TypeError, ValueError):
+            evidence["chunk_id"] = None
+        if not any(item is not None for item in evidence.values()):
+            return None
+        return evidence
 
     @staticmethod
     def _coerce_optional_string(value: Any, fallback: str | None = None) -> str | None:

@@ -65,6 +65,7 @@ DEFAULT_EXTRACTION_SYSTEM_MESSAGE = (
     "- tags: array of strings\n"
     "- graph_entities: array of objects with type, name, canonical_name, properties, evidence, and confidence\n"
     "- graph_relationships: array of objects with source_name, source_type, target_name, target_type, type, properties, evidence, and confidence\n\n"
+    "- triage: object or null. When present include verdict, problem, method, results, and limitations as objects with text and evidence; include code_status with status (linked_in_paper, not_stated, or unknown), repository_url only when explicitly in the paper, and evidence for any repository_url.\n\n"
     "Allowed graph_entities type values: Article, Author, Institution, Method, Dataset, "
     "Experiment, Metric, Result, Claim, Task, Domain, Tool, Model, Citation, Keyword.\n"
     "Allowed graph_relationships type values: USES_METHOD, EVALUATES_ON, REPORTS_RESULT, "
@@ -75,7 +76,8 @@ DEFAULT_EXTRACTION_SYSTEM_MESSAGE = (
     "\"background\": null, \"research_problem\": null, \"methodology\": null, "
     "\"datasets\": [], \"experiments\": [], \"metrics\": [], \"results\": null, "
     "\"limitations\": null, \"future_work\": null, \"key_claims\": [], "
-    "\"references\": [], \"tags\": [], \"graph_entities\": [], \"graph_relationships\": []}"
+    "\"references\": [], \"tags\": [], \"graph_entities\": [], \"graph_relationships\": [], "
+    "\"triage\": null}"
 )
 
 _FALLBACK_SYSTEM_MESSAGES = {
@@ -106,6 +108,19 @@ _FALLBACK_SYSTEM_MESSAGES = {
         "5. Be precise: quote exact numbers, spell entity names correctly, preserve technical terminology."
     ),
 }
+
+_TRIAGE_SCHEMA_EXTENSION = (
+    "\n\nTRIAGE SCHEMA EXTENSION:\n"
+    "Include the top-level triage key. It is an object or null. When present, it has verdict, "
+    "problem, method, results, and limitations objects with text and evidence, plus code_status "
+    "with status (linked_in_paper, not_stated, or unknown), repository_url only when explicitly "
+    "stated in the paper, and evidence for every repository_url."
+)
+
+
+def _ensure_triage_schema_extension(prompt: str) -> str:
+    """Keep older saved developer prompts compatible without overwriting them."""
+    return prompt if "triage" in prompt else f"{prompt.rstrip()}{_TRIAGE_SCHEMA_EXTENSION}"
 
 _FALLBACK_INPUT_TEMPLATES = {
     "extraction": (
@@ -212,6 +227,8 @@ def get_system_message(task: str, output_language: str | None = None) -> str:
                 prompt = content
     if not prompt:
         prompt = _FALLBACK_SYSTEM_MESSAGES.get(task, "")
+    if task == "extraction":
+        prompt = _ensure_triage_schema_extension(prompt)
     if output_language:
         return with_output_language_instruction(
             prompt,

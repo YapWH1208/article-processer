@@ -1,7 +1,7 @@
 """Tests for extraction schema validation."""
 
 import pytest
-from app.schemas.extraction import ExtractionResponse
+from app.schemas.extraction import ExtractionResponse, ExtractionResult
 from app.services.ai.extraction import ExtractionService
 
 
@@ -131,6 +131,27 @@ class TestExtractionValidation:
         extraction["venue"] = None
         errors = ExtractionService.validate_schema(extraction)
         assert len(errors) == 0
+
+    def test_triage_is_optional_and_repository_links_require_evidence(self):
+        legacy = ExtractionResult.model_validate(make_valid_extraction())
+        assert legacy.triage is None
+
+        extraction = make_valid_extraction()
+        extraction["triage"] = {
+            "verdict": {"text": "Read the supported results.", "evidence": {"source_section": "results"}},
+            "code_status": {
+                "status": "linked_in_paper",
+                "repository_url": "https://github.com/example/repo",
+                "evidence": {"source_section": "code", "snippet": "Code: https://github.com/example/repo"},
+            },
+        }
+        parsed = ExtractionResult.model_validate(extraction)
+        assert parsed.triage is not None
+        assert parsed.triage.code_status.status == "linked_in_paper"
+
+        extraction["triage"]["code_status"].pop("evidence")
+        with pytest.raises(ValueError, match="requires paper-text evidence"):
+            ExtractionResult.model_validate(extraction)
 
     def test_claim_missing_claim_field(self):
         """Key claims without the 'claim' field should be flagged."""

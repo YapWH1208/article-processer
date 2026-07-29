@@ -110,6 +110,7 @@ class MockLLMProvider(BaseLLMProvider):
                 "tags": tags,
                 "graph_entities": entities,
                 "graph_relationships": self._build_mock_relationships(entities),
+                "triage": self._build_mock_triage(sections, markdown),
             }
 
             validation_errors = None
@@ -120,6 +121,40 @@ class MockLLMProvider(BaseLLMProvider):
         except Exception as e:
             logger.error(f"Mock extraction failed: {e}")
             return None, [str(e)], 0.0
+
+    def _build_mock_triage(self, sections: dict[str, str], markdown: str) -> dict:
+        def fact(text: str | None, section: str) -> dict:
+            value = (text or "").strip() or None
+            return {
+                "text": value,
+                "evidence": {
+                    "source_section": section,
+                    "snippet": value[:200],
+                } if value else None,
+            }
+
+        repository_match = re.search(r"https?://github\.com/[^\s)\]]+", markdown, re.IGNORECASE)
+        if repository_match:
+            repository_url = repository_match.group(0).rstrip(".,;:")
+            code_status = {
+                "status": "linked_in_paper",
+                "repository_url": repository_url,
+                "evidence": {
+                    "source_section": "document",
+                    "snippet": repository_url,
+                },
+            }
+        else:
+            code_status = {"status": "not_stated", "repository_url": None, "evidence": None}
+
+        return {
+            "verdict": fact(sections.get("abstract") or sections.get("results"), "abstract"),
+            "problem": fact(sections.get("problem") or sections.get("introduction"), "problem"),
+            "method": fact(sections.get("method") or sections.get("methodology"), "methodology"),
+            "results": fact(sections.get("results") or sections.get("evaluation"), "results"),
+            "limitations": fact(sections.get("limitations"), "limitations"),
+            "code_status": code_status,
+        }
 
     async def answer_question(
         self,

@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from typing import Optional, Any
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class Evidence(BaseModel):
@@ -16,6 +16,51 @@ class KeyClaim(BaseModel):
     claim: str
     evidence: Optional[Evidence] = None
     confidence: Optional[float] = None
+
+
+class TriageFact(BaseModel):
+    """A compact factual reading cue with optional source evidence."""
+
+    text: Optional[str] = None
+    evidence: Optional[Evidence] = None
+
+
+class TriageCodeStatus(BaseModel):
+    status: str = "unknown"
+    repository_url: Optional[str] = None
+    evidence: Optional[Evidence] = None
+
+    @field_validator("status")
+    @classmethod
+    def _validate_status(cls, value: str) -> str:
+        if value not in {"linked_in_paper", "not_stated", "unknown"}:
+            raise ValueError("Code status must be linked_in_paper, not_stated, or unknown")
+        return value
+
+    @field_validator("repository_url")
+    @classmethod
+    def _validate_repository_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value.startswith(("https://", "http://")):
+            raise ValueError("Repository URL must be an http(s) URL")
+        return value
+
+    @model_validator(mode="after")
+    def _require_paper_evidence_for_repository(self):
+        if self.repository_url and self.evidence is None:
+            raise ValueError("Repository URL requires paper-text evidence")
+        return self
+
+
+class TriageBrief(BaseModel):
+    verdict: TriageFact = Field(default_factory=TriageFact)
+    problem: TriageFact = Field(default_factory=TriageFact)
+    method: TriageFact = Field(default_factory=TriageFact)
+    results: TriageFact = Field(default_factory=TriageFact)
+    limitations: TriageFact = Field(default_factory=TriageFact)
+    code_status: TriageCodeStatus = Field(default_factory=TriageCodeStatus)
 
 
 class Reference(BaseModel):
@@ -83,6 +128,7 @@ class ExtractionResult(BaseModel):
     tags: list[str] = Field(default_factory=list)
     graph_entities: list[GraphEntityItem] = Field(default_factory=list)
     graph_relationships: list[GraphRelationshipItem] = Field(default_factory=list)
+    triage: Optional[TriageBrief] = None
 
     # ── Coercion validators ── tolerate the LLM returning dicts for string lists ─
 

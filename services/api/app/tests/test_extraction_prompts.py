@@ -54,6 +54,9 @@ def test_extraction_system_prompt_specifies_empty_values_and_nested_shapes(
         "graph_relationships",
         "source_name",
         "target_name",
+        "triage",
+        "code_status",
+        "linked_in_paper",
     ]
     missing = [fragment for fragment in required_fragments if fragment not in prompt]
 
