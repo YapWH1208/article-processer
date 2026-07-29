@@ -60,6 +60,8 @@ cp .env.example apps/web/.env.local
 - **Extraction Review**: Edit and save reviewed structured extraction JSON from the article workspace before using it for search and analysis
 - **Article Workspace**: Reader-first article detail page with a tabbed side panel for Chat, Jobs, and Context, source chips that jump back to cited reader chunks or sections, and recovery callouts for failed or review-needed processing
 - **Reading Intelligence Guide**: Article pages open with a guide-first brief that turns extraction, graph entities, and related-article overlap into TL;DR, read-first sections, key claims, concepts, suggested questions, and read-next recommendations
+- **Paper Discovery**: Search arXiv metadata or browse local conference catalogue snapshots for ICLR 2026, CHI 2026, CVPR 2026, NeurIPS 2025, and ICML 2025; papers remain external until a user explicitly selects Analyse and read
+- **Evidence-Linked Triage**: When extraction provides a triage brief, article pages open with a concise verdict/problem/method/results/limitations view whose source controls jump to the cited reader section, plus paper-stated code availability and provenance
 - **Retrieval-Based Chat**: Ask questions about articles with cited, source-linked answers drawn from relevant chunks. @-mention articles for focused context or use starter prompts for library-wide questions. Multi-turn sessions persist across refreshes.
 - **Model Selector**: Switch LLM providers on-the-fly from the Chat page — no reload required
 - **Built-in AI Skills**: Research summary, methodology extraction, experiment extraction, literature review notes, reviewer critique — with structured results. Create, edit, import, and export custom skills.
@@ -76,6 +78,29 @@ cp .env.example apps/web/.env.local
 - **Dark Mode**: Full light/dark theme with system preference detection and live OS theme switching
 - **Inline Title Editing**: Click any article title to rename it inline — defaults to the original filename
 - **Pagination & Sort**: Server-side pagination with sort controls (newest, oldest, title, status)
+
+## Local Conference Catalogue
+
+Conference discovery is deliberately local-first. The app does not crawl conference sites at request time and does not bundle a stale conference dataset. A maintainer imports a Paper Insight-compatible JSONL snapshot into the local SQLite catalogue; users can then search, preview, open the public source/PDF, and explicitly select a paper for analysis from `/discover`.
+
+Supported collection keys:
+
+- `iclr_2026`
+- `chi_2026`
+- `cvpr_2026`
+- `neurips_2025`
+- `icml_2025`
+
+After applying migrations, import a local snapshot with:
+
+```bash
+cd services/api
+python -m app.commands.import_conference_catalog --conference iclr_2026 --input path/to/iclr_2026.jsonl
+```
+
+Each JSONL row follows the Paper Insight-style crawler record, including an external `id` and `content.<field>.value` entries (for example title, authors, abstract, keywords, landing URL, and PDF URL). The importer stores the normalized fields and raw source row, upserts by collection and external ID, and reports imported/skipped/invalid rows. It does not delete records omitted from a partial snapshot.
+
+Catalogue browsing never creates an Article or queues processing. A user must choose **Analyse and read**; the server then resolves its stored provenance and passes the PDF through the existing safe URL import checks. Candidates without a usable PDF remain browseable but cannot be analysed. arXiv metadata follows the same explicit-selection rule and retains the source metadata with the resulting Article.
 
 ## Testing
 
