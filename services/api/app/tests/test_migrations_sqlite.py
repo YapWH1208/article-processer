@@ -4,7 +4,9 @@ import os
 import subprocess
 import sys
 
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
+
+from app.db.migration_runner import upgrade_database
 
 
 def test_alembic_upgrade_head_on_fresh_sqlite_database(tmp_path):
@@ -68,4 +70,63 @@ def test_catalogue_migration_adds_provenance_and_downgrades_on_sqlite(tmp_path):
     assert "conference_catalog_papers" not in inspector.get_table_names()
     metadata_columns = {column["name"] for column in inspector.get_columns("article_metadata")}
     assert "source_provider" not in metadata_columns
+    engine.dispose()
+
+
+def test_startup_migration_runner_upgrades_an_existing_sqlite_database(tmp_path):
+    db_path = tmp_path / "existing.sqlite3"
+    env = os.environ.copy()
+    env["DATABASE_URL"] = f"sqlite:///{db_path}"
+
+    initial_upgrade = subprocess.run(
+        [sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade", "e5f6a7b8c9d0"],
+        cwd=os.getcwd(),
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=30,
+        check=False,
+    )
+    assert initial_upgrade.returncode == 0, initial_upgrade.stdout
+
+    upgrade_database(database_url=f"sqlite:///{db_path}")
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    inspector = inspect(engine)
+    metadata_columns = {column["name"] for column in inspector.get_columns("article_metadata")}
+    assert "source_provider" in metadata_columns
+    assert "conference_catalog_papers" in inspector.get_table_names()
+    engine.dispose()
+
+
+def test_catalogue_migration_recovers_from_a_previously_added_provenance_column(tmp_path):
+    db_path = tmp_path / "partially-upgraded.sqlite3"
+    env = os.environ.copy()
+    env["DATABASE_URL"] = f"sqlite:///{db_path}"
+
+    initial_upgrade = subprocess.run(
+        [sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade", "e5f6a7b8c9d0"],
+        cwd=os.getcwd(),
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=30,
+        check=False,
+    )
+    assert initial_upgrade.returncode == 0, initial_upgrade.stdout
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE article_metadata ADD COLUMN source_provider VARCHAR(64)"))
+    engine.dispose()
+
+    upgrade_database(database_url=f"sqlite:///{db_path}")
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    inspector = inspect(engine)
+    metadata_columns = {column["name"] for column in inspector.get_columns("article_metadata")}
+    assert {"source_provider", "source_external_id", "source_payload_json"} <= metadata_columns
+    assert "conference_catalog_papers" in inspector.get_table_names()
     engine.dispose()

@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.rate_limit import RateLimitMiddleware
-from app.db.session import engine, Base
+from app.db.migration_runner import upgrade_database
 from app.routers import uploads, articles, chat, exports, imports, discover, skills as skills_router, settings_page, dashboard, dev
 from app.services.pipeline.processor import ensure_pipeline_worker_started, resume_incomplete_pipeline_jobs
 
@@ -19,9 +19,9 @@ from app.services.pipeline.processor import ensure_pipeline_worker_started, resu
 async def lifespan(app: FastAPI):
     """Application startup/shutdown."""
     setup_logging()
-    # Create tables if they don't exist (for development convenience)
-    # In production, use Alembic migrations.
-    Base.metadata.create_all(bind=engine)
+    # Migrations also cover an existing local SQLite file. ``create_all`` alone
+    # leaves existing tables missing columns added by newer app versions.
+    upgrade_database()
     # Ensure storage directories exist
     settings.uploads_path.mkdir(parents=True, exist_ok=True)
     settings.markdown_path.mkdir(parents=True, exist_ok=True)

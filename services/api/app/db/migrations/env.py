@@ -15,8 +15,10 @@ from app.core.config import settings
 
 config = context.config
 
-# Override sqlalchemy.url from settings
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# The startup migration runner supplies the exact mutable data location through
+# Config.attributes.  The command-line Alembic workflow continues to use the
+# configured Settings URL (including DATABASE_URL when set by the environment).
+config.set_main_option("sqlalchemy.url", config.attributes.get("database_url", settings.database_url))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

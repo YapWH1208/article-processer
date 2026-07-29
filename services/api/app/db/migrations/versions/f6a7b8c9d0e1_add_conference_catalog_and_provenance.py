@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 
 revision: str = "f6a7b8c9d0e1"
@@ -18,38 +19,50 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("article_metadata", sa.Column("source_provider", sa.String(length=64), nullable=True))
-    op.add_column("article_metadata", sa.Column("source_external_id", sa.String(length=512), nullable=True))
-    op.add_column("article_metadata", sa.Column("source_landing_url", sa.String(length=2048), nullable=True))
-    op.add_column("article_metadata", sa.Column("source_pdf_url", sa.String(length=2048), nullable=True))
-    op.add_column("article_metadata", sa.Column("source_collection", sa.String(length=64), nullable=True))
-    op.add_column("article_metadata", sa.Column("source_retrieved_at", sa.DateTime(), nullable=True))
-    op.add_column("article_metadata", sa.Column("source_payload_json", sa.Text(), nullable=True))
+    bind = op.get_bind()
+    inspector = inspect(bind)
+    existing_columns = {column["name"] for column in inspector.get_columns("article_metadata")}
+    provenance_columns = (
+        ("source_provider", sa.String(length=64)),
+        ("source_external_id", sa.String(length=512)),
+        ("source_landing_url", sa.String(length=2048)),
+        ("source_pdf_url", sa.String(length=2048)),
+        ("source_collection", sa.String(length=64)),
+        ("source_retrieved_at", sa.DateTime()),
+        ("source_payload_json", sa.Text()),
+    )
+    for name, column_type in provenance_columns:
+        if name not in existing_columns:
+            op.add_column("article_metadata", sa.Column(name, column_type, nullable=True))
 
-    op.create_table(
-        "conference_catalog_papers",
-        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("conference_key", sa.String(length=64), nullable=False),
-        sa.Column("source_external_id", sa.String(length=512), nullable=False),
-        sa.Column("title", sa.String(length=2048), nullable=False),
-        sa.Column("authors_json", sa.Text(), nullable=True),
-        sa.Column("abstract", sa.Text(), nullable=True),
-        sa.Column("keywords_json", sa.Text(), nullable=True),
-        sa.Column("published_date", sa.String(length=64), nullable=True),
-        sa.Column("venue", sa.String(length=512), nullable=True),
-        sa.Column("landing_url", sa.String(length=2048), nullable=True),
-        sa.Column("pdf_url", sa.String(length=2048), nullable=True),
-        sa.Column("raw_payload_json", sa.Text(), nullable=False),
-        sa.Column("imported_at", sa.DateTime(), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("conference_key", "source_external_id", name="uq_conference_catalog_papers_source"),
-    )
-    op.create_index(
-        "ix_conference_catalog_papers_collection_title",
-        "conference_catalog_papers",
-        ["conference_key", "title"],
-        unique=False,
-    )
+    if "conference_catalog_papers" not in inspector.get_table_names():
+        op.create_table(
+            "conference_catalog_papers",
+            sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
+            sa.Column("conference_key", sa.String(length=64), nullable=False),
+            sa.Column("source_external_id", sa.String(length=512), nullable=False),
+            sa.Column("title", sa.String(length=2048), nullable=False),
+            sa.Column("authors_json", sa.Text(), nullable=True),
+            sa.Column("abstract", sa.Text(), nullable=True),
+            sa.Column("keywords_json", sa.Text(), nullable=True),
+            sa.Column("published_date", sa.String(length=64), nullable=True),
+            sa.Column("venue", sa.String(length=512), nullable=True),
+            sa.Column("landing_url", sa.String(length=2048), nullable=True),
+            sa.Column("pdf_url", sa.String(length=2048), nullable=True),
+            sa.Column("raw_payload_json", sa.Text(), nullable=False),
+            sa.Column("imported_at", sa.DateTime(), nullable=False),
+            sa.PrimaryKeyConstraint("id"),
+            sa.UniqueConstraint("conference_key", "source_external_id", name="uq_conference_catalog_papers_source"),
+        )
+
+    indexes = {index["name"] for index in inspect(bind).get_indexes("conference_catalog_papers")}
+    if "ix_conference_catalog_papers_collection_title" not in indexes:
+        op.create_index(
+            "ix_conference_catalog_papers_collection_title",
+            "conference_catalog_papers",
+            ["conference_key", "title"],
+            unique=False,
+        )
 
 
 def downgrade() -> None:
