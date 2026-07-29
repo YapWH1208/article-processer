@@ -2,7 +2,7 @@
 
 import datetime
 from sqlalchemy import (
-    Column, Integer, String, Text, Float, DateTime, ForeignKey, JSON, Index, Enum as SAEnum,
+    Column, Integer, String, Text, Float, DateTime, ForeignKey, JSON, Index, UniqueConstraint, Enum as SAEnum,
 )
 from sqlalchemy.orm import relationship
 from app.db.session import Base
@@ -105,8 +105,45 @@ class ArticleMetadata(Base):
     url = Column(String(2048), nullable=True)
     abstract = Column(Text, nullable=True)
     raw_metadata_json = Column(Text, nullable=True)  # Full raw metadata
+    # External source provenance remains separate from Article.source_type, which is the input file format.
+    source_provider = Column(String(64), nullable=True)
+    source_external_id = Column(String(512), nullable=True)
+    source_landing_url = Column(String(2048), nullable=True)
+    source_pdf_url = Column(String(2048), nullable=True)
+    source_collection = Column(String(64), nullable=True)
+    source_retrieved_at = Column(DateTime, nullable=True)
+    source_payload_json = Column(Text, nullable=True)
 
     article = relationship("Article", back_populates="metadata_items")
+
+
+class ConferenceCatalogPaper(Base):
+    """Locally imported source metadata for one approved conference collection.
+
+    Catalogue records are deliberately not Articles: they contain no downloaded PDF,
+    parsed text, extraction, graph, or chat data until the user selects Analyse.
+    """
+
+    __tablename__ = "conference_catalog_papers"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    conference_key = Column(String(64), nullable=False)
+    source_external_id = Column(String(512), nullable=False)
+    title = Column(String(2048), nullable=False)
+    authors_json = Column(Text, nullable=True)
+    abstract = Column(Text, nullable=True)
+    keywords_json = Column(Text, nullable=True)
+    published_date = Column(String(64), nullable=True)
+    venue = Column(String(512), nullable=True)
+    landing_url = Column(String(2048), nullable=True)
+    pdf_url = Column(String(2048), nullable=True)
+    raw_payload_json = Column(Text, nullable=False)
+    imported_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("conference_key", "source_external_id", name="uq_conference_catalog_papers_source"),
+        Index("ix_conference_catalog_papers_collection_title", "conference_key", "title"),
+    )
 
 
 class ArticleChunk(Base):
