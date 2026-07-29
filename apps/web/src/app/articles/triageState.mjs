@@ -7,7 +7,7 @@ export function getTriageWorkspaceState(extraction) {
 }
 
 export function createTriageEvidenceTarget(evidence) {
-  if (!evidence || (!evidence.source_section && evidence.chunk_id == null && evidence.page_number == null)) {
+  if (!evidence?.source_section) {
     return { available: false, label: "Source unavailable", citation: null };
   }
   return {

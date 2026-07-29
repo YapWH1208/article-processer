@@ -388,10 +388,10 @@ export default function ArticleDetailPage() {
   };
 
   useEffect(() => {
-    if (loading || triageTabInitialized.current) return;
-    setTab(triageWorkspace.defaultTab);
+    if (!triageWorkspace.triage || triageTabInitialized.current) return;
+    setTab("triage");
     triageTabInitialized.current = true;
-  }, [loading, triageWorkspace.defaultTab]);
+  }, [triageWorkspace.triage]);
 
   if (loading) {
     return (

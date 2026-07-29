@@ -62,10 +62,10 @@ def discover_arxiv(
     limit: int = Query(20, ge=1, le=25),
 ):
     try:
-        candidates = search_arxiv(query, scope=scope, offset=offset, limit=limit)
+        result = search_arxiv(query, scope=scope, offset=offset, limit=limit)
     except ArxivDiscoveryError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return DiscoveryPage(items=candidates, total=len(candidates), offset=offset, limit=limit)
+    return DiscoveryPage(items=result.items, total=result.total, offset=offset, limit=limit)
 
 
 @router.get("/conferences/{conference_key}/papers", response_model=DiscoveryPage)

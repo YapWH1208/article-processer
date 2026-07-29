@@ -20,6 +20,7 @@ import {
   searchConferencePapers,
 } from "@/lib/api";
 import type { ArxivProvenance, ConferenceCollection, DiscoveryCandidate, DiscoveryPage, DiscoverySearchScope } from "@/lib/types";
+import { translateUiText } from "@/lib/languageState.mjs";
 import {
   DISCOVER_PAGE_SIZE,
   REQUIRED_CONFERENCE_COLLECTIONS,
@@ -35,13 +36,15 @@ function sourceLabel(candidate: DiscoveryCandidate) {
   return candidate.source_provider === "arxiv" ? "arXiv" : candidate.collection?.toUpperCase().replace("_", " ") || "Conference";
 }
 
-function CandidateCard({ candidate, onPreview, onAnalyse }: {
+function CandidateCard({ candidate, onPreview, onAnalyse, importing, copy }: {
   candidate: DiscoveryCandidate;
   onPreview: (candidate: DiscoveryCandidate) => void;
   onAnalyse: (candidate: DiscoveryCandidate) => void;
+  importing: boolean;
+  copy: (value: string) => string;
 }) {
   const available = canAnalyseCandidate(candidate);
-  const authors = candidate.authors.length ? candidate.authors.join(", ") : "Authors unavailable";
+  const authors = candidate.authors.length ? candidate.authors.join(", ") : copy("Authors unavailable");
 
   return (
     <Card className="h-full">
@@ -61,23 +64,23 @@ function CandidateCard({ candidate, onPreview, onAnalyse }: {
           </div>
         )}
         <p className="line-clamp-4 flex-1 text-sm leading-6 text-muted-foreground">
-          {candidate.abstract || "No abstract is available for this paper."}
+          {candidate.abstract || copy("No abstract is available for this paper.")}
         </p>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => onPreview(candidate)}>Preview</Button>
+          <Button variant="outline" size="sm" onClick={() => onPreview(candidate)}>{copy("Preview")}</Button>
           {candidate.landing_url && (
             <Button asChild variant="ghost" size="sm">
-              <a href={candidate.landing_url} target="_blank" rel="noreferrer">Open source <ExternalLink className="ml-1 h-3.5 w-3.5" /></a>
+              <a href={candidate.landing_url} target="_blank" rel="noreferrer">{copy("Open source")} <ExternalLink className="ml-1 h-3.5 w-3.5" /></a>
             </Button>
           )}
           {candidate.pdf_url && (
             <Button asChild variant="ghost" size="sm">
-              <a href={candidate.pdf_url} target="_blank" rel="noreferrer">Open PDF <ExternalLink className="ml-1 h-3.5 w-3.5" /></a>
+              <a href={candidate.pdf_url} target="_blank" rel="noreferrer">{copy("Open PDF")} <ExternalLink className="ml-1 h-3.5 w-3.5" /></a>
             </Button>
           )}
         </div>
-        <Button className="w-full" disabled={!available} onClick={() => onAnalyse(candidate)}>
-          {available ? "Analyse and read" : "No PDF available"}
+        <Button className="w-full" disabled={!available || importing} onClick={() => onAnalyse(candidate)}>
+          {importing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{available ? copy("Analyse and read") : copy("No PDF available")}
         </Button>
       </CardContent>
     </Card>
@@ -99,6 +102,7 @@ export default function DiscoverPage() {
   const [preview, setPreview] = useState<DiscoveryCandidate | null>(null);
   const [importing, setImporting] = useState<string | null>(null);
   const requestCounter = useRef(0);
+  const copy = useCallback((value: string) => translateUiText(value, language), [language]);
 
   const activeCollection = useMemo(
     () => collections.find((item) => item.key === collection) || REQUIRED_CONFERENCE_COLLECTIONS.find((item) => item.key === collection),
@@ -119,6 +123,7 @@ export default function DiscoverPage() {
 
   const loadResults = useCallback(async () => {
     if (!canSearch) {
+      requestCounter.current += 1;
       setResults(null);
       setError("");
       return;
@@ -156,7 +161,7 @@ export default function DiscoverPage() {
   };
 
   const analyse = async (candidate: DiscoveryCandidate) => {
-    if (!canAnalyseCandidate(candidate)) return;
+    if (!canAnalyseCandidate(candidate) || importing) return;
     setImporting(candidate.source_external_id);
     try {
       const response = candidate.source_provider === "arxiv"
@@ -167,10 +172,10 @@ export default function DiscoverPage() {
           (createArxivProvenance(candidate) as ArxivProvenance | null) || undefined,
         )
         : await importConferenceCatalogPaper(candidate.id!, true, language);
-      toast.success("Paper added to your library. Analysis has started.");
+      toast.success(copy("Paper added to your library. Analysis has started."));
       router.push(`/articles/${response.article_id}`);
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : "Could not import this paper.");
+      toast.error(caught instanceof Error ? caught.message : copy("Could not import this paper."));
     } finally {
       setImporting(null);
     }
@@ -181,31 +186,33 @@ export default function DiscoverPage() {
   return (
     <div className="space-y-8">
       <section className="space-y-2">
-        <p className="text-sm font-medium text-primary">Research inbox</p>
-        <h1 className="text-3xl font-bold tracking-tight">Discover Papers</h1>
-        <p className="max-w-3xl text-muted-foreground">Search arXiv or browse local conference snapshots, then explicitly choose the papers to analyse in your library.</p>
+        <p className="text-sm font-medium text-primary">{copy("Research inbox")}</p>
+        <h1 className="text-3xl font-bold tracking-tight">{copy("Discover Papers")}</h1>
+        <p className="max-w-3xl text-muted-foreground">{copy("Search arXiv or browse local conference snapshots, then explicitly choose the papers to analyse in your library.")}</p>
       </section>
 
-      <section className="space-y-3" aria-label="Paper source">
-        <div className="flex items-center gap-2"><FileSearch className="h-5 w-5 text-primary" /><h2 className="text-xl font-semibold">Paper source</h2></div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <section className="space-y-3" aria-label={copy("Paper source")}>
+        <div className="flex items-center gap-2"><FileSearch className="h-5 w-5 text-primary" /><h2 className="text-xl font-semibold">{copy("Paper source")}</h2></div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" role="group" aria-label={copy("Paper source")}>
           <button
             type="button"
             onClick={() => selectMode("arxiv")}
+            aria-pressed={mode === "arxiv"}
             className={`rounded-lg border p-4 text-left transition-colors ${mode === "arxiv" ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:bg-accent"}`}
           >
-            <p className="font-semibold">Search arXiv</p>
-            <p className="mt-1 text-sm text-muted-foreground">Live public metadata search. Nothing is imported until you select a paper.</p>
+            <p className="font-semibold">{copy("Search arXiv")}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{copy("Live public metadata search. Nothing is imported until you select a paper.")}</p>
           </button>
           {collections.map((item) => (
             <button
               key={item.key}
-              type="button"
-              onClick={() => selectMode("collection", item.key)}
+            type="button"
+            onClick={() => selectMode("collection", item.key)}
+            aria-pressed={mode === "collection" && collection === item.key}
               className={`rounded-lg border p-4 text-left transition-colors ${mode === "collection" && collection === item.key ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:bg-accent"}`}
             >
               <p className="font-semibold">{item.label}</p>
-              <p className="mt-1 text-sm text-muted-foreground">Local imported catalogue snapshot</p>
+              <p className="mt-1 text-sm text-muted-foreground">{copy("Local imported catalogue snapshot")}</p>
             </button>
           ))}
         </div>
@@ -214,37 +221,37 @@ export default function DiscoverPage() {
       <section className="rounded-xl border bg-card p-4 sm:p-5">
         <div className="grid gap-3 md:grid-cols-[1fr_12rem_auto]">
           <label className="space-y-1.5">
-            <span className="text-sm font-medium">Search papers</span>
-            <div className="relative"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder={mode === "arxiv" ? "Search arXiv…" : `Search ${activeCollection?.label || "conference papers"}…`} className="pl-9" /></div>
+            <span className="text-sm font-medium">{copy("Search papers")}</span>
+            <div className="relative"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder={mode === "arxiv" ? copy("Search arXiv…") : copy("Search conference papers…")} className="pl-9" /></div>
           </label>
           <label className="space-y-1.5">
-            <span className="text-sm font-medium">Search in</span>
+            <span className="text-sm font-medium">{copy("Search in")}</span>
             <Select value={scope} onValueChange={(value) => { setScope(value as DiscoverySearchScope); setPage(1); }}>
               <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="title">Title</SelectItem><SelectItem value="abstract">Abstract</SelectItem><SelectItem value="keywords">Keywords</SelectItem></SelectContent>
+              <SelectContent><SelectItem value="title">{copy("Title")}</SelectItem><SelectItem value="abstract">{copy("Abstract")}</SelectItem><SelectItem value="keywords">{copy("Keywords")}</SelectItem></SelectContent>
             </Select>
           </label>
-          <Button className="self-end" onClick={() => void loadResults()} disabled={!canSearch || loading}>{loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}Search</Button>
+          <Button className="self-end" onClick={() => void loadResults()} disabled={!canSearch || loading}>{loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}{copy("Search")}</Button>
         </div>
-        {mode === "collection" && <p className="mt-3 text-xs text-muted-foreground">Conference results are local-only. Import a snapshot with the maintainer command before this collection will contain papers.</p>}
+        {mode === "collection" && <p className="mt-3 text-xs text-muted-foreground">{copy("Conference results are local-only. Import a snapshot with the maintainer command before this collection will contain papers.")}</p>}
       </section>
 
       <section aria-live="polite" className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div><h2 className="text-xl font-semibold">{mode === "arxiv" ? "arXiv results" : activeCollection?.label || "Conference papers"}</h2>{results && <p className="text-sm text-muted-foreground">{results.total} paper{results.total === 1 ? "" : "s"} found</p>}</div>
-          {results && results.total > 0 && <span className="text-sm text-muted-foreground">Page {page} of {totalPages}</span>}
+          <div><h2 className="text-xl font-semibold">{mode === "arxiv" ? copy("arXiv results") : activeCollection?.label || copy("Conference papers")}</h2>{results && <p className="text-sm text-muted-foreground">{results.total} {copy(results.total === 1 ? "paper found" : "papers found")}</p>}</div>
+          {results && results.total > 0 && <span className="text-sm text-muted-foreground">{copy("Page")} {page} {copy("of")} {totalPages}</span>}
         </div>
         {loading && <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 6 }, (_, index) => <Skeleton key={index} className="h-80" />)}</div>}
-        {!loading && error && <Card><CardContent className="space-y-3 p-6"><p className="font-medium">Unable to load papers</p><p className="text-sm text-muted-foreground">{error}</p><Button variant="outline" onClick={() => void loadResults()}>Retry</Button></CardContent></Card>}
-        {!loading && !error && !results && <Card><CardContent className="p-8 text-center"><p className="font-medium">{emptyState.title}</p><p className="mt-2 text-sm text-muted-foreground">{emptyState.detail}</p></CardContent></Card>}
-        {!loading && !error && results?.items.length === 0 && <Card><CardContent className="p-8 text-center"><p className="font-medium">No papers found</p><p className="mt-2 text-sm text-muted-foreground">Try another query or search scope.</p></CardContent></Card>}
-        {!loading && !error && results?.items.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{results.items.map((candidate) => <CandidateCard key={`${candidate.source_provider}-${candidate.id || candidate.source_external_id}`} candidate={candidate} onPreview={setPreview} onAnalyse={analyse} />)}</div> : null}
-        {!loading && !error && results && results.total > DISCOVER_PAGE_SIZE && <div className="flex justify-center gap-3"><Button variant="outline" disabled={page === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</Button><Button variant="outline" disabled={page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Next</Button></div>}
+        {!loading && error && <Card><CardContent className="space-y-3 p-6"><p className="font-medium">{copy("Unable to load papers")}</p><p className="text-sm text-muted-foreground">{error}</p><Button variant="outline" onClick={() => void loadResults()}>{copy("Retry")}</Button></CardContent></Card>}
+        {!loading && !error && !results && <Card><CardContent className="p-8 text-center"><p className="font-medium">{copy(emptyState.title)}</p><p className="mt-2 text-sm text-muted-foreground">{copy(emptyState.detail)}</p></CardContent></Card>}
+        {!loading && !error && results?.items.length === 0 && <Card><CardContent className="p-8 text-center"><p className="font-medium">{copy("No papers found")}</p><p className="mt-2 text-sm text-muted-foreground">{copy("Try another query or search scope.")}</p></CardContent></Card>}
+        {!loading && !error && results?.items.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{results.items.map((candidate) => <CandidateCard key={`${candidate.source_provider}-${candidate.id || candidate.source_external_id}`} candidate={candidate} onPreview={setPreview} onAnalyse={analyse} importing={importing === candidate.source_external_id} copy={copy} />)}</div> : null}
+        {!loading && !error && results && results.total > DISCOVER_PAGE_SIZE && <div className="flex justify-center gap-3"><Button variant="outline" disabled={page === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>{copy("Previous")}</Button><Button variant="outline" disabled={page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>{copy("Next")}</Button></div>}
       </section>
 
       <Dialog open={Boolean(preview)} onOpenChange={(open) => { if (!open) setPreview(null); }}>
         <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
-          {preview && <><DialogHeader><DialogTitle>{preview.title}</DialogTitle><DialogDescription>{preview.authors.join(", ") || "Authors unavailable"}</DialogDescription></DialogHeader><div className="space-y-4 text-sm"><div className="flex flex-wrap gap-2"><Badge variant="secondary">{sourceLabel(preview)}</Badge>{preview.venue && <Badge variant="outline">{preview.venue}</Badge>}</div><p className="leading-6 text-muted-foreground">{preview.abstract || "No abstract is available for this paper."}</p></div><DialogFooter><Button variant="outline" onClick={() => setPreview(null)}>Close</Button><Button disabled={!canAnalyseCandidate(preview) || importing === preview.source_external_id} onClick={() => void analyse(preview)}>{importing === preview.source_external_id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{canAnalyseCandidate(preview) ? "Analyse and read" : "No PDF available"}</Button></DialogFooter></>}
+          {preview && <><DialogHeader><DialogTitle>{preview.title}</DialogTitle><DialogDescription>{preview.authors.join(", ") || copy("Authors unavailable")}</DialogDescription></DialogHeader><div className="space-y-4 text-sm"><div className="flex flex-wrap gap-2"><Badge variant="secondary">{sourceLabel(preview)}</Badge>{preview.venue && <Badge variant="outline">{preview.venue}</Badge>}</div><p className="leading-6 text-muted-foreground">{preview.abstract || copy("No abstract is available for this paper.")}</p></div><DialogFooter><Button variant="outline" onClick={() => setPreview(null)}>{copy("Close")}</Button><Button disabled={!canAnalyseCandidate(preview) || importing === preview.source_external_id} onClick={() => void analyse(preview)}>{importing === preview.source_external_id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{canAnalyseCandidate(preview) ? copy("Analyse and read") : copy("No PDF available")}</Button></DialogFooter></>}
         </DialogContent>
       </Dialog>
     </div>

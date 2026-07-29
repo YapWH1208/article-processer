@@ -99,6 +99,19 @@ def test_import_snapshot_upserts_rows_and_skips_invalid_data(tmp_path, db_sessio
     assert json.loads(stored.authors_json) == ["Ada Researcher", "Lin Scientist"]
 
 
+def test_catalogue_snapshot_drops_non_http_links(tmp_path, db_session):
+    snapshot = tmp_path / "unsafe-links.jsonl"
+    row = _paper_row()
+    row["landing_url"] = "javascript:alert(1)"
+    row["content"]["pdf"]["value"] = "data:application/pdf,not-a-link"
+    snapshot.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+    import_catalog_snapshot(db_session, "iclr_2026", snapshot)
+    stored = db_session.query(ConferenceCatalogPaper).filter_by(source_external_id="paper-1").one()
+    assert stored.landing_url is None
+    assert stored.pdf_url is None
+
+
 def test_import_requires_an_explicit_jsonl_input_path(tmp_path, db_session):
     with pytest.raises(CatalogValidationError):
         import_catalog_snapshot(db_session, "iclr_2026", tmp_path / "missing.jsonl")

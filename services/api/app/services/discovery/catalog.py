@@ -7,9 +7,11 @@ snapshot explicitly; this module never performs network requests or crawling.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import datetime
 import json
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
@@ -116,6 +118,16 @@ def _first_text(*values: Any) -> str | None:
     return None
 
 
+def _safe_public_link(value: str | None) -> str | None:
+    """Keep only browser-safe HTTP(S) links from untrusted catalogue snapshots."""
+    if not value:
+        return None
+    parsed = urlparse(value)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        return None
+    return value
+
+
 def normalize_catalog_paper(raw: Any) -> NormalizedCatalogPaper:
     """Normalize a Paper Insight-style JSONL row into application metadata."""
     if not isinstance(raw, dict):
@@ -155,8 +167,8 @@ def normalize_catalog_paper(raw: Any) -> NormalizedCatalogPaper:
         keywords=keywords,
         published_date=published_date,
         venue=venue,
-        landing_url=landing_url,
-        pdf_url=pdf_url,
+        landing_url=_safe_public_link(landing_url),
+        pdf_url=_safe_public_link(pdf_url),
         raw_payload_json=json.dumps(raw, ensure_ascii=False, separators=(",", ":")),
     )
 
@@ -187,6 +199,7 @@ def _assign_catalog_paper(target: ConferenceCatalogPaper, paper: NormalizedCatal
     target.landing_url = paper.landing_url
     target.pdf_url = paper.pdf_url
     target.raw_payload_json = paper.raw_payload_json
+    target.imported_at = datetime.datetime.utcnow()
 
 
 def import_catalog_snapshot(db: Session, conference_key: str, input_path: Path) -> CatalogImportSummary:

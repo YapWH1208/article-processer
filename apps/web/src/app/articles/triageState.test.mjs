@@ -19,6 +19,7 @@ test("Triage evidence maps to the existing reader citation contract", () => {
     section_title: "Results", chunk_id: 7, page_start: 4, page_end: 4, snippet: "score improved",
   });
   assert.equal(createTriageEvidenceTarget(null).label, "Source unavailable");
+  assert.equal(createTriageEvidenceTarget({ chunk_id: 7 }).available, false);
 });
 
 test("Triage comparison needs two unique related papers and preserves the current article", () => {

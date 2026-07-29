@@ -138,7 +138,7 @@ def _detect_url_type(url: str) -> tuple[str, str | None]:
     host = (parsed.hostname or "").lower()
     path = parsed.path or ""
 
-    if host.endswith("arxiv.org"):
+    if host == "arxiv.org" or host.endswith(".arxiv.org"):
         m = re.search(r"^/abs/(\d{4}\.\d{4,}(?:v\d+)?)$", path) or re.search(r"^/pdf/(\d{4}\.\d{4,}(?:v\d+)?)(?:\.pdf)?$", path)
         if m:
             return ("arxiv", m.group(1))
@@ -189,7 +189,9 @@ def _metadata_from_arxiv_provenance(provenance: ArxivProvenanceRequest, identifi
         "source_provider": "arxiv",
         "source_external_id": provenance.source_external_id,
         "source_landing_url": provenance.source_landing_url,
-        "source_pdf_url": provenance.source_pdf_url,
+        # Derive this from the verified selected identifier. Never persist a
+        # caller-supplied PDF link as arXiv provenance.
+        "source_pdf_url": f"https://arxiv.org/pdf/{identifier}.pdf",
         "source_collection": None,
         "source_retrieved_at": provenance.source_retrieved_at,
         "source_payload_json": json.dumps(provenance.source_payload, ensure_ascii=False) if provenance.source_payload else None,

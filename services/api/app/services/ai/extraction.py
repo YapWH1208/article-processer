@@ -202,7 +202,7 @@ class ExtractionService:
             status = "unknown"
         repository_url = ExtractionService._coerce_optional_string(raw_code.get("repository_url"))
         evidence = ExtractionService._coerce_evidence(raw_code.get("evidence"))
-        if repository_url and evidence is None:
+        if repository_url and (evidence is None or not repository_url.startswith(("https://", "http://"))):
             repository_url = None
             status = "unknown"
 

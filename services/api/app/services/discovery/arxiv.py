@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import re
 from typing import Callable
@@ -14,6 +15,7 @@ from app.schemas.discover import DiscoveryCandidate
 
 ARXIV_API_URL = "https://export.arxiv.org/api/query"
 _ATOM_NAMESPACE = "{http://www.w3.org/2005/Atom}"
+_OPENSEARCH_NAMESPACE = "{http://a9.com/-/spec/opensearch/1.1/}"
 _ARXIV_QUERY_FIELDS = {
     "title": "ti",
     "abstract": "abs",
@@ -23,6 +25,12 @@ _ARXIV_QUERY_FIELDS = {
 
 class ArxivDiscoveryError(RuntimeError):
     """The fixed arXiv source failed or returned an invalid feed."""
+
+
+@dataclass(frozen=True)
+class ArxivSearchPage:
+    items: list[DiscoveryCandidate]
+    total: int
 
 
 def _text(element: ElementTree.Element | None) -> str | None:
@@ -46,7 +54,7 @@ def search_arxiv(
     offset: int = 0,
     limit: int = 25,
     http_get: Callable[..., httpx.Response] | None = None,
-) -> list[DiscoveryCandidate]:
+) -> ArxivSearchPage:
     """Search only the fixed arXiv API and map its Atom feed to typed candidates."""
     normalized_query = " ".join(str(query or "").split())
     if not normalized_query:
@@ -118,4 +126,9 @@ def search_arxiv(
                 source_retrieved_at=retrieved_at,
             )
         )
-    return candidates
+    total_text = _text(root.find(f"{_OPENSEARCH_NAMESPACE}totalResults"))
+    try:
+        total = max(0, int(total_text)) if total_text is not None else result_offset + len(candidates)
+    except ValueError:
+        total = result_offset + len(candidates)
+    return ArxivSearchPage(items=candidates, total=total)

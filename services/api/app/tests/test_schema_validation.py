@@ -153,6 +153,20 @@ class TestExtractionValidation:
         with pytest.raises(ValueError, match="requires paper-text evidence"):
             ExtractionResult.model_validate(extraction)
 
+    def test_triage_normalization_drops_non_http_repository_urls(self):
+        triage = ExtractionService._coerce_triage({
+            "code_status": {
+                "status": "linked_in_paper",
+                "repository_url": "ftp://example.com/repo",
+                "evidence": {"source_section": "Code"},
+            },
+        })
+        assert triage["code_status"] == {
+            "status": "unknown",
+            "repository_url": None,
+            "evidence": {"source_section": "Code", "page_number": None, "chunk_id": None, "snippet": None},
+        }
+
     def test_claim_missing_claim_field(self):
         """Key claims without the 'claim' field should be flagged."""
         extraction = make_valid_extraction()

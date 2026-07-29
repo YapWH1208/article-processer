@@ -27,7 +27,8 @@ def db_session(tmp_path):
 
 class _FakeArxivResponse:
     text = """<?xml version='1.0' encoding='UTF-8'?>
-    <feed xmlns='http://www.w3.org/2005/Atom'>
+    <feed xmlns='http://www.w3.org/2005/Atom' xmlns:opensearch='http://a9.com/-/spec/opensearch/1.1/'>
+      <opensearch:totalResults>42</opensearch:totalResults>
       <entry>
         <id>http://arxiv.org/abs/2401.12345v2</id>
         <title> Evidence Grounded Discovery </title>
@@ -50,7 +51,8 @@ def test_arxiv_search_uses_the_fixed_endpoint_and_maps_atom_entries():
         calls.append((url, kwargs))
         return _FakeArxivResponse()
 
-    candidates = arxiv.search_arxiv("evidence", scope="title", limit=99, http_get=fake_get)
+    page = arxiv.search_arxiv("evidence", scope="title", limit=99, http_get=fake_get)
+    candidates = page.items
 
     assert calls[0][0] == arxiv.ARXIV_API_URL
     assert calls[0][1]["params"]["search_query"] == "ti:evidence"
@@ -59,6 +61,7 @@ def test_arxiv_search_uses_the_fixed_endpoint_and_maps_atom_entries():
     assert candidates[0].authors == ["Ada Researcher"]
     assert candidates[0].pdf_url == "https://arxiv.org/pdf/2401.12345v2.pdf"
     assert candidates[0].source_retrieved_at is not None
+    assert page.total == 42
 
 
 def test_catalogue_search_is_local_scoped_and_has_no_article_side_effect(db_session):
@@ -165,6 +168,7 @@ async def test_arxiv_selection_requires_matching_typed_provenance(db_session, tm
     metadata = db_session.query(ArticleMetadata).filter(ArticleMetadata.article_id == response.article_id).one()
     assert metadata.source_provider == "arxiv"
     assert metadata.arxiv_id == "2401.12345"
+    assert metadata.source_pdf_url == "https://arxiv.org/pdf/2401.12345.pdf"
     assert json.loads(metadata.source_payload_json) == {"id": "2401.12345"}
 
 
@@ -174,6 +178,7 @@ def test_openreview_pdf_endpoint_is_recognized_without_weakening_other_url_types
         "https://openreview.net/pdf?id=paper-1",
     )
     assert imports._detect_url_type("https://openreview.net/forum?id=paper-1") == ("unknown", None)
+    assert imports._detect_url_type("https://evil-arxiv.org/abs/2401.12345") == ("unknown", None)
 
 
 def test_article_detail_exposes_optional_provenance_without_changing_source_type(db_session):
