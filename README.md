@@ -81,7 +81,7 @@ cp .env.example apps/web/.env.local
 
 ## Local Conference Catalogue
 
-Conference discovery is deliberately local-first. The app does not crawl conference sites at request time and does not bundle a stale conference dataset. A maintainer imports a Paper Insight-compatible JSONL snapshot into the local SQLite catalogue; users can then search, preview, open the public source/PDF, and explicitly select a paper for analysis from `/discover`.
+Conference discovery is deliberately local-first. The app does not crawl conference sites at request time and does not bundle a stale conference dataset. A maintainer refreshes a JSONL snapshot into the local SQLite catalogue; users can then search, preview, open the public source/PDF, and explicitly select a paper for analysis from `/discover`.
 
 Supported collection keys:
 
@@ -91,7 +91,16 @@ Supported collection keys:
 - `neurips_2025`
 - `icml_2025`
 
-After applying migrations, import a local snapshot with:
+The API applies Alembic migrations at startup, including upgrades to an existing SQLite file. To refresh one of the supported public proceedings sources and import it into the local catalogue, run:
+
+```bash
+cd services/api
+python -m app.commands.scrape_conference_catalog --conference cvpr_2026
+```
+
+The command writes an auditable JSONL snapshot under `data/conference-snapshots/` before it updates SQLite. Use `--output path/to/snapshot.jsonl` to choose a destination or `--no-import` to inspect/review the snapshot before importing it. The adapters are bounded, sequential requests: ICLR reads its official public oral/poster program feed (without querying OpenReview reviews, profiles, or discussions); CVPR, NeurIPS, and ICML read their public proceedings indexes. CHI uses its ACM proceedings index, with Crossref's public metadata for the CHI 2026 proceedings as a fallback when the publisher blocks an automated request.
+
+To import a separately prepared Paper Insight-compatible JSONL snapshot instead:
 
 ```bash
 cd services/api
