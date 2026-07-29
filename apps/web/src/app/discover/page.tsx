@@ -126,6 +126,7 @@ export default function DiscoverPage() {
       requestCounter.current += 1;
       setResults(null);
       setError("");
+      setLoading(false);
       return;
     }
     const requestId = ++requestCounter.current;

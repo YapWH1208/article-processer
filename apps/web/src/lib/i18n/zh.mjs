@@ -69,6 +69,7 @@ export default {
     "View source": "查看来源",
     "Source unavailable": "来源不可用",
     "Research inbox": "研究收件箱",
+    "Discover Papers": "发现论文",
     "Search arXiv or browse local conference snapshots, then explicitly choose the papers to analyse in your library.": "搜索 arXiv 或浏览本地会议快照，然后明确选择要在文库中分析的论文。",
     "Paper source": "论文来源",
     "Search arXiv": "搜索 arXiv",
