@@ -110,6 +110,7 @@ test("language shell copy provides English and Chinese labels", () => {
   assert.deepEqual(getShellCopy("en").nav, {
     home: "Home",
     library: "Library",
+    discover: "Discover",
     upload: "Upload",
     chat: "Chat",
     jobs: "Jobs",
@@ -120,6 +121,7 @@ test("language shell copy provides English and Chinese labels", () => {
   assert.deepEqual(getShellCopy("zh").nav, {
     home: "首页",
     library: "文库",
+    discover: "发现",
     upload: "上传",
     chat: "聊天",
     jobs: "任务",

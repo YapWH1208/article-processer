@@ -2,6 +2,7 @@ const UI_STRINGS = [
   "Article Processor",
   "Home",
   "Library",
+  "Discover",
   "Upload",
   "Chat",
   "Graph",
@@ -22,6 +23,7 @@ const UI_STRINGS = [
   "Switch to English",
   "Go to Home",
   "Go to Library",
+  "Discover Papers",
   "Go to Upload",
   "Go to Chat",
   "Go to Jobs",
@@ -468,6 +470,7 @@ export default {
     nav: {
       home: "Home",
       library: "Library",
+      discover: "Discover",
       upload: "Upload",
       chat: "Chat",
       jobs: "Jobs",

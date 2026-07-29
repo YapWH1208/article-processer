@@ -24,6 +24,7 @@ export default {
     nav: {
       home: "首页",
       library: "文库",
+      discover: "发现",
       upload: "上传",
       chat: "聊天",
       jobs: "任务",

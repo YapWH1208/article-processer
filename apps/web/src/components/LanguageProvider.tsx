@@ -12,7 +12,7 @@ import {
 } from "@/lib/languageState.mjs";
 
 export type AppLanguage = "en" | "zh";
-export type NavLabelKey = "home" | "library" | "upload" | "chat" | "jobs" | "graph" | "dashboard";
+export type NavLabelKey = "home" | "library" | "discover" | "upload" | "chat" | "jobs" | "graph" | "dashboard";
 export type ShellCopy = {
   appName: string;
   nav: Record<NavLabelKey, string>;

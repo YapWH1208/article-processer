@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Toaster } from "sonner";
 import {
   FileText, Sun, Moon, Home, FileUp, MessageCircle,
-  GitBranch, BarChart3, Settings2, BookOpen, Menu, X, ScrollText,
+  GitBranch, BarChart3, Settings2, BookOpen, Compass, Menu, X, ScrollText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -85,6 +85,7 @@ function LanguageToggle() {
 const navLinks = [
   { href: "/", labelKey: "home", icon: Home },
   { href: "/articles", labelKey: "library", icon: BookOpen },
+  { href: "/discover", labelKey: "discover", icon: Compass },
   { href: "/upload", labelKey: "upload", icon: FileUp },
   { href: "/chat", labelKey: "chat", icon: MessageCircle },
   { href: "/logs", labelKey: "jobs", icon: ScrollText },

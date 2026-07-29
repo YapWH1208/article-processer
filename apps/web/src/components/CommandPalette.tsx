@@ -48,6 +48,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const staticCommands: CommandItem[] = [
     { id: "home", label: translateUiText("Go to Home", language), icon: Home, href: "/", keywords: ["home", "landing", "首页"] },
     { id: "library", label: translateUiText("Go to Library", language), icon: BookOpen, href: "/articles", keywords: ["articles", "library", "papers", "文库"] },
+    { id: "discover", label: translateUiText("Discover Papers", language), icon: BookOpen, href: "/discover", keywords: ["discover", "conference", "arxiv", "papers", "论文"] },
     { id: "upload", label: translateUiText("Go to Upload", language), icon: FileUp, href: "/upload", keywords: ["upload", "add", "import", "上传"] },
     { id: "chat", label: translateUiText("Go to Chat", language), icon: MessageCircle, href: "/chat", keywords: ["chat", "ask", "conversation", "聊天"] },
     { id: "jobs", label: translateUiText("Go to Jobs", language), icon: ScrollText, href: "/logs", keywords: ["jobs", "logs", "processing", "任务"] },

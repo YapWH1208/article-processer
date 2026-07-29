@@ -23,6 +23,16 @@ export interface ArticleDetail {
   processing_error: string | null;
   needs_review: boolean;
   is_archived: number;
+  provenance?: ArticleProvenance | null;
+}
+
+export interface ArticleProvenance {
+  source_provider: string;
+  source_external_id?: string | null;
+  source_landing_url?: string | null;
+  source_pdf_url?: string | null;
+  source_collection?: string | null;
+  source_retrieved_at?: string | null;
 }
 
 export interface ArticleListResponse {
@@ -43,6 +53,52 @@ export interface UrlImportResponse {
   filename: string;
   source_type: string;
   url: string;
+}
+
+// Discovery types
+
+export type DiscoverySearchScope = "title" | "abstract" | "keywords";
+
+export interface ConferenceCollection {
+  key: string;
+  label: string;
+  year: number;
+}
+
+export interface DiscoveryCandidate {
+  id?: number | null;
+  source_provider: string;
+  source_external_id: string;
+  title: string;
+  authors: string[];
+  abstract?: string | null;
+  keywords: string[];
+  venue?: string | null;
+  published_date?: string | null;
+  landing_url?: string | null;
+  pdf_url?: string | null;
+  collection?: string | null;
+  source_retrieved_at?: string | null;
+}
+
+export interface DiscoveryPage {
+  items: DiscoveryCandidate[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+export interface ArxivProvenance {
+  source_provider: "arxiv";
+  source_external_id: string;
+  source_landing_url: string;
+  source_pdf_url?: string | null;
+  source_retrieved_at?: string | null;
+  source_payload?: Record<string, unknown> | null;
+  title?: string | null;
+  authors: string[];
+  abstract?: string | null;
+  venue?: string | null;
 }
 
 // ── Extraction types ─────────────────────────────────────────────

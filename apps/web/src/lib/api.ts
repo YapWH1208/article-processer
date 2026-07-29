@@ -46,11 +46,68 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 // URL Import
 
-export async function importFromUrl(url: string, runAi = true, language = "en") {
+export async function importFromUrl(
+  url: string,
+  runAi = true,
+  language = "en",
+  provenance?: import("./types").ArxivProvenance,
+) {
   return apiFetch<import("./types").UrlImportResponse>("/imports/url", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, run_ai: runAi, language }),
+    body: JSON.stringify({ url, run_ai: runAi, language, ...(provenance ? { provenance } : {}) }),
+  });
+}
+
+// Paper discovery
+
+function discoveryQuery(params: {
+  query?: string;
+  scope?: import("./types").DiscoverySearchScope;
+  offset?: number;
+  limit?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params.query?.trim()) searchParams.set("query", params.query.trim());
+  if (params.scope) searchParams.set("scope", params.scope);
+  if (params.offset != null) searchParams.set("offset", String(params.offset));
+  if (params.limit != null) searchParams.set("limit", String(params.limit));
+  return searchParams.toString();
+}
+
+export async function listConferenceCollections() {
+  return apiFetch<import("./types").ConferenceCollection[]>("/discover/collections");
+}
+
+export async function searchArxivPapers(params: {
+  query: string;
+  scope: import("./types").DiscoverySearchScope;
+  offset?: number;
+  limit?: number;
+}) {
+  return apiFetch<import("./types").DiscoveryPage>(`/discover/arxiv?${discoveryQuery(params)}`);
+}
+
+export async function searchConferencePapers(
+  collection: string,
+  params: {
+    query?: string;
+    scope: import("./types").DiscoverySearchScope;
+    offset?: number;
+    limit?: number;
+  },
+) {
+  const query = discoveryQuery(params);
+  return apiFetch<import("./types").DiscoveryPage>(
+    `/discover/conferences/${encodeURIComponent(collection)}/papers${query ? `?${query}` : ""}`,
+  );
+}
+
+export async function importConferenceCatalogPaper(catalogPaperId: number, runAi = true, language = "en") {
+  return apiFetch<import("./types").UrlImportResponse>("/imports/url", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ catalog_paper_id: catalogPaperId, run_ai: runAi, language }),
   });
 }
 
