@@ -116,6 +116,26 @@ export interface KeyClaim {
   confidence?: number | null;
 }
 
+export interface TriageFact {
+  text?: string | null;
+  evidence?: Evidence | null;
+}
+
+export interface TriageCodeStatus {
+  status: "linked_in_paper" | "not_stated" | "unknown";
+  repository_url?: string | null;
+  evidence?: Evidence | null;
+}
+
+export interface TriageBrief {
+  verdict?: TriageFact | null;
+  problem?: TriageFact | null;
+  method?: TriageFact | null;
+  results?: TriageFact | null;
+  limitations?: TriageFact | null;
+  code_status?: TriageCodeStatus | null;
+}
+
 export interface Reference {
   title?: string | null;
   authors?: string | null;
@@ -169,6 +189,7 @@ export interface ExtractionResult {
   tags?: string[];
   graph_entities?: GraphEntityItem[];
   graph_relationships?: GraphRelationshipItem[];
+  triage?: TriageBrief | null;
 }
 
 export interface ExtractionResponse {

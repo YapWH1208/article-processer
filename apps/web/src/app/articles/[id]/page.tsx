@@ -31,11 +31,12 @@ import { useLanguage } from "@/components/LanguageProvider";
 import { sendChatMessage, sendMultiArticleChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, updateArticleExtraction, toggleArchiveArticle, deleteArticle, getRelatedArticles } from "@/lib/api";
 import { getPromptText, translateUiText } from "@/lib/languageState.mjs";
 import { normalizeHtmlTablesForMarkdown } from "@/lib/markdownHtmlTables.mjs";
-import type { ExtractionResult } from "@/lib/types";
+import type { ArticleProvenance, Evidence, ExtractionResult, TriageBrief, TriageFact } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
 import { createArticleStatusCallout, createChatSubmission, createCitationReaderTarget, createWorkspacePanelSummary, slugifyWorkspaceText } from "../articleWorkspaceState.mjs";
 import { formatExtractionForReview, parseReviewedExtraction } from "../extractionReviewState.mjs";
 import { createArticleReadingGuide, createLibraryReadingGuide } from "../readingGuideState.mjs";
+import { createTriageComparison, createTriageEvidenceTarget, getTriageWorkspaceState } from "../triageState.mjs";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -43,6 +44,7 @@ interface Article {
   id: number; title: string; status: string; original_filename: string;
   source_type: string; parser_name?: string | null; created_at: string; updated_at: string; is_archived: number;
   processing_error?: string | null;
+  provenance?: ArticleProvenance | null;
 }
 
 interface SkillDef {
@@ -86,6 +88,7 @@ export default function ArticleDetailPage() {
   const [graph, setGraph] = useState<{ entities: unknown[]; relationships: unknown[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("guide");
+  const triageTabInitialized = useRef(false);
   const [sidePanelTab, setSidePanelTab] = useState("chat");
   const [readerView, setReaderView] = useState<"markdown" | "pdf">("markdown");
 
@@ -360,6 +363,7 @@ export default function ArticleDetailPage() {
   };
 
   const isProcessing = article && !isTerminalArticleStatus(article.status);
+  const triageWorkspace = useMemo(() => getTriageWorkspaceState(extraction), [extraction]);
   const workspaceSummary = createWorkspacePanelSummary({ messages, jobs, graph });
   const statusCallout = createArticleStatusCallout({ article, extractionErrors });
   const citations = (msg: ChatMessage): Citation[] => {
@@ -382,6 +386,12 @@ export default function ArticleDetailPage() {
       toast.info("Source section is not visible in the reader yet");
     }, 50);
   };
+
+  useEffect(() => {
+    if (loading || triageTabInitialized.current) return;
+    setTab(triageWorkspace.defaultTab);
+    triageTabInitialized.current = true;
+  }, [loading, triageWorkspace.defaultTab]);
 
   if (loading) {
     return (
@@ -576,7 +586,8 @@ export default function ArticleDetailPage() {
         <div className={`flex-1 min-w-0 flex flex-col ${chatOpen ? 'hidden md:flex' : 'flex'}`}>
           <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col min-h-0">
             <div className="flex items-center justify-between gap-2 mb-3">
-              <TabsList>
+              <TabsList className="max-w-full overflow-x-scroll">
+                {triageWorkspace.triage && <TabsTrigger value="triage" className="gap-1.5"><CheckCircle2 className="h-4 w-4"/>{translateUiText("Triage", language)}</TabsTrigger>}
                 <TabsTrigger value="guide" className="gap-1.5"><ChevronRight className="h-4 w-4"/>{translateUiText("Guide", language)}</TabsTrigger>
                 <TabsTrigger value="reader" className="gap-1.5"><ScrollText className="h-4 w-4"/>Reader</TabsTrigger>
                 <TabsTrigger value="summary" className="gap-1.5"><FileText className="h-4 w-4"/>Summary</TabsTrigger>
@@ -589,6 +600,34 @@ export default function ArticleDetailPage() {
             </div>
 
             <AnimatePresence mode="wait">
+              {/* Triage */}
+              {tab === "triage" && triageWorkspace.triage && (
+                <motion.div key="triage" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 min-h-0">
+                  <TabsContent value="triage" forceMount className="h-full m-0">
+                    <Card className="h-full flex flex-col">
+                      <CardHeader className="shrink-0">
+                        <CardTitle className="text-lg">{translateUiText("Triage Brief", language)}</CardTitle>
+                        <CardDescription>{translateUiText("Evidence-linked orientation before you read the full paper.", language)}</CardDescription>
+                      </CardHeader>
+                      <CardContent className="flex-1 min-h-0 p-4">
+                        <ScrollArea className="h-full">
+                          <TriageContent
+                            triage={triageWorkspace.triage}
+                            provenance={article.provenance}
+                            articleId={articleId}
+                            articleTitle={article.title || article.original_filename}
+                            onOpenEvidence={openCitation}
+                            onCompare={compareArticles}
+                            comparing={chatting}
+                            language={language}
+                          />
+                        </ScrollArea>
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+                </motion.div>
+              )}
+
               {/* Guide */}
               {tab === "guide" && (
                 <motion.div key="guide" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 min-h-0">
@@ -1181,6 +1220,116 @@ function MarkdownReader({ text, onSelect }: { text: string; onSelect: (t: string
       </AnimatePresence>
     </div>
   );
+}
+
+function TriageContent({
+  triage,
+  provenance,
+  articleId,
+  articleTitle,
+  onOpenEvidence,
+  onCompare,
+  comparing,
+  language,
+}: {
+  triage: TriageBrief;
+  provenance?: ArticleProvenance | null;
+  articleId: number;
+  articleTitle: string;
+  onOpenEvidence: (citation: Citation) => void;
+  onCompare: (prompt: string, articleIds: number[]) => void;
+  comparing: boolean;
+  language: "en" | "zh";
+}) {
+  const [related, setRelated] = useState<RelatedArticleItem[]>([]);
+  const [loadingRelated, setLoadingRelated] = useState(true);
+  const [selectedArticleIds, setSelectedArticleIds] = useState<number[]>([]);
+  const copy = useCallback((value: string) => translateUiText(value, language), [language]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingRelated(true);
+    getRelatedArticles(articleId, 10)
+      .then((response) => { if (!cancelled) setRelated(response.related || []); })
+      .catch(() => { if (!cancelled) setRelated([]); })
+      .finally(() => { if (!cancelled) setLoadingRelated(false); });
+    return () => { cancelled = true; };
+  }, [articleId]);
+
+  const processedRelated = related.filter((item) => item.status === "completed");
+  const comparison = useMemo(
+    () => createTriageComparison({ articleId, articleTitle, selectedArticleIds }),
+    [articleId, articleTitle, selectedArticleIds],
+  );
+  const toggleRelated = (relatedId: number) => {
+    setSelectedArticleIds((current) => current.includes(relatedId)
+      ? current.filter((id) => id !== relatedId)
+      : [...current, relatedId]);
+  };
+  const facts: Array<{ title: string; fact: TriageFact | null | undefined }> = [
+    { title: copy("Verdict"), fact: triage.verdict },
+    { title: copy("Research Problem"), fact: triage.problem },
+    { title: copy("Method"), fact: triage.method },
+    { title: copy("Results"), fact: triage.results },
+    { title: copy("Limitations"), fact: triage.limitations },
+  ];
+  const codeStatus = triage.code_status;
+
+  return (
+    <div className="space-y-5 pr-3 text-sm">
+      <section className="rounded-md border bg-primary/5 p-4">
+        <p className="text-xs font-medium uppercase tracking-wide text-primary">{copy("First read")}</p>
+        <p className="mt-1 text-muted-foreground">{copy("Use the source controls to jump from a triage claim to the matching reader section.")}</p>
+      </section>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {facts.map(({ title, fact }) => <TriageFactBlock key={title} title={title} fact={fact} onOpenEvidence={onOpenEvidence} language={language} />)}
+      </div>
+
+      <section className="rounded-md border p-4">
+        <div className="mb-2 flex items-center justify-between gap-3"><h3 className="font-semibold">{copy("Code availability")}</h3><Badge variant={codeStatus?.status === "linked_in_paper" ? "default" : "secondary"}>{copy(codeStatus?.status === "linked_in_paper" ? "Linked in paper" : codeStatus?.status === "not_stated" ? "Not stated" : "Unknown")}</Badge></div>
+        {codeStatus?.repository_url ? <a className="break-all text-primary underline-offset-4 hover:underline" href={codeStatus.repository_url} target="_blank" rel="noreferrer">{codeStatus.repository_url}</a> : <p className="text-muted-foreground">{copy("No repository link was stated in the extracted paper evidence.")}</p>}
+        <TriageEvidenceButton evidence={codeStatus?.evidence} onOpenEvidence={onOpenEvidence} language={language} />
+      </section>
+
+      <section className="rounded-md border p-4">
+        <h3 className="font-semibold">{copy("Source provenance")}</h3>
+        {provenance ? (
+          <div className="mt-2 space-y-1.5 text-muted-foreground">
+            <p><span className="font-medium text-foreground">{copy("Provider")}:</span> {provenance.source_provider}</p>
+            {provenance.source_collection && <p><span className="font-medium text-foreground">{copy("Collection")}:</span> {provenance.source_collection}</p>}
+            {provenance.source_retrieved_at && <p><span className="font-medium text-foreground">{copy("Retrieved")}:</span> {new Date(provenance.source_retrieved_at).toLocaleString()}</p>}
+            {provenance.source_landing_url && <a className="inline-block break-all text-primary underline-offset-4 hover:underline" href={provenance.source_landing_url} target="_blank" rel="noreferrer">{copy("Open source")}</a>}
+          </div>
+        ) : <p className="mt-2 text-muted-foreground">{copy("No discovery provenance is stored for this article.")}</p>}
+      </section>
+
+      <section className="rounded-md border p-4">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">{copy("Compare selected papers")}</h3><p className="text-xs text-muted-foreground">{copy("Select at least two completed related papers to compare task, method, results, and limitations in the existing workspace chat.")}</p></div><Button size="sm" disabled={!comparison || comparing} onClick={() => comparison && onCompare(comparison.prompt, comparison.articleIds)}>{copy("Compare")}</Button></div>
+        {loadingRelated ? <p className="text-xs text-muted-foreground">{copy("Loading related articles...")}</p> : processedRelated.length === 0 ? <p className="text-xs text-muted-foreground">{copy("No completed related articles are available for comparison yet.")}</p> : <div className="space-y-2">{processedRelated.map((item) => <label key={item.id} className="flex cursor-pointer items-center gap-3 rounded-md border p-3 hover:bg-muted/30"><input type="checkbox" checked={selectedArticleIds.includes(item.id)} onChange={() => toggleRelated(item.id)} aria-label={`${copy("Select for comparison")}: ${item.title}`} /><span className="min-w-0 flex-1"><span className="block truncate font-medium">{item.title}</span><span className="block text-xs text-muted-foreground">{copy("Similarity")}: {Math.round(item.similarity * 100)}%</span></span></label>)}</div>}
+      </section>
+    </div>
+  );
+}
+
+function TriageFactBlock({ title, fact, onOpenEvidence, language }: {
+  title: string;
+  fact: TriageFact | null | undefined;
+  onOpenEvidence: (citation: Citation) => void;
+  language: "en" | "zh";
+}) {
+  return <section className="rounded-md border p-4"><h3 className="font-semibold">{title}</h3><p className="mt-2 leading-6 text-muted-foreground">{fact?.text || translateUiText("Not stated by the extraction.", language)}</p><TriageEvidenceButton evidence={fact?.evidence} onOpenEvidence={onOpenEvidence} language={language} /></section>;
+}
+
+function TriageEvidenceButton({ evidence, onOpenEvidence, language }: {
+  evidence?: Evidence | null;
+  onOpenEvidence: (citation: Citation) => void;
+  language: "en" | "zh";
+}) {
+  const target = createTriageEvidenceTarget(evidence);
+  return target.available && target.citation
+    ? <Button variant="link" size="sm" className="mt-2 h-auto px-0" onClick={() => onOpenEvidence(target.citation as Citation)}>{translateUiText("View source", language)}</Button>
+    : <p className="mt-2 text-xs text-muted-foreground">{translateUiText("Source unavailable", language)}</p>;
 }
 
 function ReadingGuideContent({
