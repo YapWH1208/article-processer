@@ -32,7 +32,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddress(),
-		Handler:           httpapi.NewServer(cfg).Handler(),
+		Handler:           httpapi.NewServerWithDB(cfg, db).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
