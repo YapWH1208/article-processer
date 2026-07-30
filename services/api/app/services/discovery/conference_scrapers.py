@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode, urljoin, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -27,6 +27,7 @@ FetchText = Callable[[str], str]
 _USER_AGENT = "ArticleProcessorConferenceCatalog/1.0 (+https://github.com/YapWH1208/article-processer)"
 _REQUEST_TIMEOUT_SECONDS = 30.0
 _OPENREVIEW_NOTES_URL = "https://api2.openreview.net/notes"
+_ICLR_2026_VIRTUAL_URL = "https://iclr.cc/static/virtual/data/iclr-2026-orals-posters.json"
 _CVPR_2026_URL = "https://openaccess.thecvf.com/CVPR2026?day=all"
 _CHI_2026_URL = "https://dl.acm.org/doi/proceedings/10.1145/3772318"
 _NEURIPS_2025_URL = "https://proceedings.neurips.cc/paper_files/paper/2025"
@@ -213,6 +214,42 @@ def _scrape_openreview(conference_key: str, fetch: FetchText) -> list[dict[str, 
     if not records:
         raise ConferenceScrapeError(f"{config.venue} OpenReview API did not contain accepted paper entries")
     return records
+
+
+def _scrape_iclr_2026_virtual(fetch: FetchText) -> list[dict[str, Any]]:
+    """Use ICLR's public accepted-paper feed only when API2 is unavailable."""
+    try:
+        payload = json.loads(fetch(_ICLR_2026_VIRTUAL_URL))
+    except json.JSONDecodeError as exc:
+        raise ConferenceScrapeError("ICLR 2026 virtual program returned invalid JSON") from exc
+    records = []
+    for event in payload.get("results", []) if isinstance(payload, dict) else []:
+        if not isinstance(event, dict) or "accept" not in (_clean_text(event.get("decision")) or "").casefold():
+            continue
+        title, event_id = _clean_text(event.get("name")), _clean_text(event.get("id"))
+        landing_url = _absolute_url(_ICLR_2026_VIRTUAL_URL, _clean_text(event.get("paper_url")))
+        if not title or not event_id:
+            continue
+        forum_id = parse_qs(urlparse(landing_url or "").query).get("id", [None])[0]
+        authors = [_clean_text(author.get("fullname") if isinstance(author, dict) else author) for author in event.get("authors", [])]
+        records.append(_record(
+            source_external_id=forum_id or f"iclr-2026-event-{event_id}", title=title,
+            authors=[author for author in authors if author], keywords=_string_list(event.get("keywords")),
+            venue=f"ICLR 2026 {_clean_text(event.get('decision')) or ''}".strip(),
+            landing_url=landing_url or f"https://iclr.cc/virtual/2026/poster/{event_id}",
+            pdf_url=_absolute_url(_ICLR_2026_VIRTUAL_URL, _clean_text(event.get("paper_pdf_url"))) or (f"https://openreview.net/pdf?id={quote(forum_id, safe='')}" if forum_id else None),
+            source_url=_ICLR_2026_VIRTUAL_URL, raw=event,
+        ))
+    if not records:
+        raise ConferenceScrapeError("ICLR 2026 virtual program did not contain accepted paper entries")
+    return records
+
+
+def _scrape_iclr_2026(fetch: FetchText) -> list[dict[str, Any]]:
+    try:
+        return _scrape_openreview("iclr_2026", fetch)
+    except ConferenceScrapeError:
+        return _scrape_iclr_2026_virtual(fetch)
 
 
 def _scrape_cvpr_2026(fetch: FetchText) -> list[dict[str, Any]]:
@@ -418,7 +455,10 @@ def _scrape_chi_2026(fetch: FetchText) -> list[dict[str, Any]]:
 
 
 def _scrape_neurips_2025(fetch: FetchText) -> list[dict[str, Any]]:
-    return _scrape_openreview("neurips_2025", fetch)
+    try:
+        return _scrape_openreview("neurips_2025", fetch)
+    except ConferenceScrapeError:
+        return _scrape_legacy_neurips_2025(fetch)
 
 
 def _scrape_legacy_neurips_2025(fetch: FetchText) -> list[dict[str, Any]]:
@@ -459,7 +499,10 @@ def _scrape_legacy_neurips_2025(fetch: FetchText) -> list[dict[str, Any]]:
 
 
 def _scrape_icml_2025(fetch: FetchText) -> list[dict[str, Any]]:
-    return _scrape_openreview("icml_2025", fetch)
+    try:
+        return _scrape_openreview("icml_2025", fetch)
+    except ConferenceScrapeError:
+        return _scrape_legacy_icml_2025(fetch)
 
 
 def _scrape_legacy_icml_2025(fetch: FetchText) -> list[dict[str, Any]]:
@@ -529,7 +572,7 @@ def _scrape_with_fetcher(
     fetch: FetchText,
 ) -> list[dict[str, Any]]:
     handlers = {
-        "iclr_2026": lambda: _scrape_openreview("iclr_2026", fetch),
+        "iclr_2026": lambda: _scrape_iclr_2026(fetch),
         "chi_2026": lambda: _scrape_chi_2026(fetch),
         "cvpr_2026": lambda: _scrape_cvpr_2026(fetch),
         "neurips_2025": lambda: _scrape_neurips_2025(fetch),
