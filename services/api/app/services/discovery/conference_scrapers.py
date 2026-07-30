@@ -195,18 +195,32 @@ def _scrape_cvpr_2026(fetch: FetchText) -> list[dict[str, Any]]:
         title_link = title_node.find("a", href=True)
         title = _clean_text(title_link.get_text(" ", strip=True) if title_link else None)
         landing_url = _absolute_url(source_url, title_link.get("href") if title_link else None)
-        details = title_node.find_next_sibling("dd")
-        if not title or not landing_url or details is None:
+        # The CVF index uses two sibling ``dd`` nodes per paper: the first
+        # holds author links and the second holds the PDF/supplement links.
+        # Looking at only the immediate sibling silently lost every 2026 PDF.
+        details = []
+        for sibling in title_node.find_next_siblings():
+            if sibling.name == "dt":
+                break
+            if sibling.name == "dd":
+                details.append(sibling)
+        if not title or not landing_url or not details:
             continue
         pdf_link = next(
             (
                 anchor
-                for anchor in details.find_all("a", href=True)
+                for detail in details
+                for anchor in detail.find_all("a", href=True)
                 if _clean_text(anchor.get_text(" ", strip=True)) == "pdf" or ".pdf" in anchor["href"].lower()
             ),
             None,
         )
-        author_node = details.find("i")
+        author_names = [
+            _clean_text(input_node.get("value"))
+            for detail in details
+            for input_node in detail.select('input[name="query_author"][value]')
+        ]
+        author_node = details[0].find("i")
         identifier = Path(urlparse(landing_url).path).stem
         if not identifier:
             continue
@@ -214,7 +228,8 @@ def _scrape_cvpr_2026(fetch: FetchText) -> list[dict[str, Any]]:
             _record(
                 source_external_id=identifier,
                 title=title,
-                authors=_split_authors(author_node.get_text(" ", strip=True) if author_node else None),
+                authors=[name for name in author_names if name]
+                or _split_authors(author_node.get_text(" ", strip=True) if author_node else None),
                 venue="CVPR 2026",
                 published_date="2026-06",
                 landing_url=landing_url,
@@ -397,7 +412,11 @@ def _scrape_neurips_2025(fetch: FetchText) -> list[dict[str, Any]]:
                 venue="NeurIPS 2025",
                 published_date="2025",
                 landing_url=landing_url,
-                pdf_url=landing_url.replace("-Abstract-Conference.html", "-Paper-Conference.pdf"),
+                # NeurIPS lists abstracts below ``/hash/`` but stores PDFs
+                # below ``/file/``.  Keeping the hash path produces a 404.
+                pdf_url=landing_url.replace("/hash/", "/file/").replace(
+                    "-Abstract-Conference.html", "-Paper-Conference.pdf"
+                ),
                 source_url=source_url,
                 raw={"landing_url": landing_url},
             )

@@ -48,7 +48,8 @@ def test_static_proceedings_scrapers_normalize_their_pdf_and_landing_links():
     pages = {
         "openaccess.thecvf.com": """
             <dl><dt class="ptitle"><a href="/content/CVPR2026/html/Example_CVPR_2026_paper.html">CVPR Paper</a></dt>
-            <dd><i>Ada Researcher, Lin Scientist</i><a href="/content/CVPR2026/papers/Example_CVPR_2026_paper.pdf">pdf</a></dd></dl>
+            <dd><i>Ada Researcher, Lin Scientist</i></dd>
+            <dd><a href="/content/CVPR2026/papers/Example_CVPR_2026_paper.pdf">pdf</a></dd></dl>
         """,
         "dl.acm.org": """
             <div class="issue-item"><h5 class="issue-item__title"><a href="/doi/10.1145/3772318.3772345">CHI Paper</a></h5>
@@ -73,7 +74,9 @@ def test_static_proceedings_scrapers_normalize_their_pdf_and_landing_links():
     assert cvpr[0]["content"]["pdf"]["value"].endswith("Example_CVPR_2026_paper.pdf")
     assert chi[0]["id"] == "10.1145/3772318.3772345"
     assert chi[0]["content"]["pdf"]["value"] == "https://dl.acm.org/doi/pdf/10.1145/3772318.3772345"
-    assert neurips[0]["content"]["pdf"]["value"].endswith("abc-Paper-Conference.pdf")
+    assert neurips[0]["content"]["pdf"]["value"] == (
+        "https://proceedings.neurips.cc/paper_files/paper/2025/file/abc-Paper-Conference.pdf"
+    )
     assert icml[0]["content"]["pdf"]["value"].endswith("example25a.pdf")
 
 
