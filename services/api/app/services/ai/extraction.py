@@ -221,6 +221,9 @@ class ExtractionService:
 
     @staticmethod
     def _coerce_evidence(value: Any) -> dict | None:
+        if isinstance(value, str):
+            source_section = ExtractionService._coerce_optional_string(value)
+            return {"source_section": source_section} if source_section else None
         if not isinstance(value, dict):
             return None
         page_number = value.get("page_number")
@@ -325,7 +328,7 @@ class ExtractionService:
                 continue
             claims.append({
                 "claim": claim_text,
-                "evidence": item.get("evidence"),
+                "evidence": ExtractionService._coerce_evidence(item.get("evidence")),
                 "confidence": ExtractionService._coerce_confidence(item.get("confidence"), default=0.5),
             })
         return claims
@@ -394,7 +397,7 @@ class ExtractionService:
                     item.get("canonical_name"), fallback=name.lower()
                 ),
                 "properties": item.get("properties") if isinstance(item.get("properties"), dict) else {},
-                "evidence": item.get("evidence") if isinstance(item.get("evidence"), dict) else None,
+                "evidence": ExtractionService._coerce_evidence(item.get("evidence")),
                 "confidence": ExtractionService._coerce_confidence(item.get("confidence"), default=0.5),
             })
         return entities
@@ -423,7 +426,7 @@ class ExtractionService:
                     item.get("type") or item.get("relationship") or item.get("relation")
                 ),
                 "properties": item.get("properties") if isinstance(item.get("properties"), dict) else {},
-                "evidence": item.get("evidence") if isinstance(item.get("evidence"), dict) else None,
+                "evidence": ExtractionService._coerce_evidence(item.get("evidence")),
                 "confidence": ExtractionService._coerce_confidence(item.get("confidence"), default=0.5),
             })
         return relationships

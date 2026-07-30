@@ -9,6 +9,7 @@ import mimetypes
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
+from pydantic import ValidationError
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -31,7 +32,7 @@ from app.schemas.article import (
     ArticleProvenance,
     ReprocessResponse,
 )
-from app.schemas.extraction import ExtractionResponse, ExtractionUpdateRequest
+from app.schemas.extraction import ExtractionResponse, ExtractionResult, ExtractionUpdateRequest
 from app.schemas.graph import GraphResponse
 from app.schemas.jobs import JobResponse
 from app.services.search import search_article_ids, upsert_article_search_index
@@ -300,24 +301,38 @@ def get_article_extraction(article_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="No extraction available for this article")
 
     extraction_data = None
-    validation_errors = None
+    validation_errors: list[str] = []
     if extraction.extraction_json:
         try:
             extraction_data = json.loads(extraction.extraction_json)
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as error:
+            validation_errors.append(f"Stored extraction JSON is invalid: {error.msg}")
 
     if extraction.validation_errors:
         try:
-            validation_errors = json.loads(extraction.validation_errors)
+            stored_errors = json.loads(extraction.validation_errors)
+            if isinstance(stored_errors, list):
+                validation_errors.extend(str(item) for item in stored_errors)
+            elif stored_errors:
+                validation_errors.append(str(stored_errors))
         except json.JSONDecodeError:
-            validation_errors = [extraction.validation_errors]
+            validation_errors.append(extraction.validation_errors)
+
+    parsed_extraction = None
+    if extraction_data is not None:
+        try:
+            parsed_extraction = ExtractionResult.model_validate(extraction_data)
+        except ValidationError as error:
+            validation_errors.extend(
+                f"Stored extraction is invalid at {'.'.join(str(part) for part in issue['loc'])}: {issue['msg']}"
+                for issue in error.errors()
+            )
 
     return ExtractionResponse(
         article_id=article_id,
         schema_version=extraction.schema_version,
-        extraction=extraction_data,
-        validation_errors=validation_errors,
+        extraction=parsed_extraction,
+        validation_errors=validation_errors or None,
         confidence=extraction.confidence,
         created_at=extraction.created_at,
     )

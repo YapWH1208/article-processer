@@ -11,6 +11,15 @@ class Evidence(BaseModel):
     chunk_id: Optional[int] = None
     snippet: Optional[str] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy_text(cls, value: Any) -> Any:
+        """Preserve old textual evidence locations as structured evidence."""
+        if isinstance(value, str):
+            source_section = value.strip()
+            return {"source_section": source_section} if source_section else {}
+        return value
+
 
 class KeyClaim(BaseModel):
     claim: str

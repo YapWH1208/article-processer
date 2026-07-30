@@ -28,7 +28,7 @@ import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useLanguage } from "@/components/LanguageProvider";
-import { sendChatMessage, sendMultiArticleChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, updateArticleExtraction, toggleArchiveArticle, deleteArticle, getRelatedArticles } from "@/lib/api";
+import { ApiError, sendChatMessage, sendMultiArticleChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, updateArticleExtraction, toggleArchiveArticle, deleteArticle, getRelatedArticles } from "@/lib/api";
 import { getPromptText, translateUiText } from "@/lib/languageState.mjs";
 import { normalizeHtmlTablesForMarkdown } from "@/lib/markdownHtmlTables.mjs";
 import type { ArticleProvenance, Evidence, ExtractionResult, TriageBrief, TriageFact } from "@/lib/types";
@@ -71,6 +71,29 @@ function isTerminalArticleStatus(status: string | null | undefined) {
   return !!status && TERMINAL_ARTICLE_STATUSES.has(status);
 }
 
+function ExtractionLoadFailure({ error, reprocessing, onRetry, onReprocess }: {
+  error: string;
+  reprocessing: boolean;
+  onRetry: () => void;
+  onReprocess: (mode: "full" | "extract_only") => void;
+}) {
+  return (
+    <div className="flex flex-col items-center py-12 text-center text-muted-foreground gap-3">
+      <AlertCircle className="h-10 w-10 text-amber-500" />
+      <div>
+        <p className="font-medium text-foreground">Unable to load AI extraction</p>
+        <p className="mt-1 max-w-md text-xs">{error}</p>
+      </div>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" onClick={onRetry}>Retry</Button>
+        <Button variant="outline" size="sm" onClick={() => onReprocess("extract_only")} disabled={reprocessing} className="gap-1">
+          <RotateCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`} /> Re-extract
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function ArticleDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -81,6 +104,7 @@ export default function ArticleDetailPage() {
   const [markdown, setMarkdown] = useState("");
   const [extraction, setExtraction] = useState<ExtractionResult | null>(null);
   const [extractionErrors, setExtractionErrors] = useState<string[]>([]);
+  const [extractionLoadError, setExtractionLoadError] = useState<string | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewDraft, setReviewDraft] = useState("");
   const [reviewError, setReviewError] = useState<string | null>(null);
@@ -122,17 +146,25 @@ export default function ArticleDetailPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [art, mdResp, extResp, gr, histResp] = await Promise.all([
+      const [art, mdResp, extractionResult, gr, histResp] = await Promise.all([
         getArticle(articleId),
         getArticleMarkdown(articleId).catch(() => ({ markdown: "" })),
-        getArticleExtraction(articleId).catch(() => null),
+        getArticleExtraction(articleId)
+          .then((response) => ({ response, error: null }))
+          .catch((error) => ({
+            response: null,
+            error: error instanceof ApiError && error.status === 404
+              ? null
+              : error instanceof Error ? error.message : "Unable to load AI extraction.",
+          })),
         getArticleGraph(articleId).catch(() => null),
         getChatHistory(articleId).catch(() => null),
       ]);
       setArticle(art as Article);
       setMarkdown(mdResp.markdown || "");
-      setExtraction(extResp?.extraction || null);
-      setExtractionErrors(extResp?.validation_errors || []);
+      setExtraction(extractionResult.response?.extraction || null);
+      setExtractionErrors(extractionResult.response?.validation_errors || []);
+      setExtractionLoadError(extractionResult.error);
       setGraph(gr);
       // Hydrate chat history from server
       if (histResp?.messages?.length) {
@@ -298,6 +330,7 @@ export default function ArticleDetailPage() {
       await reprocessArticle(articleId, mode, language);
       setArticle((prev) => prev ? { ...prev, status: "extracting", processing_error: null } : prev);
       setExtractionErrors([]);
+      setExtractionLoadError(null);
       toast.success(mode === "extract_only" ? "AI extraction started" : "Full reprocessing started");
     }
     catch { toast.error("Reprocess failed"); }
@@ -644,20 +677,24 @@ export default function ArticleDetailPage() {
                       </CardHeader>
                       <CardContent className="flex-1 min-h-0 p-4">
                         <ScrollArea className="h-full">
-                          <ReadingGuideContent
-                            articleId={articleId}
-                            articleTitle={article.title || article.original_filename}
-                            extraction={extraction}
-                            graph={graph}
-                            hasMarkdown={Boolean(markdown.trim())}
-                            reprocessing={reprocessing}
-                            onAsk={askAbout}
-                            onAdd={addToChat}
-                            onCompare={compareArticles}
-                            onRunExtraction={handleReprocess}
-                            comparing={chatting}
-                            language={language}
-                          />
+                          {extractionLoadError ? (
+                            <ExtractionLoadFailure error={extractionLoadError} reprocessing={reprocessing} onRetry={loadData} onReprocess={handleReprocess} />
+                          ) : (
+                            <ReadingGuideContent
+                              articleId={articleId}
+                              articleTitle={article.title || article.original_filename}
+                              extraction={extraction}
+                              graph={graph}
+                              hasMarkdown={Boolean(markdown.trim())}
+                              reprocessing={reprocessing}
+                              onAsk={askAbout}
+                              onAdd={addToChat}
+                              onCompare={compareArticles}
+                              onRunExtraction={handleReprocess}
+                              comparing={chatting}
+                              language={language}
+                            />
+                          )}
                         </ScrollArea>
                       </CardContent>
                     </Card>
@@ -763,7 +800,9 @@ export default function ArticleDetailPage() {
                         </div>
                       </CardHeader>
                       <CardContent className="flex-1 min-h-0 p-4">
-                        {extraction ? (
+                        {extractionLoadError ? (
+                          <ExtractionLoadFailure error={extractionLoadError} reprocessing={reprocessing} onRetry={loadData} onReprocess={handleReprocess} />
+                        ) : extraction ? (
                           <ScrollArea className="h-full"><SummaryContent extraction={extraction} onAsk={askAbout} onAdd={addToChat} language={language}/></ScrollArea>
                         ) : extractionErrors.length > 0 ? (
                           <div className="flex flex-col items-center py-12 text-muted-foreground gap-3 text-center">
