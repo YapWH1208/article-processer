@@ -8,6 +8,23 @@ on:
 
 jobs:
   # ── Backend ──────────────────────────────────────────────────────────────
+  go:
+    name: Go backend contract
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api-go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/api-go/go.mod
+      - run: go mod download
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build ./cmd/article-processor-api
+
   backend:
     name: Backend — Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
