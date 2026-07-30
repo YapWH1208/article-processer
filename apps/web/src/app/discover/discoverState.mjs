@@ -64,3 +64,19 @@ export function createArxivProvenance(candidate) {
     venue: candidate.venue || null,
   };
 }
+
+export function getSourceAccessRecovery(error) {
+  if (!error || typeof error !== "object" || Number(error.status) !== 409) return null;
+  const detail = error.detail;
+  if (!detail || typeof detail !== "object" || detail.code !== "source_access_blocked") return null;
+  const source = detail.source;
+  if (!source || typeof source !== "object") return null;
+  const landingUrl = typeof source.landing_url === "string" ? source.landing_url : null;
+  const catalogPaperId = Number.isInteger(source.catalog_paper_id) ? source.catalog_paper_id : null;
+  if (!landingUrl || !catalogPaperId) return null;
+  return {
+    message: typeof detail.message === "string" ? detail.message : "The source blocked automatic PDF download.",
+    landingUrl,
+    catalogPaperId,
+  };
+}

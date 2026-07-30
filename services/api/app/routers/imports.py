@@ -175,6 +175,32 @@ def _metadata_from_catalog_paper(paper: ConferenceCatalogPaper) -> dict[str, Any
     }
 
 
+def _source_access_blocked_detail(
+    *,
+    url: str,
+    http_status: int,
+    source_metadata: dict[str, Any] | None,
+    catalog_paper: ConferenceCatalogPaper | None,
+) -> dict[str, Any]:
+    """Return a typed, user-recoverable result for source access restrictions."""
+    landing_url = (source_metadata or {}).get("source_landing_url") or url
+    return {
+        "code": "source_access_blocked",
+        "message": (
+            "The official source blocked automatic PDF download. Open the source in your browser, "
+            "then upload the PDF here to continue processing."
+        ),
+        "upstream_status": http_status,
+        "source": {
+            "catalog_paper_id": catalog_paper.id if catalog_paper else None,
+            "source_provider": (source_metadata or {}).get("source_provider") or "direct_url",
+            "source_external_id": (source_metadata or {}).get("source_external_id"),
+            "landing_url": landing_url,
+            "pdf_url": (source_metadata or {}).get("source_pdf_url") or url,
+        },
+    }
+
+
 def _metadata_from_arxiv_provenance(provenance: ArxivProvenanceRequest, identifier: str | None) -> dict[str, Any]:
     if identifier is None or provenance.source_external_id != identifier:
         raise UnsafeUrlError("arXiv provenance identifier must match the selected arXiv URL")
@@ -244,6 +270,7 @@ async def import_from_url(
     and starts the processing pipeline.
     """
     source_metadata: dict[str, Any] | None = None
+    catalog_paper: ConferenceCatalogPaper | None = None
     if body.catalog_paper_id is not None:
         catalog_paper = db.query(ConferenceCatalogPaper).filter(ConferenceCatalogPaper.id == body.catalog_paper_id).first()
         if not catalog_paper:
@@ -298,6 +325,16 @@ async def import_from_url(
     try:
         _download_file(download_url, temp_file, max_bytes=settings.max_upload_bytes, timeout=120)
     except urllib.error.HTTPError as e:
+        if e.code in {401, 403, 429}:
+            raise HTTPException(
+                status_code=409,
+                detail=_source_access_blocked_detail(
+                    url=url,
+                    http_status=e.code,
+                    source_metadata=source_metadata,
+                    catalog_paper=catalog_paper,
+                ),
+            )
         raise HTTPException(status_code=502, detail=f"Failed to download from {url_type} URL: HTTP {e.code}")
     except urllib.error.URLError as e:
         raise HTTPException(status_code=502, detail=f"Failed to reach {url_type} URL: {e.reason}")

@@ -15,7 +15,7 @@ from app.core.security import (
     validate_upload_filename,
 )
 from app.db.session import get_db
-from app.db.models import Article, ProcessingJob, ArticleStatus, JobStatus
+from app.db.models import Article, ArticleMetadata, ConferenceCatalogPaper, ProcessingJob, ArticleStatus, JobStatus
 from app.schemas.article import UploadResponse
 from app.services.article_duplicates import find_active_article_by_hash
 from app.services.storage.local import LocalStorage
@@ -31,11 +31,21 @@ async def upload_file(
     file: Annotated[UploadFile, File()],
     run_ai: Annotated[str, Form()] = "true",
     language: Annotated[str, Form()] = "en",
+    catalog_paper_id: Annotated[int | None, Form()] = None,
     db: Session = Depends(get_db),
 ):
     """Upload a PDF, ZIP, HTML, MD, or TXT file for processing."""
     # Explicitly parse run_ai — avoid FastAPI bool coercion edge cases
     run_ai_bool = run_ai.lower() in ("true", "1", "yes")
+    catalog_paper = None
+    if catalog_paper_id is not None:
+        catalog_paper = (
+            db.query(ConferenceCatalogPaper)
+            .filter(ConferenceCatalogPaper.id == catalog_paper_id)
+            .first()
+        )
+        if not catalog_paper:
+            raise HTTPException(status_code=404, detail="Conference catalogue paper not found")
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
 
@@ -103,6 +113,23 @@ async def upload_file(
     db.add(article)
     db.flush()
 
+    if catalog_paper:
+        db.add(ArticleMetadata(
+            article_id=article.id,
+            authors=catalog_paper.authors_json,
+            venue=catalog_paper.venue,
+            url=catalog_paper.landing_url,
+            abstract=catalog_paper.abstract,
+            raw_metadata_json=catalog_paper.raw_payload_json,
+            source_provider="conference_catalog",
+            source_external_id=catalog_paper.source_external_id,
+            source_landing_url=catalog_paper.landing_url,
+            source_pdf_url=catalog_paper.pdf_url,
+            source_collection=catalog_paper.conference_key,
+            source_retrieved_at=catalog_paper.imported_at,
+            source_payload_json=catalog_paper.raw_payload_json,
+        ))
+
     # Create processing job
     job = ProcessingJob(
         article_id=article.id,
@@ -115,7 +142,10 @@ async def upload_file(
             {
                 "step": "uploaded",
                 "timestamp": datetime.datetime.utcnow().isoformat(),
-                "message": f"File '{file.filename}' uploaded successfully",
+                "message": (
+                    f"Conference source PDF '{file.filename}' uploaded successfully"
+                    if catalog_paper else f"File '{file.filename}' uploaded successfully"
+                ),
             }
         ]),
     )

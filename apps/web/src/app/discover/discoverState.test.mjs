@@ -7,6 +7,7 @@ import {
   canAnalyseCandidate,
   createArxivProvenance,
   createDiscoverRequest,
+  getSourceAccessRecovery,
   getDiscoverEmptyState,
   normalizeDiscoverSearch,
 } from "./discoverState.mjs";
@@ -46,4 +47,21 @@ test("arXiv provenance preserves source metadata only after a selected candidate
 test("Discover empty states distinguish an unopened arXiv search from empty results", () => {
   assert.equal(getDiscoverEmptyState({ mode: "arxiv", query: "" }).title, "Search arXiv");
   assert.equal(getDiscoverEmptyState({ mode: "collection", query: "none" }).title, "No papers found");
+});
+
+test("Discover recognises a typed blocked-source recovery without treating other errors as recoverable", () => {
+  assert.deepEqual(getSourceAccessRecovery({
+    status: 409,
+    detail: {
+      code: "source_access_blocked",
+      message: "Open the official source and upload the PDF.",
+      source: { catalog_paper_id: 7, landing_url: "https://openreview.net/forum?id=paper" },
+    },
+  }), {
+    message: "Open the official source and upload the PDF.",
+    landingUrl: "https://openreview.net/forum?id=paper",
+    catalogPaperId: 7,
+  });
+  assert.equal(getSourceAccessRecovery({ status: 502, detail: { code: "source_access_blocked" } }), null);
+  assert.equal(getSourceAccessRecovery({ status: 409, detail: { code: "other" } }), null);
 });

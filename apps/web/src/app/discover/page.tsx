@@ -18,6 +18,7 @@ import {
   listConferenceCollections,
   searchArxivPapers,
   searchConferencePapers,
+  uploadFile,
 } from "@/lib/api";
 import type { ArxivProvenance, ConferenceCollection, DiscoveryCandidate, DiscoveryPage, DiscoverySearchScope } from "@/lib/types";
 import { translateUiText } from "@/lib/languageState.mjs";
@@ -28,6 +29,7 @@ import {
   createArxivProvenance,
   createDiscoverRequest,
   getDiscoverEmptyState,
+  getSourceAccessRecovery,
 } from "./discoverState.mjs";
 
 type DiscoverMode = "arxiv" | "collection";
@@ -100,8 +102,10 @@ export default function DiscoverPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<DiscoveryCandidate | null>(null);
+  const [blockedCandidate, setBlockedCandidate] = useState<DiscoveryCandidate | null>(null);
   const [importing, setImporting] = useState<string | null>(null);
   const requestCounter = useRef(0);
+  const blockedUploadInput = useRef<HTMLInputElement>(null);
   const copy = useCallback((value: string) => translateUiText(value, language), [language]);
 
   const activeCollection = useMemo(
@@ -176,7 +180,29 @@ export default function DiscoverPage() {
       toast.success(copy("Paper added to your library. Analysis has started."));
       router.push(`/articles/${response.article_id}`);
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : copy("Could not import this paper."));
+      const recovery = getSourceAccessRecovery(caught);
+      if (recovery && candidate.source_provider === "conference_catalog" && candidate.id === recovery.catalogPaperId) {
+        setBlockedCandidate(candidate);
+        toast.error(recovery.message);
+      } else {
+        toast.error(caught instanceof Error ? caught.message : copy("Could not import this paper."));
+      }
+    } finally {
+      setImporting(null);
+    }
+  };
+
+  const uploadBlockedConferencePdf = async (file: File) => {
+    const candidate = blockedCandidate;
+    if (!candidate?.id || importing) return;
+    setImporting(candidate.source_external_id);
+    try {
+      const response = await uploadFile(file, true, language, candidate.id);
+      toast.success(copy("Paper added to your library. Analysis has started."));
+      setBlockedCandidate(null);
+      router.push(`/articles/${response.article_id}`);
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : copy("Could not upload this paper."));
     } finally {
       setImporting(null);
     }
@@ -253,6 +279,40 @@ export default function DiscoverPage() {
       <Dialog open={Boolean(preview)} onOpenChange={(open) => { if (!open) setPreview(null); }}>
         <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
           {preview && <><DialogHeader><DialogTitle>{preview.title}</DialogTitle><DialogDescription>{preview.authors.join(", ") || copy("Authors unavailable")}</DialogDescription></DialogHeader><div className="space-y-4 text-sm"><div className="flex flex-wrap gap-2"><Badge variant="secondary">{sourceLabel(preview)}</Badge>{preview.venue && <Badge variant="outline">{preview.venue}</Badge>}</div><p className="leading-6 text-muted-foreground">{preview.abstract || copy("No abstract is available for this paper.")}</p></div><DialogFooter><Button variant="outline" onClick={() => setPreview(null)}>{copy("Close")}</Button><Button disabled={!canAnalyseCandidate(preview) || importing === preview.source_external_id} onClick={() => void analyse(preview)}>{importing === preview.source_external_id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{canAnalyseCandidate(preview) ? copy("Analyse and read") : copy("No PDF available")}</Button></DialogFooter></>}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(blockedCandidate)} onOpenChange={(open) => { if (!open) setBlockedCandidate(null); }}>
+        <DialogContent className="max-w-lg">
+          {blockedCandidate && <>
+            <DialogHeader>
+              <DialogTitle>{copy("Automatic download was blocked")}</DialogTitle>
+              <DialogDescription>{copy("The publisher did not allow the application to download this PDF automatically. Open the official source, download the open-access PDF in your browser, then upload it here.")}</DialogDescription>
+            </DialogHeader>
+            <p className="text-sm font-medium">{blockedCandidate.title}</p>
+            <input
+              ref={blockedUploadInput}
+              type="file"
+              accept="application/pdf,.pdf"
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) void uploadBlockedConferencePdf(file);
+              }}
+            />
+            <DialogFooter>
+              <Button variant="outline" asChild>
+                <a href={blockedCandidate.landing_url || blockedCandidate.pdf_url || "#"} target="_blank" rel="noreferrer">
+                  {copy("Open official source")} <ExternalLink className="ml-1 h-4 w-4" />
+                </a>
+              </Button>
+              <Button disabled={importing === blockedCandidate.source_external_id} onClick={() => blockedUploadInput.current?.click()}>
+                {importing === blockedCandidate.source_external_id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {copy("Upload downloaded PDF")}
+              </Button>
+            </DialogFooter>
+          </>}
         </DialogContent>
       </Dialog>
     </div>

@@ -1,14 +1,17 @@
 """Tests for fixed-source discovery and selected-paper import provenance."""
 
+import io
 import json
+import urllib.error
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from starlette.datastructures import UploadFile
 
 from app.db.models import Article, ArticleMetadata, ArticleStatus, ConferenceCatalogPaper, ProcessingJob
 from app.db.session import Base
-from app.routers import discover, imports
+from app.routers import discover, imports, uploads
 from app.schemas.discover import ArxivProvenanceRequest
 from app.services.discovery import arxiv
 
@@ -135,6 +138,81 @@ async def test_catalogue_selection_persists_server_resolved_provenance(db_sessio
     assert metadata.source_provider == "conference_catalog"
     assert metadata.source_collection == "iclr_2026"
     assert metadata.source_external_id == "openreview-paper"
+
+
+@pytest.mark.asyncio
+async def test_catalogue_access_block_returns_official_source_recovery(db_session, monkeypatch):
+    paper = ConferenceCatalogPaper(
+        conference_key="iclr_2026",
+        source_external_id="openreview-blocked",
+        title="Blocked Conference Paper",
+        authors_json=json.dumps(["Ada Researcher"]),
+        landing_url="https://openreview.net/forum?id=openreview-blocked",
+        pdf_url="https://openreview.net/pdf?id=openreview-blocked",
+        raw_payload_json="{}",
+    )
+    db_session.add(paper)
+    db_session.commit()
+
+    def blocked_download(url, _dest_path, max_bytes, timeout=60):
+        raise urllib.error.HTTPError(url, 403, "Forbidden", hdrs=None, fp=None)
+
+    monkeypatch.setattr(imports, "_download_file", blocked_download)
+
+    with pytest.raises(imports.HTTPException) as exc_info:
+        await imports.import_from_url(
+            imports.UrlImportRequest(catalog_paper_id=paper.id, run_ai=False),
+            db=db_session,
+        )
+
+    assert exc_info.value.status_code == 409
+    detail = exc_info.value.detail
+    assert detail["code"] == "source_access_blocked"
+    assert detail["upstream_status"] == 403
+    assert detail["source"] == {
+        "catalog_paper_id": paper.id,
+        "source_provider": "conference_catalog",
+        "source_external_id": "openreview-blocked",
+        "landing_url": "https://openreview.net/forum?id=openreview-blocked",
+        "pdf_url": "https://openreview.net/pdf?id=openreview-blocked",
+    }
+    assert db_session.query(Article).count() == 0
+    assert db_session.query(ProcessingJob).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_catalogue_pdf_upload_preserves_selected_paper_provenance(db_session, tmp_path, monkeypatch):
+    paper = ConferenceCatalogPaper(
+        conference_key="iclr_2026",
+        source_external_id="openreview-upload",
+        title="Uploaded Conference Paper",
+        authors_json=json.dumps(["Ada Researcher"]),
+        abstract="Downloaded in the user's browser.",
+        venue="ICLR 2026",
+        landing_url="https://openreview.net/forum?id=openreview-upload",
+        pdf_url="https://openreview.net/pdf?id=openreview-upload",
+        raw_payload_json=json.dumps({"id": "openreview-upload"}),
+    )
+    db_session.add(paper)
+    db_session.commit()
+    monkeypatch.setattr(uploads.settings, "storage_dir", str(tmp_path / "storage"))
+    monkeypatch.setattr(uploads, "run_pipeline_background", lambda *args, **kwargs: None)
+
+    response = await uploads.upload_file(
+        file=UploadFile(filename="conference.pdf", file=io.BytesIO(b"%PDF-1.4\nconference paper\n")),
+        run_ai="false",
+        language="en",
+        catalog_paper_id=paper.id,
+        db=db_session,
+    )
+
+    article = db_session.query(Article).filter(Article.id == response.article_id).one()
+    metadata = db_session.query(ArticleMetadata).filter(ArticleMetadata.article_id == article.id).one()
+    assert article.title == "conference.pdf"
+    assert metadata.source_provider == "conference_catalog"
+    assert metadata.source_collection == "iclr_2026"
+    assert metadata.source_external_id == "openreview-upload"
+    assert metadata.source_landing_url == "https://openreview.net/forum?id=openreview-upload"
 
 
 @pytest.mark.asyncio

@@ -21,19 +21,35 @@ export async function apiRawFetch(path: string, options?: RequestInit): Promise<
   return fetch(url, init);
 }
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly detail: unknown,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await apiRawFetch(path, options);
 
   if (!res.ok) {
     const body = await res.text();
-    let detail = body;
+    let detail: unknown = body;
     try {
       const json = JSON.parse(body);
       detail = json.detail || body;
     } catch {
       // use raw text
     }
-    throw new Error(detail || `HTTP ${res.status}`);
+    const message = typeof detail === "string"
+      ? detail
+      : detail && typeof detail === "object" && "message" in detail && typeof detail.message === "string"
+        ? detail.message
+        : `HTTP ${res.status}`;
+    throw new ApiError(message, res.status, detail);
   }
 
   // Check if response is JSON
@@ -113,11 +129,12 @@ export async function importConferenceCatalogPaper(catalogPaperId: number, runAi
 
 // Uploads
 
-export async function uploadFile(file: File, runAi = true, language = "en") {
+export async function uploadFile(file: File, runAi = true, language = "en", catalogPaperId?: number) {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("run_ai", String(runAi));
   formData.append("language", language);
+  if (catalogPaperId != null) formData.append("catalog_paper_id", String(catalogPaperId));
   return apiFetch<import("./types").UploadResponse>("/uploads", {
     method: "POST",
     body: formData,
