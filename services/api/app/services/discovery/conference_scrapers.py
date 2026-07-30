@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse
+from urllib.parse import urlencode, urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -25,7 +26,7 @@ FetchText = Callable[[str], str]
 
 _USER_AGENT = "ArticleProcessorConferenceCatalog/1.0 (+https://github.com/YapWH1208/article-processer)"
 _REQUEST_TIMEOUT_SECONDS = 30.0
-_ICLR_2026_URL = "https://iclr.cc/static/virtual/data/iclr-2026-orals-posters.json"
+_OPENREVIEW_NOTES_URL = "https://api2.openreview.net/notes"
 _CVPR_2026_URL = "https://openaccess.thecvf.com/CVPR2026?day=all"
 _CHI_2026_URL = "https://dl.acm.org/doi/proceedings/10.1145/3772318"
 _NEURIPS_2025_URL = "https://proceedings.neurips.cc/paper_files/paper/2025"
@@ -35,6 +36,37 @@ _CHI_2026_PROCEEDINGS_TITLE = "Proceedings of the 2026 CHI Conference on Human F
 _CHI_2026_DOI_PREFIX = "10.1145/3772318."
 _CHI_2026_CROSSREF_PAGE_SIZE = 1_000
 _MAX_CHI_2026_CROSSREF_PAGES = 5
+_OPENREVIEW_PAGE_SIZE = 25
+
+
+@dataclass(frozen=True)
+class OpenReviewConference:
+    domain: str
+    invitation: str
+    venues: tuple[str, ...]
+    venue: str
+
+
+_OPENREVIEW_CONFERENCES = {
+    "iclr_2026": OpenReviewConference(
+        domain="ICLR.cc/2026/Conference",
+        invitation="ICLR.cc/2026/Conference/-/Submission",
+        venues=("ICLR 2026 poster", "ICLR 2026 oral", "ICLR 2026 spotlight"),
+        venue="ICLR 2026",
+    ),
+    "neurips_2025": OpenReviewConference(
+        domain="NeurIPS.cc/2025/Conference",
+        invitation="NeurIPS.cc/2025/Conference/-/Submission",
+        venues=("NeurIPS 2025 poster", "NeurIPS 2025 oral", "NeurIPS 2025 spotlight"),
+        venue="NeurIPS 2025",
+    ),
+    "icml_2025": OpenReviewConference(
+        domain="ICML.cc/2025/Conference",
+        invitation="ICML.cc/2025/Conference/-/Submission",
+        venues=("ICML 2025 Poster", "ICML 2025 Oral", "ICML 2025 Spotlight"),
+        venue="ICML 2025",
+    ),
+}
 
 
 class ConferenceScrapeError(RuntimeError):
@@ -122,68 +154,64 @@ def _dedupe_and_sort(records: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return [by_id[key] for key in sorted(by_id, key=str.casefold)]
 
 
-def _iclr_event_authors(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    authors: list[str] = []
-    for author in value:
-        if isinstance(author, dict):
-            name = _clean_text(author.get("fullname") or author.get("name"))
-        else:
-            name = _clean_text(author)
-        if name:
-            authors.append(name)
-    return authors
+def _openreview_value(value: Any) -> Any:
+    return value.get("value") if isinstance(value, dict) and "value" in value else value
 
 
-def _scrape_iclr_2026(fetch: FetchText) -> list[dict[str, Any]]:
-    """Read the official accepted-papers feed from ICLR's virtual program.
+def _scrape_openreview(conference_key: str, fetch: FetchText) -> list[dict[str, Any]]:
+    """Collect accepted notes through OpenReview's public API2, not HTML.
 
-    OpenReview's API may require an interactive challenge.  The conference's
-    own virtual-program JSON is public, contains only oral/poster entries, and
-    gives us the canonical OpenReview forum link without querying reviewer or
-    discussion data.
+    Each request has an exact accepted venue filter and is paginated using the
+    API's ``count`` field.  Raw notes are retained in the JSONL provenance so
+    later importers can add metadata without re-fetching conference hosts.
     """
+    config = _OPENREVIEW_CONFERENCES[conference_key]
     records: list[dict[str, Any]] = []
-    try:
-        payload = json.loads(fetch(_ICLR_2026_URL))
-    except json.JSONDecodeError as exc:
-        raise ConferenceScrapeError("ICLR 2026 virtual program returned invalid JSON") from exc
-    events = payload.get("results", []) if isinstance(payload, dict) else []
-    if not isinstance(events, list):
-        raise ConferenceScrapeError("ICLR 2026 virtual program did not contain a papers list")
-    for event in events:
-        if not isinstance(event, dict):
-            continue
-        decision = _clean_text(event.get("decision")) or ""
-        if "accept" not in decision.casefold():
-            continue
-        title = _clean_text(event.get("name"))
-        event_id = _clean_text(event.get("id"))
-        landing_url = _absolute_url(_ICLR_2026_URL, _clean_text(event.get("paper_url")))
-        if not title or not event_id:
-            continue
-        forum_id = parse_qs(urlparse(landing_url or "").query).get("id", [None])[0]
-        external_id = _clean_text(forum_id) or f"iclr-2026-event-{event_id}"
-        pdf_url = _absolute_url(_ICLR_2026_URL, _clean_text(event.get("paper_pdf_url")))
-        if not pdf_url and forum_id:
-            pdf_url = f"https://openreview.net/pdf?id={quote(forum_id, safe='')}"
-        records.append(
-            _record(
-                source_external_id=external_id,
-                title=title,
-                authors=_iclr_event_authors(event.get("authors")),
-                keywords=_string_list(event.get("keywords")),
-                venue=f"ICLR 2026 {decision}",
-                published_date=_clean_text(event.get("starttime"))[:10] if _clean_text(event.get("starttime")) else None,
-                landing_url=landing_url or f"https://iclr.cc/virtual/2026/poster/{event_id}",
-                pdf_url=pdf_url,
-                source_url=_ICLR_2026_URL,
-                raw=event,
-            )
-        )
+    for accepted_venue in config.venues:
+        offset = 0
+        while True:
+            source_url = f"{_OPENREVIEW_NOTES_URL}?{urlencode({
+                'content.venue': accepted_venue,
+                'domain': config.domain,
+                'invitation': config.invitation,
+                'details': 'replyCount,presentation,writable',
+                'limit': _OPENREVIEW_PAGE_SIZE,
+                'offset': offset,
+            })}"
+            try:
+                payload = json.loads(fetch(source_url))
+            except json.JSONDecodeError as exc:
+                raise ConferenceScrapeError(f"{config.venue} OpenReview API returned invalid JSON") from exc
+            notes = payload.get("notes", []) if isinstance(payload, dict) else []
+            count = payload.get("count") if isinstance(payload, dict) else None
+            if not isinstance(notes, list) or not isinstance(count, int):
+                raise ConferenceScrapeError(f"{config.venue} OpenReview API did not contain notes and count")
+            for note in notes:
+                if not isinstance(note, dict):
+                    continue
+                content = note.get("content") if isinstance(note.get("content"), dict) else {}
+                note_id = _clean_text(note.get("id"))
+                title = _clean_text(_openreview_value(content.get("title")))
+                if not note_id or not title:
+                    continue
+                records.append(_record(
+                    source_external_id=note_id,
+                    title=title,
+                    authors=_string_list(_openreview_value(content.get("authors"))),
+                    abstract=_clean_text(_openreview_value(content.get("abstract"))),
+                    keywords=_string_list(_openreview_value(content.get("keywords"))),
+                    venue=_clean_text(_openreview_value(content.get("venue"))) or config.venue,
+                    published_date=_clean_text(note.get("pdate")) or None,
+                    landing_url=f"https://openreview.net/forum?id={note_id}",
+                    pdf_url=f"https://openreview.net/pdf?id={note_id}",
+                    source_url=source_url,
+                    raw=note,
+                ))
+            offset += len(notes)
+            if not notes or offset >= count:
+                break
     if not records:
-        raise ConferenceScrapeError("ICLR 2026 virtual program did not contain accepted paper entries")
+        raise ConferenceScrapeError(f"{config.venue} OpenReview API did not contain accepted paper entries")
     return records
 
 
@@ -390,6 +418,10 @@ def _scrape_chi_2026(fetch: FetchText) -> list[dict[str, Any]]:
 
 
 def _scrape_neurips_2025(fetch: FetchText) -> list[dict[str, Any]]:
+    return _scrape_openreview("neurips_2025", fetch)
+
+
+def _scrape_legacy_neurips_2025(fetch: FetchText) -> list[dict[str, Any]]:
     source_url = _NEURIPS_2025_URL
     soup = BeautifulSoup(fetch(source_url), "html.parser")
     records: list[dict[str, Any]] = []
@@ -427,6 +459,10 @@ def _scrape_neurips_2025(fetch: FetchText) -> list[dict[str, Any]]:
 
 
 def _scrape_icml_2025(fetch: FetchText) -> list[dict[str, Any]]:
+    return _scrape_openreview("icml_2025", fetch)
+
+
+def _scrape_legacy_icml_2025(fetch: FetchText) -> list[dict[str, Any]]:
     source_url = _ICML_2025_URL
     soup = BeautifulSoup(fetch(source_url), "html.parser")
     records: list[dict[str, Any]] = []
@@ -493,7 +529,7 @@ def _scrape_with_fetcher(
     fetch: FetchText,
 ) -> list[dict[str, Any]]:
     handlers = {
-        "iclr_2026": lambda: _scrape_iclr_2026(fetch),
+        "iclr_2026": lambda: _scrape_openreview("iclr_2026", fetch),
         "chi_2026": lambda: _scrape_chi_2026(fetch),
         "cvpr_2026": lambda: _scrape_cvpr_2026(fetch),
         "neurips_2025": lambda: _scrape_neurips_2025(fetch),

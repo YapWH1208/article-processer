@@ -1,6 +1,7 @@
 """Offline parser tests for the approved public conference source adapters."""
 
 import json
+from urllib.parse import parse_qs, urlparse
 
 from app.services.discovery.conference_scrapers import scrape_conference, write_catalog_snapshot
 
@@ -15,33 +16,42 @@ def _fetcher(pages):
     return fetch
 
 
-def test_iclr_scraper_reads_only_accepted_entries_from_the_official_virtual_program():
-    payload = {
-        "results": [
-            {
-                "id": 1001,
-                "name": "Accepted ICLR Paper",
-                "authors": [{"fullname": "Ada Researcher"}, {"fullname": "Lin Scientist"}],
-                "keywords": ["triage"],
-                "decision": "Accept (Poster)",
-                "starttime": "2026-04-23T06:30:00-07:00",
-                "paper_url": "https://openreview.net/forum?id=accepted-id",
-            },
-            {
-                "id": 1002,
-                "name": "Rejected ICLR Paper",
-                "decision": "Reject",
-            },
-        ]
-    }
+def test_openreview_scraper_uses_exact_accepted_venue_filters_and_preserves_notes():
+    seen = []
 
-    papers = scrape_conference("iclr_2026", fetch=_fetcher({"iclr.cc": json.dumps(payload)}))
+    def fetch(url):
+        query = parse_qs(urlparse(url).query)
+        seen.append(query)
+        venue = query["content.venue"][0]
+        if venue != "ICLR 2026 poster":
+            return json.dumps({"count": 0, "notes": []})
+        return json.dumps({
+            "count": 1,
+            "notes": [{
+                "id": "accepted-id",
+                "pdate": "2026-04-23",
+                "content": {
+                    "title": "Accepted ICLR Paper",
+                    "authors": ["Ada Researcher", "Lin Scientist"],
+                    "abstract": "An accepted paper.",
+                    "keywords": ["triage"],
+                    "venue": "ICLR 2026 poster",
+                },
+            }],
+        })
+
+    papers = scrape_conference("iclr_2026", fetch=fetch)
 
     assert [paper["id"] for paper in papers] == ["accepted-id"]
     paper = papers[0]
     assert paper["content"]["authors"]["value"] == ["Ada Researcher", "Lin Scientist"]
     assert paper["content"]["pdf"]["value"] == "https://openreview.net/pdf?id=accepted-id"
     assert paper["landing_url"] == "https://openreview.net/forum?id=accepted-id"
+    assert paper["source_payload"]["id"] == "accepted-id"
+    assert seen[0]["domain"] == ["ICLR.cc/2026/Conference"]
+    assert seen[0]["invitation"] == ["ICLR.cc/2026/Conference/-/Submission"]
+    assert seen[0]["details"] == ["replyCount,presentation,writable"]
+    assert seen[0]["limit"] == ["25"]
 
 
 def test_static_proceedings_scrapers_normalize_their_pdf_and_landing_links():
@@ -55,29 +65,33 @@ def test_static_proceedings_scrapers_normalize_their_pdf_and_landing_links():
             <div class="issue-item"><h5 class="issue-item__title"><a href="/doi/10.1145/3772318.3772345">CHI Paper</a></h5>
             <div class="issue-item__authors">Ada Researcher; Lin Scientist</div></div>
         """,
-        "proceedings.neurips.cc": """
-            <ul><li><a href="/paper_files/paper/2025/hash/abc-Abstract-Conference.html">NeurIPS Paper</a><i>Ada Researcher, Lin Scientist</i></li></ul>
-        """,
-        "proceedings.mlr.press": """
-            <div class="paper"><p class="title">ICML Paper</p>
-            <span class="authors">Ada Researcher, Lin Scientist</span><a href="example25a.html">abs</a>
-            <a href="https://raw.githubusercontent.com/mlresearch/v267/main/assets/example25a/example25a.pdf">Download PDF</a></div>
-        """,
     }
     fetch = _fetcher(pages)
 
     cvpr = scrape_conference("cvpr_2026", fetch=fetch)
     chi = scrape_conference("chi_2026", fetch=fetch)
-    neurips = scrape_conference("neurips_2025", fetch=fetch)
-    icml = scrape_conference("icml_2025", fetch=fetch)
 
     assert cvpr[0]["content"]["pdf"]["value"].endswith("Example_CVPR_2026_paper.pdf")
     assert chi[0]["id"] == "10.1145/3772318.3772345"
     assert chi[0]["content"]["pdf"]["value"] == "https://dl.acm.org/doi/pdf/10.1145/3772318.3772345"
-    assert neurips[0]["content"]["pdf"]["value"] == (
-        "https://proceedings.neurips.cc/paper_files/paper/2025/file/abc-Paper-Conference.pdf"
-    )
-    assert icml[0]["content"]["pdf"]["value"].endswith("example25a.pdf")
+
+
+def test_openreview_scraper_supports_the_neurips_and_icml_collection_configs():
+    requests = []
+
+    def fetch(url):
+        query = parse_qs(urlparse(url).query)
+        requests.append(query)
+        return json.dumps({"count": 0, "notes": []})
+
+    for key in ("neurips_2025", "icml_2025"):
+        try:
+            scrape_conference(key, fetch=fetch)
+        except RuntimeError as exc:
+            assert "did not contain accepted paper entries" in str(exc)
+
+    assert any(query["domain"] == ["NeurIPS.cc/2025/Conference"] for query in requests)
+    assert any(query["domain"] == ["ICML.cc/2025/Conference"] for query in requests)
 
 
 def test_chi_scraper_falls_back_to_crossref_when_the_acm_index_blocks_a_request():
