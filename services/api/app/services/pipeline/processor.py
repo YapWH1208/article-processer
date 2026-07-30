@@ -267,6 +267,9 @@ async def run_pipeline(
             article.parser_name = _PARSER_DISPLAY_NAMES.get(cls_name, cls_name)
 
             parse_result = await parser.parse(Path(article.storage_path))
+            result_parser = parse_result.metadata.get("parser") if parse_result.metadata else None
+            if result_parser == "pypdf" and cls_name == "MinerUAdapter":
+                article.parser_name = "pypdf (MinerU fallback)"
             markdown = normalize_markdown(parse_result.markdown)
             # Title stays as the filename from upload (user can edit via PATCH /articles/{id})
             article.markdown_text = markdown
@@ -305,8 +308,11 @@ async def run_pipeline(
         if not run_ai:
             add_log("parse_complete", "AI pipeline disabled — skipping extraction and graph. Article ready for reading.")
             article.status = ArticleStatus.COMPLETED.value
+            article.processing_error = None
             db.commit()
             job.status = JobStatus.COMPLETED.value
+            job.error = None
+            job.last_error = None
             job.completed_at = datetime.datetime.utcnow()
             job.locked_at = None
             job.worker_id = None
@@ -466,8 +472,11 @@ async def run_pipeline(
         article.status = ArticleStatus.COMPLETED.value
         if article.needs_review:
             article.status = ArticleStatus.NEEDS_REVIEW.value
+        article.processing_error = None
 
         job.status = JobStatus.COMPLETED.value
+        job.error = None
+        job.last_error = None
         job.completed_at = datetime.datetime.utcnow()
         job.locked_at = None
         job.worker_id = None

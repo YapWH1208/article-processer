@@ -142,6 +142,7 @@ async def test_pipeline_retries_extraction_then_succeeds(tmp_path, monkeypatch):
     article = Article(
         title="Retry extraction paper",
         status=ArticleStatus.COMPLETED.value,
+        processing_error="previous parser failure",
         original_filename="retry.md",
         source_type="md",
         storage_path=str(tmp_path / "retry.md"),
@@ -160,6 +161,7 @@ async def test_pipeline_retries_extraction_then_succeeds(tmp_path, monkeypatch):
     extraction = db.query(ArticleExtraction).filter(ArticleExtraction.article_id == article_id).one()
 
     assert article.status in {ArticleStatus.COMPLETED.value, ArticleStatus.NEEDS_REVIEW.value}
+    assert article.processing_error is None
     assert job.status == JobStatus.COMPLETED.value
     assert job.retry_count == 2
     assert provider.calls == 3

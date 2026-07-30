@@ -20,11 +20,73 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
+from types import ModuleType
 from app.services.parsers.base import BaseParser, ParseResult
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+_HF_WINDOWS_PATCH_LOCK = threading.Lock()
+_HF_WINDOWS_PATCH_MARKER = "_article_processor_windows_symlink_fallback"
+
+
+def _is_windows_symlink_privilege_error(error: OSError) -> bool:
+    """Return whether Windows denied symlink creation for lack of privilege."""
+    return getattr(error, "winerror", None) == 1314
+
+
+def _install_huggingface_windows_symlink_fallback(
+    *,
+    file_download_module: ModuleType | None = None,
+    is_windows: bool | None = None,
+) -> None:
+    """Make Hugging Face cache downloads work without Windows symlink privilege.
+
+    ``huggingface_hub`` normally detects unsupported symlinks and copies the
+    blob instead.  MinerU can still hit WinError 1314 when a cached capability
+    result says links are supported.  Mirror the hub's documented copy/move
+    fallback only for that specific error, leaving unrelated download errors
+    visible to the caller.
+    """
+    if is_windows is None:
+        is_windows = os.name == "nt"
+    if not is_windows:
+        return
+
+    if file_download_module is None:
+        try:
+            from huggingface_hub import file_download as file_download_module
+        except ImportError:
+            return
+
+    with _HF_WINDOWS_PATCH_LOCK:
+        if getattr(file_download_module, _HF_WINDOWS_PATCH_MARKER, False):
+            return
+
+        original_create_symlink = file_download_module._create_symlink
+
+        def create_symlink_or_copy(src: str, dst: str, new_blob: bool = False) -> None:
+            try:
+                original_create_symlink(src=src, dst=dst, new_blob=new_blob)
+            except OSError as error:
+                if not _is_windows_symlink_privilege_error(error):
+                    raise
+                logger.warning(
+                    "Windows denied a Hugging Face cache symlink; copying the MinerU model file instead."
+                )
+                try:
+                    os.remove(dst)
+                except OSError:
+                    pass
+                if new_blob:
+                    shutil.move(src, dst)
+                else:
+                    shutil.copyfile(src, dst)
+
+        file_download_module._create_symlink = create_symlink_or_copy
+        setattr(file_download_module, _HF_WINDOWS_PATCH_MARKER, True)
 
 # ── Detection ──────────────────────────────────────────────────────────────
 
@@ -81,24 +143,36 @@ class MinerUAdapter(BaseParser):
 
     async def parse(self, file_path: Path) -> ParseResult:
         """Convert PDF to Markdown using MinerU with full layout preservation."""
+        failures: list[str] = []
 
-        # ── Strategy 1: mineru CLI (subprocess) ───────────────────────
+        # Prefer the in-process path on Windows, where this adapter can apply
+        # the Hugging Face cache fallback before MinerU starts model downloads.
+        strategies = []
+        if os.name == "nt" and HAS_MINERU_DO_PARSE:
+            strategies.append(("do_parse", self._parse_via_do_parse))
         if HAS_MINERU_CLI:
-            return await self._parse_via_cli(file_path)
-
-        # ── Strategy 2: mineru.do_parse (in-process) ──────────────────
-        if HAS_MINERU_DO_PARSE:
-            return await self._parse_via_do_parse(file_path)
-
-        # ── Strategy 3: legacy magic_pdf UNIPipe ──────────────────────
+            strategies.append(("CLI", self._parse_via_cli))
+        if HAS_MINERU_DO_PARSE and os.name != "nt":
+            strategies.append(("do_parse", self._parse_via_do_parse))
         if HAS_LEGACY_MAGIC_PDF:
-            return await self._parse_via_legacy(file_path)
+            strategies.append(("legacy", self._parse_via_legacy))
 
-        # ── None available ────────────────────────────────────────────
-        raise RuntimeError(
-            "MinerU is not installed. Install with: pip install -U \"mineru[all]\"\n"
-            "See: https://github.com/opendatalab/MinerU"
-        )
+        for name, strategy in strategies:
+            try:
+                return await strategy(file_path)
+            except Exception as error:
+                failures.append(f"{name}: {error}")
+                logger.warning("MinerU %s strategy failed; trying the next parser option: %s", name, error)
+
+        # A model-download or optional-engine failure must not leave an
+        # otherwise readable PDF stuck in the parsing state.
+        from app.services.parsers.pdf import PdfParser
+
+        fallback = await PdfParser().parse(file_path)
+        fallback.metadata = fallback.metadata or {}
+        fallback.metadata.setdefault("parser", "pypdf")
+        fallback.metadata["mineru_fallback_reason"] = "; ".join(failures) or "MinerU is not installed"
+        return fallback
 
     # ── CLI strategy ─────────────────────────────────────────────────────
 
@@ -192,6 +266,7 @@ class MinerUAdapter(BaseParser):
         """Use mineru.cli.common.do_parse in-process."""
         from mineru.cli.common import do_parse
 
+        _install_huggingface_windows_symlink_fallback()
         tmp_dir = tempfile.mkdtemp(prefix="mineru_dp_")
         try:
             pdf_bytes = file_path.read_bytes()
