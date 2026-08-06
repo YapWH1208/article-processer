@@ -344,8 +344,8 @@ export default function SettingsPage() {
     <div className="max-w-3xl mx-auto space-y-6">
       <FadeIn>
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center">
-            <Settings2 className="h-5 w-5 text-indigo-500" />
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+            <Settings2 className="h-5 w-5 text-primary" />
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Settings</h1>

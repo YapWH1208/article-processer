@@ -96,7 +96,7 @@ export function HoverCard({
 }) {
   return (
     <motion.div
-      whileHover={{ y: -4, boxShadow: "0 12px 24px rgba(0,0,0,0.08)" }}
+      whileHover={{ y: -4, boxShadow: "0 12px 24px hsl(var(--shadow-color))" }}
       transition={{ type: "spring", stiffness: 400, damping: 25 }}
       className={className}
     >
