@@ -203,7 +203,7 @@ function GraphCanvas({
       // Label (only when zoomed in enough)
       if (currentTransform.scale > 0.5 || isHovered) {
         const fontSize = Math.max(9, 11 / currentTransform.scale);
-        ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
+        ctx.font = `${fontSize}px var(--font-sans), "Geist Variable", system-ui, sans-serif`;
         ctx.fillStyle = theme.foreground;
         ctx.textAlign = "center";
         const label = node.label.length > 20 ? node.label.slice(0, 20) + "…" : node.label;
@@ -220,7 +220,7 @@ function GraphCanvas({
       const tooltipText = `${currentHoveredNode.label}\n${currentHoveredNode.type} · ${currentHoveredNode.articleTitle}`;
       const lines = tooltipText.split("\n");
       const fontSize = 11;
-      ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
+      ctx.font = `${fontSize}px var(--font-sans), "Geist Variable", system-ui, sans-serif`;
       const maxWidth = Math.max(...lines.map((l) => ctx.measureText(l).width));
       const tooltipW = maxWidth + 16;
       const tooltipH = lines.length * 16 + 12;

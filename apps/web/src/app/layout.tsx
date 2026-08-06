@@ -1,4 +1,7 @@
 import "./globals.css";
+import "@fontsource-variable/geist";
+import "@fontsource-variable/source-serif-4";
+import "@fontsource-variable/jetbrains-mono";
 import { Suspense } from "react";
 import { Providers } from "@/components/Providers";
 
