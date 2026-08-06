@@ -366,7 +366,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] gap-4">
+    <div className="flex h-[calc(100dvh-8rem)] gap-4">
       {/* ── Session Sidebar ─────────────────────────────────────── */}
       <AnimatePresence>
         {sidebarOpen && (
@@ -431,8 +431,8 @@ export default function ChatPage() {
               {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
             </Button>
             <div>
-              <h1 className="text-lg font-bold flex items-center gap-2">
-                <MessageCircle className="h-5 w-5 text-primary" />
+              <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+                <MessageCircle className="h-6 w-6 text-primary" />
                 {activeSessionId
                   ? sessions.find((s) => s.id === activeSessionId)?.title || translateUiText("Chat", language)
                   : translateUiText("New Chat", language)}

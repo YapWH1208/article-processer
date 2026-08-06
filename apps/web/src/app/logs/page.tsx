@@ -138,8 +138,8 @@ export default function LogsPage() {
         className="flex items-center justify-between"
       >
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Processing Logs</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="text-3xl font-bold tracking-tight text-balance">Processing Logs</h1>
+          <p className="text-muted-foreground mt-1 text-pretty">
             Step-by-step processing history and token usage for all articles.
           </p>
         </div>
@@ -209,7 +209,7 @@ export default function LogsPage() {
                   ["Done", queueCounts.completed],
                 ].map(([label, value]) => (
                   <div key={label as string} className="rounded-md border px-2 py-1.5 min-w-16">
-                    <div className="text-base font-semibold">{value as number}</div>
+                    <div className="text-base font-semibold tabular-nums">{value as number}</div>
                     <div className="text-[10px] text-muted-foreground">{label as string}</div>
                   </div>
                 ))}

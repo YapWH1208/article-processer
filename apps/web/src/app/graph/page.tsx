@@ -595,8 +595,8 @@ export default function GraphPage() {
       <FadeIn>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Knowledge Graph</h1>
-            <p className="text-muted-foreground mt-1">
+            <h1 className="text-3xl font-bold tracking-tight text-balance">Knowledge Graph</h1>
+            <p className="text-muted-foreground mt-1 text-pretty">
               {data ? `${data.entities.length} entities · ${data.relationships.length} relationships` : "Loading..."}
             </p>
           </div>

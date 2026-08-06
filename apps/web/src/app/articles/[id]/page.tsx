@@ -571,7 +571,7 @@ export default function ArticleDetailPage() {
       </AnimatePresence>
 
       {/* ── Split Layout ───────────────────────────────────────── */}
-      <div className="flex gap-4 h-[calc(100vh-14rem)]">
+      <div className="flex gap-4 h-[calc(100dvh-14rem)]">
         {/* Left: Content + Tabs */}
         <div className={`flex-1 min-w-0 flex flex-col ${chatOpen ? 'hidden md:flex' : 'flex'}`}>
           <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col min-h-0">

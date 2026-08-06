@@ -126,8 +126,8 @@ export default function DashboardPage() {
       <FadeIn>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-            <p className="text-muted-foreground mt-1">Analytics and metrics for your article processing pipeline.</p>
+            <h1 className="text-3xl font-bold tracking-tight text-balance">Dashboard</h1>
+            <p className="text-muted-foreground mt-1 text-pretty">Analytics and metrics for your article processing pipeline.</p>
           </div>
           <div className="flex rounded-lg border border-border bg-muted/50 p-0.5">
             {TIME_RANGES.map(({ label, days: d }) => (
