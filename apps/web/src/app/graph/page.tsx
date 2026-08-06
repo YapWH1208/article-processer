@@ -26,23 +26,23 @@ import {
 
 // ── Entity type colors ─────────────────────────────────────────────
 const TYPE_COLORS: Record<string, string> = {
-  Article: "#3b82f6",
-  Author: "#22c55e",
-  Institution: "#a855f7",
-  Method: "#f59e0b",
-  Dataset: "#ec4899",
-  Experiment: "#14b8a6",
-  Metric: "#f97316",
-  Result: "#6366f1",
-  Claim: "#84cc16",
-  Task: "#06b6d4",
-  Domain: "#8b5cf6",
-  Tool: "#ef4444",
-  Model: "#e11d48",
-  Citation: "#64748b",
-  Keyword: "#0ea5e9",
+  Article: "#5b7fd4",
+  Author: "#3d9c6b",
+  Institution: "#8b6fc9",
+  Method: "#c08a3e",
+  Dataset: "#c26f9d",
+  Experiment: "#3f9aa6",
+  Metric: "#b07f3f",
+  Result: "#7a7f8c",
+  Claim: "#7c9a4d",
+  Task: "#4a8fa8",
+  Domain: "#a77fbf",
+  Tool: "#c95353",
+  Model: "#c26f7d",
+  Citation: "#70747f",
+  Keyword: "#9b8f6a",
 };
-const DEFAULT_COLOR = "#6b7280";
+const DEFAULT_COLOR = "#7a7f8c";
 
 // ── Types ──────────────────────────────────────────────────────────
 interface GraphNode {
