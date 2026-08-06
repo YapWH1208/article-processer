@@ -402,6 +402,7 @@ export default function ChatPage() {
                       tabIndex={0}
                       onClick={() => selectSession(s.id)}
                       onKeyDown={(e) => {
+                        if (e.target !== e.currentTarget) return;
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
                           selectSession(s.id);
