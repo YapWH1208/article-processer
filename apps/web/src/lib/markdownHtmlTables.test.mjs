@@ -52,6 +52,7 @@ test("raw HTML tables inside fenced code blocks are not normalized", () => {
 
 test("markdown media stays contained in renderer boxes", async () => {
   const chatSource = await readFile(new URL("../app/chat/page.tsx", import.meta.url), "utf8");
+  const chatMarkdownSource = await readFile(new URL("../components/chat-markdown.tsx", import.meta.url), "utf8");
   const articleSource = await readFile(new URL("../app/articles/[id]/page.tsx", import.meta.url), "utf8");
   const scrollAreaSource = await readFile(new URL("../components/ui/scroll-area.tsx", import.meta.url), "utf8");
 
@@ -60,18 +61,22 @@ test("markdown media stays contained in renderer boxes", async () => {
 
   for (const source of [chatSource, articleSource]) {
     assert.match(source, /min-w-0/);
+    assert.match(source, /prose[^\n"]*w-full[^\n"]*\[overflow-wrap:anywhere\]/);
+    assert.match(source, /max-w-full/);
+    assert.doesNotMatch(source, /overflow-x-auto/);
+    assert.doesNotMatch(source, /prose[^\n"]*overflow-hidden/);
+  }
+
+  for (const source of [chatMarkdownSource, articleSource]) {
     assert.match(source, /mx-auto block w-\[calc\(100%-0\.5rem\)\] min-w-0 max-w-\[calc\(100%-0\.5rem\)\] rounded-md border/);
     assert.match(source, /w-full max-w-full table-fixed border-collapse/);
     assert.match(source, /mx-auto block w-\[calc\(100%-0\.5rem\)\] max-w-\[calc\(100%-0\.5rem\)\] text-center/);
-    assert.match(source, /prose[^\n"]*w-full[^\n"]*\[overflow-wrap:anywhere\]/);
     assert.match(source, /max-h-\[[^\]]+\]/);
     assert.match(source, /h-auto/);
     assert.match(source, /w-auto/);
     assert.match(source, /max-w-full/);
     assert.match(source, /object-contain/);
     assert.match(source, /\[overflow-wrap:anywhere\] break-words whitespace-normal/);
-    assert.doesNotMatch(source, /overflow-x-auto/);
-    assert.doesNotMatch(source, /prose[^\n"]*overflow-hidden/);
   }
 
   assert.doesNotMatch(scrollAreaSource, /<ScrollBar orientation="horizontal" \/>/);
