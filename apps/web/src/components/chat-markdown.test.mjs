@@ -32,3 +32,14 @@ test("ChatMarkdown carries the styled heading and media components", async () =>
   assert.match(src, /text-xl font-bold mt-5 mb-2 border-b pb-0\.5/);
 });
 
+test("chat source cards render snippets through ChatMarkdown with quotes and clamp", async () => {
+  const page = await readFile(new URL("../app/chat/page.tsx", import.meta.url), "utf8");
+
+  assert.match(page, /<ChatMarkdown>/);
+  assert.match(page, /line-clamp-2/);
+  assert.match(page, /&ldquo;/);
+  assert.match(page, /&rdquo;/);
+  assert.match(page, /replace\(\/\^\\\[\.\*\?\\\]\\s\*\/\s*, ""\)/);
+  assert.match(page, /\[&>\*:first-child\]:mt-0 \[&>\*:last-child\]:mb-0/);
+});
+

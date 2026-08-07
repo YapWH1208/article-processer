@@ -117,9 +117,9 @@ function MessageBubble({ msg }: { msg: BubbleData }) {
                     <span className="font-medium text-foreground/80">{cit.section_title}</span>
                   )}
                   {cit.snippet && (
-                    <p className="mt-0.5 opacity-70 line-clamp-2 italic">
-                      &ldquo;{String(cit.snippet).replace(/^\[.*?\]\s*/, "")}&rdquo;
-                    </p>
+                    <div className="mt-0.5 opacity-70 line-clamp-2 italic [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                      &ldquo;<ChatMarkdown>{String(cit.snippet).replace(/^\[.*?\]\s*/, "")}</ChatMarkdown>&rdquo;
+                    </div>
                   )}
                 </div>
               ))}
