@@ -29,12 +29,15 @@ const components: any = {
   td: ({ children, ...props }: any) => <td className="border-r px-3 py-2 align-top [overflow-wrap:anywhere] break-words whitespace-normal last:border-r-0" {...props}>{children}</td>,
 };
 
-function ChatMarkdown({ children }: { children: string }) {
+function ChatMarkdown({ children, compact = false }: { children: string; compact?: boolean }) {
+  const activeComponents = compact
+    ? { ...components, img: () => null, table: () => null }
+    : components;
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkMath]}
       rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]}
-      components={components}
+      components={activeComponents}
     >
       {normalizeHtmlTablesForMarkdown(String(children || ""))}
     </ReactMarkdown>

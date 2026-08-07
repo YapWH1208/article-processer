@@ -35,11 +35,19 @@ test("ChatMarkdown carries the styled heading and media components", async () =>
 test("chat source cards render snippets through ChatMarkdown with quotes and clamp", async () => {
   const page = await readFile(new URL("../app/chat/page.tsx", import.meta.url), "utf8");
 
-  assert.match(page, /<ChatMarkdown>/);
+  assert.match(page, /<ChatMarkdown compact>/);
   assert.match(page, /line-clamp-2/);
-  assert.match(page, /&ldquo;/);
-  assert.match(page, /&rdquo;/);
+  assert.match(page, /\\u201C/);
+  assert.match(page, /\\u201D/);
   assert.match(page, /replace\(\/\^\\\[\.\*\?\\\]\\s\*\/\s*, ""\)/);
   assert.match(page, /\[&>\*:first-child\]:mt-0 \[&>\*:last-child\]:mb-0/);
+});
+
+test("ChatMarkdown compact mode drops images and tables for clamped excerpts", async () => {
+  const src = await readFile(new URL("./chat-markdown.tsx", import.meta.url), "utf8");
+
+  assert.match(src, /compact/);
+  assert.match(src, /img: \(\) => null/);
+  assert.match(src, /table: \(\) => null/);
 });
 
