@@ -32,7 +32,7 @@ All notable changes to the Article Processor project.
 
 ### Changed
 
-- **Source card markdown rendering** - Chat source cards now render snippet content through the same markdown pipeline as answers (headings, lists, code, math), while keeping the quoted, clamped excerpt look. A compact mode drops heavy media (images, tables) so the excerpt stays readable inside the two-line clamp. The shared `ChatMarkdown` renderer replaces the duplicated inline config in the chat page.
+- **Source card markdown rendering** - Chat source cards now render snippet content through the same markdown pipeline as answers (headings, lists, code, math), while keeping the quoted, clamped excerpt look. A compact mode drops heavy media (images, tables) so the excerpt stays readable inside the two-line clamp, and the shared `ChatMarkdown` renderer replaces the duplicated inline config in the chat page. Snippets that open with a block-level element (headings, lists, quotes, code, tables) render without wrapping quotes so no stray quote mark dangles above the block, and excerpts containing only dropped media are skipped instead of showing an empty card.
 - **Backend startup** - PDF parser imports are lazy-loaded to reduce API startup time when optional parser packages are not installed.
 - **Chat retrieval** - Local retrieval uses chunk-aware source metadata so generated answers can carry article, section, page, and chunk references back to the UI.
 - **Functional/QOL polish** - Article list, upload, logs, and article detail workflows now favor recoverable local state, direct queue actions, and clearer operational feedback.

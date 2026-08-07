@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import ChatMarkdown from "@/components/chat-markdown";
@@ -23,6 +23,7 @@ import {
   getDevConfig, setActiveProvider,
 } from "@/lib/api";
 import { translateUiText } from "@/lib/languageState.mjs";
+import { stripCitationPrefix, startsWithBlockElement, hasVisibleCompactContent } from "@/lib/citationSnippet.mjs";
 import type { ArticleSummary, ChatSession, ChatMessageResponse, Citation, ProviderEntry } from "@/lib/types";
 import { TypingDots } from "@/components/ui/animated";
 import { createChatStartState, createChatStarterPromptDraft } from "../chatStartState.mjs";
@@ -92,6 +93,13 @@ interface BubbleData {
 }
 
 function MessageBubble({ msg }: { msg: BubbleData }) {
+  const cards = (msg.citations ?? []).map((cit) => {
+    const snippet = stripCitationPrefix(String(cit.snippet ?? "")).trim();
+    const visible = snippet !== "" && hasVisibleCompactContent(snippet);
+    const content = visible && !startsWithBlockElement(snippet) ? `\u201C${snippet}\u201D` : snippet;
+    return { cit, content, visible };
+  });
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -107,18 +115,18 @@ function MessageBubble({ msg }: { msg: BubbleData }) {
         <div className="prose prose-sm dark:prose-invert w-full min-w-0 max-w-full [overflow-wrap:anywhere] break-words">
           <ChatMarkdown>{msg.content}</ChatMarkdown>
         </div>
-        {msg.citations && msg.citations.length > 0 && (
+        {cards.length > 0 && (
           <div className="mt-3 pt-3 border-t border-border/50">
             <p className="text-[11px] font-semibold text-muted-foreground mb-1.5">📎 Sources</p>
             <div className="space-y-1.5">
-              {msg.citations.map((cit, ci) => (
+              {cards.map(({ cit, content, visible }, ci) => (
                 <div key={ci} className="text-[11px] text-muted-foreground bg-background/50 rounded-lg px-2.5 py-1.5">
                   {cit.section_title && (
                     <span className="font-medium text-foreground/80">{cit.section_title}</span>
                   )}
-                  {cit.snippet && (
+                  {visible && (
                     <div className="mt-0.5 opacity-70 line-clamp-2 italic [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                      <ChatMarkdown compact>{`\u201C${String(cit.snippet).replace(/^\[.*?\]\s*/, "")}\u201D`}</ChatMarkdown>
+                      <ChatMarkdown compact>{content}</ChatMarkdown>
                     </div>
                   )}
                 </div>

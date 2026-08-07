@@ -39,7 +39,9 @@ test("chat source cards render snippets through ChatMarkdown with quotes and cla
   assert.match(page, /line-clamp-2/);
   assert.match(page, /\\u201C/);
   assert.match(page, /\\u201D/);
-  assert.match(page, /replace\(\/\^\\\[\.\*\?\\\]\\s\*\/\s*, ""\)/);
+  assert.match(page, /stripCitationPrefix/);
+  assert.match(page, /startsWithBlockElement/);
+  assert.match(page, /hasVisibleCompactContent/);
   assert.match(page, /\[&>\*:first-child\]:mt-0 \[&>\*:last-child\]:mb-0/);
 });
 
