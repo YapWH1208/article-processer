@@ -182,8 +182,8 @@ export default function UploadPage() {
       <FadeIn>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Upload</h1>
-            <p className="text-muted-foreground mt-1">Drag and drop documents to upload.</p>
+            <h1 className="text-3xl font-bold tracking-tight text-balance">Upload</h1>
+            <p className="text-muted-foreground mt-1 text-pretty">Drag and drop documents to upload.</p>
           </div>
           {modelInfo && (
             <div className="flex items-center gap-2">

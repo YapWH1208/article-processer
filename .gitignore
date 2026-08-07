@@ -41,3 +41,4 @@ storage/exports/*
 !storage/exports/.gitkeep
 /data
 /storage/images
+*.tsbuildinfo

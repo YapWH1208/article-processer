@@ -6,7 +6,9 @@ Article Processing Application: web app for document ingestion, AI-powered extra
 
 ## Setup for Development
 
-### Backend
+Fastest path: `./quickstart.sh` (or `quickstart.bat` on Windows) — creates the venv, installs `-e ".[dev]"`, copies `.env.example` → `services/api/.env`, runs migrations, creates `apps/web/.env.local`, and starts both servers. `./start.sh` just launches the already-set-up servers.
+
+Manual setup:
 
 ```bash
 cd services/api
@@ -17,13 +19,13 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-### Frontend
-
 ```bash
 cd apps/web
 npm install
 npm run dev
 ```
+
+Gotcha: `quickstart.sh` only runs `npm install` when `node_modules` is missing — after pulling changes that add frontend deps, run `npm install` manually or use `./quickstart.sh --skip-install` only when deps are unchanged.
 
 ## Key Conventions
 
@@ -50,7 +52,7 @@ services/api/app/
     graph/        - Ontology, entity/relationship extraction
     tools/        - Tool registry for extensibility
     skills/       - Skill registry with default skills
-  tests/          - pytest suite
+  tests/          - pytest suite (actual path: `app/tests/`)
 
 apps/web/src/
   app/            - Next.js pages (App Router)
@@ -64,14 +66,55 @@ apps/web/src/
 - Migrations via Alembic (`alembic upgrade head` / `alembic revision --autogenerate -m "message"`)
 - SQLite database stored at `data/app.sqlite3`
 
-## Testing
+## Required Workflow
+
+### Before making changes: code-review-graph
+
+Run `code-review-graph` before editing code. It maintains a persistent code knowledge graph at `.code-review-graph/graph.db` (SQLite, auto-generated, gitignored — never commit it).
 
 ```bash
-cd services/api
-pytest
+code-review-graph status            # graph health + staleness check
+code-review-graph detect-changes    # impact analysis of your working-tree changes (read-only)
+code-review-graph impact [path]     # blast radius of a function/file
+code-review-graph search <term>     # find entities by name
+code-review-graph flows             # stored execution flows
 ```
 
-Tests cover: ZIP safety, schema validation, chunking, mock AI extraction.
+If `status` reports the graph was built on a different branch or a stale commit, refresh it first:
+
+```bash
+code-review-graph update   # incremental
+code-review-graph build    # full re-parse
+```
+
+### Changelog
+
+`CHANGELOG.md` is the version source of truth — keep it updated alongside PRs:
+
+- **Creating a PR**: add/update a section for the changes (current version: `0.2.0`)
+- **Updating a PR**: update the changelog to match the new state of the PR
+
+Entry format: `## [X.Y.Z] — YYYY-MM-DD` with `### Added` / `### Changed` / `### Fixed` bullet groups.
+
+## Testing
+
+Backend (from `services/api/`):
+
+```bash
+pytest                      # full suite
+pytest app/tests/<file>.py  # single file
+```
+
+Frontend (from `apps/web/`) — uses Node's built-in test runner with **explicit globs in `package.json`**, not a framework:
+
+```bash
+npm test                    # runs the glob list in package.json
+node --test src/lib/apiBase.test.mjs   # single test file
+```
+
+Gotcha: test files use `.test.mjs` extension and must be covered by the glob list in `apps/web/package.json` — new test directories won't be picked up unless added there.
+
+Typecheck (frontend): `npx tsc --noEmit`. Note: `npm run lint` (`next lint`) is broken — Next.js 16 removed the command, and there is no ESLint config; CI runs `npm test` + `npm run build` only.
 
 ## API Endpoints
 

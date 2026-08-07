@@ -366,7 +366,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] gap-4">
+    <div className="flex h-[calc(100dvh-8rem)] gap-4">
       {/* ── Session Sidebar ─────────────────────────────────────── */}
       <AnimatePresence>
         {sidebarOpen && (
@@ -396,10 +396,19 @@ export default function ChatPage() {
               ) : (
                 <div className="p-1.5 space-y-0.5">
                   {sessions.map((s) => (
-                    <button
+                    <div
                       key={s.id}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => selectSession(s.id)}
-                      className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center justify-between group ${
+                      onKeyDown={(e) => {
+                        if (e.target !== e.currentTarget) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          selectSession(s.id);
+                        }
+                      }}
+                      className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center justify-between group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                         activeSessionId === s.id
                           ? "bg-primary/10 text-primary font-medium"
                           : "hover:bg-accent"
@@ -408,11 +417,12 @@ export default function ChatPage() {
                       <span className="truncate flex-1">{s.title}</span>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDeleteSession(s.id); }}
-                        className="opacity-0 group-hover:opacity-100 hover:text-destructive transition-all p-0.5"
+                        aria-label={`Delete session ${s.title}`}
+                        className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-destructive transition-all p-0.5"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
-                    </button>
+                    </div>
                   ))}
                 </div>
               )}
@@ -431,8 +441,8 @@ export default function ChatPage() {
               {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
             </Button>
             <div>
-              <h1 className="text-lg font-bold flex items-center gap-2">
-                <MessageCircle className="h-5 w-5 text-primary" />
+              <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+                <MessageCircle className="h-6 w-6 text-primary" />
                 {activeSessionId
                   ? sessions.find((s) => s.id === activeSessionId)?.title || translateUiText("Chat", language)
                   : translateUiText("New Chat", language)}

@@ -7,9 +7,9 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["var(--font-sans)", "Inter", "system-ui", "sans-serif"],
-        serif: ["var(--font-serif)", "Source Serif 4", "Georgia", "serif"],
-        mono: ["JetBrains Mono", "Fira Code", "monospace"],
+        sans: ["var(--font-sans)", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", "system-ui", "sans-serif"],
+        serif: ["var(--font-serif)", "Georgia", "serif"],
+        mono: ["var(--font-mono)", "SFMono-Regular", "Menlo", "monospace"],
       },
       fontSize: {
         h1: ["2.25rem", { lineHeight: "2.5rem", fontWeight: "700", letterSpacing: "-0.02em" }],
@@ -70,6 +70,13 @@ module.exports = {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+      },
+      boxShadow: {
+        sm: "0 1px 2px 0 hsl(var(--shadow-color))",
+        DEFAULT: "0 1px 3px 0 hsl(var(--shadow-color)), 0 1px 2px -1px hsl(var(--shadow-color))",
+        md: "0 4px 6px -1px hsl(var(--shadow-color)), 0 2px 4px -2px hsl(var(--shadow-color))",
+        lg: "0 10px 15px -3px hsl(var(--shadow-color)), 0 4px 6px -4px hsl(var(--shadow-color))",
+        xl: "0 20px 25px -5px hsl(var(--shadow-color)), 0 8px 10px -6px hsl(var(--shadow-color))",
       },
       keyframes: {
         "accordion-down": {

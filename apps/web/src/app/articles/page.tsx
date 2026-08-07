@@ -238,7 +238,7 @@ export default function ArticlesPage() {
   return (
     <div className="space-y-6">
       <FadeIn>
-        <h1 className="text-3xl font-bold tracking-tight">Articles</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-balance">Articles</h1>
         <p className="text-muted-foreground mt-1">{total} article{total !== 1 ? "s" : ""}{totalPages > 1 ? ` · page ${page} of ${totalPages}` : ""}</p>
       </FadeIn>
 

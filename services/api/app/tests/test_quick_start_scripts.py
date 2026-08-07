@@ -4,8 +4,8 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-QUICK_START_SCRIPTS = ("start.bat", "start.sh")
-RUN_ONLY_SCRIPTS = ("run.bat", "run.sh")
+QUICK_START_SCRIPTS = ("quickstart.bat", "quickstart.sh")
+RUN_ONLY_SCRIPTS = ("start.bat", "start.sh")
 ALL_LAUNCHER_SCRIPTS = QUICK_START_SCRIPTS + RUN_ONLY_SCRIPTS
 
 
@@ -25,6 +25,25 @@ def test_windows_quick_start_help_exits_before_setup():
         return
 
     result = subprocess.run(
+        ["cmd", "/d", "/c", str(REPO_ROOT / "quickstart.bat"), "--help"],
+        cwd=REPO_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=5,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout
+    assert "Usage: quickstart.bat [--skip-install]" in result.stdout
+    assert "Setting up backend" not in result.stdout
+
+
+def test_windows_run_help_exits_before_launching_services():
+    if os.name != "nt":
+        return
+
+    result = subprocess.run(
         ["cmd", "/d", "/c", str(REPO_ROOT / "start.bat"), "--help"],
         cwd=REPO_ROOT,
         text=True,
@@ -35,26 +54,7 @@ def test_windows_quick_start_help_exits_before_setup():
     )
 
     assert result.returncode == 0, result.stdout
-    assert "Usage: start.bat [--skip-install]" in result.stdout
-    assert "Setting up backend" not in result.stdout
-
-
-def test_windows_run_help_exits_before_launching_services():
-    if os.name != "nt":
-        return
-
-    result = subprocess.run(
-        ["cmd", "/d", "/c", str(REPO_ROOT / "run.bat"), "--help"],
-        cwd=REPO_ROOT,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        timeout=5,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stdout
-    assert "Usage: run.bat" in result.stdout
+    assert "Usage: start.bat" in result.stdout
     assert "Starting backend" not in result.stdout
     assert "Starting frontend" not in result.stdout
 

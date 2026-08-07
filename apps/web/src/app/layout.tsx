@@ -1,4 +1,7 @@
 import "./globals.css";
+import "@fontsource-variable/geist";
+import "@fontsource-variable/source-serif-4";
+import "@fontsource-variable/jetbrains-mono";
 import { Suspense } from "react";
 import { Providers } from "@/components/Providers";
 
@@ -15,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script src="/desktop-config.js" />
       </head>
       <body className="min-h-screen bg-background text-foreground antialiased font-sans">
+        <div aria-hidden="true" className="grain-overlay" />
         <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="animate-pulse-dot h-4 w-4 rounded-full bg-primary" /></div>}>
           <Providers>{children}</Providers>
         </Suspense>

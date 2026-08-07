@@ -344,11 +344,11 @@ export default function SettingsPage() {
     <div className="max-w-3xl mx-auto space-y-6">
       <FadeIn>
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center">
-            <Settings2 className="h-5 w-5 text-indigo-500" />
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+            <Settings2 className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+            <h1 className="text-3xl font-bold tracking-tight text-balance">Settings</h1>
             <p className="text-sm text-muted-foreground">
               Configure AI providers, system messages, model parameters, parsers, and general preferences.
             </p>
@@ -683,97 +683,6 @@ export default function SettingsPage() {
                 </DialogContent>
               </Dialog>
 
-              {false && showAddForm ? (
-                <Card>
-                  <CardHeader><CardTitle className="text-base">Add Provider</CardTitle></CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs">Name</Label>
-                        <Input value={newProvider.name}
-                          onChange={(e) => setNewProvider((p) => ({...p, name: e.target.value}))}
-                          placeholder="My Provider" className="h-9" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs">Provider Type</Label>
-                        <select value={newProvider.type} onChange={(e) => {
-                          const t = PROVIDER_TYPES.find((x) => x.value === e.target.value);
-                          setNewProvider((p) => ({
-                            ...p, type: e.target.value, base_url: t?.defaultBase || "",
-                            model: t?.defaultModel || "",
-                            protocol: e.target.value === "anthropic" ? "anthropic" : "openai",
-                          }));
-                        }} className="w-full h-9 rounded-md border bg-background px-3 text-sm">
-                          {PROVIDER_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-                        </select>
-                      </div>
-                    </div>
-
-                    {/* Protocol selector — only shown for Custom */}
-                    {newProvider.type === "custom" && (
-                      <div className="space-y-1.5">
-                        <Label className="text-xs flex items-center gap-1.5">
-                          <SwitchCamera className="h-3 w-3 text-muted-foreground" /> Protocol
-                        </Label>
-                        <Select value={newProvider.protocol} onValueChange={(v) => setNewProvider((p) => ({...p, protocol: v}))}>
-                          <SelectTrigger className="h-9"><SelectValue/></SelectTrigger>
-                          <SelectContent>
-                            {PROTOCOL_OPTIONS.map((o) => (
-                              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <p className="text-[11px] text-muted-foreground">
-                          OpenAI = <code className="bg-muted px-1 rounded text-[10px]">/v1/chat/completions</code> · Anthropic = <code className="bg-muted px-1 rounded text-[10px]">/v1/messages</code>
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">API Key</Label>
-                      <Input value={newProvider.api_key}
-                        onChange={(e) => setNewProvider((p) => ({...p, api_key: e.target.value}))}
-                        placeholder={newProvider.type === "custom" ? "ollama or your-key" : "sk-..."}
-                        type="password" className="h-9 font-mono" />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Base URL</Label>
-                      <Input value={newProvider.base_url}
-                        onChange={(e) => setNewProvider((p) => ({...p, base_url: e.target.value}))}
-                        placeholder="https://api.openai.com/v1" className="h-9 font-mono text-xs" />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Model</Label>
-                      <Input value={newProvider.model}
-                        onChange={(e) => setNewProvider((p) => ({...p, model: e.target.value}))}
-                        placeholder="gpt-4.1-mini" className="h-9" />
-                    </div>
-                    <div className="flex gap-2 justify-end">
-                      <Button variant="ghost" size="sm" onClick={() => setShowAddForm(false)}>Cancel</Button>
-                      <Button size="sm" onClick={async () => {
-                        if (!newProvider.name.trim()) { toast.error("Name is required"); return; }
-                        setProvSaving(true);
-                        try {
-                          const res = await apiRawFetch("/dev/providers", {
-                            method: "POST", headers: {"Content-Type":"application/json"},
-                            body: JSON.stringify(newProvider),
-                          });
-                          if (!res.ok) throw new Error((await res.json()).detail || "Failed");
-                          const created: ProviderEntry = await res.json();
-                          setProviders((prev) => [...prev, created]);
-                          if (!activeProviderId) setActiveProviderId(created.id);
-                          setShowAddForm(false);
-                          setNewProvider(EMPTY_PROVIDER_DRAFT);
-                          toast.success(`Added ${created.name}`);
-                        } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Failed"); }
-                        finally { setProvSaving(false); }
-                      }} disabled={provSaving}>
-                        {provSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1"/> : <Plus className="h-3.5 w-3.5 mr-1"/>} Add
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : null}
             </motion.div>
           )}
 

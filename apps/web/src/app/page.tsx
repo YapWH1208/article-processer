@@ -219,8 +219,8 @@ export default function HomePage() {
     <div className="space-y-6">
       <section className="flex flex-wrap items-start justify-between gap-4">
         <div className="max-w-2xl">
-          <h1 className="text-3xl font-bold tracking-tight">Workspace</h1>
-          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+          <h1 className="text-3xl font-bold tracking-tight text-balance">Workspace</h1>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground text-pretty">
             Upload, process, review, and ask questions across your local article library.
           </p>
         </div>

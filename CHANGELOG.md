@@ -4,7 +4,7 @@ All notable changes to the Article Processor project.
 
 ---
 
-## [Unreleased] - 2026-05-31
+## [0.2.0] — 2026-08-06
 
 ### Added
 
@@ -24,12 +24,25 @@ All notable changes to the Article Processor project.
 - **Persistent upload queue** - Upload/import processing progress is stored locally and resumed after refresh for active jobs.
 - **Locale-backed bilingual UI toggle** - Header language button switches the app shell, pages, placeholders, generated chat prompts, and AI output-language instructions between English and Chinese, with English and Chinese strings split into per-language locale files for future languages.
 - **Frontend state tests** - Node test coverage now includes article-list URL/export state, upload queue persistence, job queue action state, graph canvas state, extraction review parsing, and article workspace helpers.
+- **Custom 404 page and skip link** - Branded not-found page, plus a skip-to-content link for keyboard and screen-reader users.
+- **Ambient background glow and grain** - Subtle radial primary-tinted glow and a fixed grain overlay across the app shell for depth.
+- **Self-hosted variable fonts** - Geist, Source Serif 4, and JetBrains Mono now ship via `@fontsource-variable`, removing the Google Fonts runtime dependency.
+- **Split quick-start and run scripts** - `quickstart.sh`/`quickstart.bat` handle one-time setup (venv, installs, migrations) plus launch; `start.sh`/`start.bat` launch the services only. Stale root dependencies dropped; quick-start tests updated.
+- **Redesign skill for AI assistants** - Local `.agents/skills/redesign-existing-projects` skill guiding AI coding assistants through premium UI redesigns.
 
 ### Changed
 
 - **Backend startup** - PDF parser imports are lazy-loaded to reduce API startup time when optional parser packages are not installed.
 - **Chat retrieval** - Local retrieval uses chunk-aware source metadata so generated answers can carry article, section, page, and chunk references back to the UI.
 - **Functional/QOL polish** - Article list, upload, logs, and article detail workflows now favor recoverable local state, direct queue actions, and clearer operational feedback.
+- **Design polish pass** - Cleaned color palette with tinted shadows, press feedback and refined hover states on buttons/cards/badges, and softer radii.
+- **Standardized page headers** - Consistent header treatments across all pages; mobile layouts now use stable viewport heights instead of overflowing.
+- **Graph visual palette** - Knowledge graph canvas redrawn in muted, theme-consistent colors.
+
+### Fixed
+
+- **Keyboard delete of chat sessions** - Enter/Space on the delete button was swallowed by the session-row keydown handler, so keyboard deletion never fired; keydown from child elements is now ignored.
+- **Logs live indicator** - Paused polling correctly shows "Paused" instead of "Live".
 
 ### Removed
 

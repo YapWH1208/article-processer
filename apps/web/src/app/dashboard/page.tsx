@@ -27,16 +27,16 @@ const TIME_RANGES = [
 ];
 
 const STATUS_COLORS: Record<string, string> = {
-  completed: "#22c55e",
-  failed: "#ef4444",
-  uploaded: "#3b82f6",
-  parsing: "#f59e0b",
-  extracting: "#a855f7",
-  indexing: "#ec4899",
-  needs_review: "#6b7280",
+  completed: "#3d9c6b",
+  failed: "#c95353",
+  uploaded: "#5b7fd4",
+  parsing: "#c08a3e",
+  extracting: "#8b6fc9",
+  indexing: "#c26f9d",
+  needs_review: "#7a7f8c",
 };
 
-const CHART_COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#ec4899", "#14b8a6", "#f97316"];
+const CHART_COLORS = ["#5b7fd4", "#3d9c6b", "#c08a3e", "#c95353", "#8b6fc9", "#c26f9d", "#3f9aa6", "#b07f3f"];
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -126,8 +126,8 @@ export default function DashboardPage() {
       <FadeIn>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-            <p className="text-muted-foreground mt-1">Analytics and metrics for your article processing pipeline.</p>
+            <h1 className="text-3xl font-bold tracking-tight text-balance">Dashboard</h1>
+            <p className="text-muted-foreground mt-1 text-pretty">Analytics and metrics for your article processing pipeline.</p>
           </div>
           <div className="flex rounded-lg border border-border bg-muted/50 p-0.5">
             {TIME_RANGES.map(({ label, days: d }) => (
@@ -168,21 +168,21 @@ export default function DashboardPage() {
 
       {/* KPI Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard title="Total Articles" value={metrics?.total_articles || 0} icon={FileText} color="text-blue-500" bg="bg-blue-500/10" loading={loading} />
-        <KpiCard title="Completed" value={metrics?.total_completed || 0} icon={CheckCircle2} color="text-green-500" bg="bg-green-500/10" loading={loading} />
-        <KpiCard title="Total Tokens" value={metrics?.total_tokens || 0} icon={Zap} color="text-amber-500" bg="bg-amber-500/10" loading={loading} suffix="tokens" />
-        <KpiCard title="Graph Entities" value={metrics?.total_graph_entities || 0} icon={GitBranch} color="text-purple-500" bg="bg-purple-500/10" loading={loading} />
+        <KpiCard title="Total Articles" value={metrics?.total_articles || 0} icon={FileText} color="text-primary" bg="bg-primary/10" loading={loading} />
+        <KpiCard title="Completed" value={metrics?.total_completed || 0} icon={CheckCircle2} color="text-success" bg="bg-success/10" loading={loading} />
+        <KpiCard title="Total Tokens" value={metrics?.total_tokens || 0} icon={Zap} color="text-primary" bg="bg-primary/10" loading={loading} suffix="tokens" />
+        <KpiCard title="Graph Entities" value={metrics?.total_graph_entities || 0} icon={GitBranch} color="text-primary" bg="bg-primary/10" loading={loading} />
       </div>
 
       {/* Second row KPI */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard title="Processing" value={metrics?.total_processing || 0} icon={Clock} color="text-orange-500" bg="bg-orange-500/10" loading={loading} />
-        <KpiCard title="Failed" value={metrics?.total_failed || 0} icon={AlertCircle} color="text-red-500" bg="bg-red-500/10" loading={loading} />
-        <KpiCard title="Chat Messages" value={metrics?.total_chat_messages || 0} icon={MessageCircle} color="text-cyan-500" bg="bg-cyan-500/10" loading={loading} />
+        <KpiCard title="Processing" value={metrics?.total_processing || 0} icon={Clock} color="text-warning" bg="bg-warning/10" loading={loading} />
+        <KpiCard title="Failed" value={metrics?.total_failed || 0} icon={AlertCircle} color="text-destructive" bg="bg-destructive/10" loading={loading} />
+        <KpiCard title="Chat Messages" value={metrics?.total_chat_messages || 0} icon={MessageCircle} color="text-primary" bg="bg-primary/10" loading={loading} />
         <Card>
           <CardContent className="p-5 flex items-center gap-4">
-            <div className="p-3 rounded-xl bg-indigo-500/10 shrink-0">
-              <TrendingUp className="h-5 w-5 text-indigo-500" />
+            <div className="p-3 rounded-xl bg-primary/10 shrink-0">
+              <TrendingUp className="h-5 w-5 text-primary" />
             </div>
             <div className="min-w-0">
               <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Avg Process Time</p>
@@ -225,7 +225,7 @@ export default function DashboardPage() {
                         fontSize: "12px",
                       }}
                     />
-                    <Line type="monotone" dataKey="Articles" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    <Line type="monotone" dataKey="Articles" stroke="#5b7fd4" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
                   </LineChart>
                 </ResponsiveContainer>
               )}
@@ -264,8 +264,8 @@ export default function DashboardPage() {
                       formatter={formatTooltipTokens}
                     />
                     <Legend />
-                    <Bar dataKey="Prompt Tokens" stackId="a" fill="#3b82f6" />
-                    <Bar dataKey="Completion Tokens" stackId="a" fill="#22c55e" />
+                    <Bar dataKey="Prompt Tokens" stackId="a" fill="#5b7fd4" />
+                    <Bar dataKey="Completion Tokens" stackId="a" fill="#3d9c6b" />
                   </BarChart>
                 </ResponsiveContainer>
               )}
