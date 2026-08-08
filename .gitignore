@@ -12,6 +12,7 @@ node_modules/
 .next/
 out/
 apps/desktop/dist/
+next-env.d.ts
 
 # Database
 data/*.sqlite3

@@ -1,13 +1,9 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
-import "katex/dist/katex.min.css";
+import ChatMarkdown from "@/components/chat-markdown";
 import {
   Send, MessageCircle, Hash, FileText, X, Loader2,
   Plus, BookOpen, ArrowUp, Trash2, PanelLeftClose, PanelLeftOpen,
@@ -27,7 +23,7 @@ import {
   getDevConfig, setActiveProvider,
 } from "@/lib/api";
 import { translateUiText } from "@/lib/languageState.mjs";
-import { normalizeHtmlTablesForMarkdown } from "@/lib/markdownHtmlTables.mjs";
+import { stripCitationPrefix, startsWithBlockElement, hasVisibleCompactContent } from "@/lib/citationSnippet.mjs";
 import type { ArticleSummary, ChatSession, ChatMessageResponse, Citation, ProviderEntry } from "@/lib/types";
 import { TypingDots } from "@/components/ui/animated";
 import { createChatStartState, createChatStarterPromptDraft } from "../chatStartState.mjs";
@@ -97,7 +93,12 @@ interface BubbleData {
 }
 
 function MessageBubble({ msg }: { msg: BubbleData }) {
-  const renderedContent = useMemo(() => normalizeHtmlTablesForMarkdown(msg.content), [msg.content]);
+  const cards = (msg.citations ?? []).map((cit) => {
+    const snippet = stripCitationPrefix(String(cit.snippet ?? "")).trim();
+    const visible = snippet !== "" && hasVisibleCompactContent(snippet);
+    const content = visible && !startsWithBlockElement(snippet) ? `\u201C${snippet}\u201D` : snippet;
+    return { cit, content, visible };
+  });
 
   return (
     <motion.div
@@ -112,48 +113,21 @@ function MessageBubble({ msg }: { msg: BubbleData }) {
         }`}
       >
         <div className="prose prose-sm dark:prose-invert w-full min-w-0 max-w-full [overflow-wrap:anywhere] break-words">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkMath]}
-            rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]}
-            components={{
-              h1: ({ children, ...props }: any) => <h1 className="text-xl font-bold mt-5 mb-2 border-b pb-0.5" {...props}>{children}</h1>,
-              h2: ({ children, ...props }: any) => <h2 className="text-lg font-bold mt-4 mb-1.5 border-b pb-0.5" {...props}>{children}</h2>,
-              h3: ({ children, ...props }: any) => <h3 className="text-base font-semibold mt-3 mb-1" {...props}>{children}</h3>,
-              h4: ({ children, ...props }: any) => <h4 className="text-sm font-semibold mt-2 mb-1" {...props}>{children}</h4>,
-              h5: ({ children, ...props }: any) => <h5 className="text-xs font-semibold mt-2 mb-0.5" {...props}>{children}</h5>,
-              h6: ({ children, ...props }: any) => <h6 className="text-[11px] font-semibold mt-2 mb-0.5 uppercase tracking-wide" {...props}>{children}</h6>,
-              img: ({ src, alt, ...props }: any) => (
-                <span className="my-3 mx-auto block w-[calc(100%-0.5rem)] max-w-[calc(100%-0.5rem)] text-center">
-                  <img {...props} src={src} alt={alt} className="inline-block h-auto max-h-[50vh] w-auto max-w-full rounded-lg object-contain align-middle" />
-                </span>
-              ),
-              table: ({ children, ...props }: any) => (
-                <div className="my-3 mx-auto block w-[calc(100%-0.5rem)] min-w-0 max-w-[calc(100%-0.5rem)] rounded-md border font-sans">
-                  <table {...props} className="w-full max-w-full table-fixed border-collapse text-sm">{children}</table>
-                </div>
-              ),
-              thead: ({ children, ...props }: any) => <thead className="bg-muted/70" {...props}>{children}</thead>,
-              tr: ({ children, ...props }: any) => <tr className="border-b last:border-b-0" {...props}>{children}</tr>,
-              th: ({ children, ...props }: any) => <th className="border-r px-3 py-2 text-left align-top font-semibold [overflow-wrap:anywhere] break-words whitespace-normal last:border-r-0" {...props}>{children}</th>,
-              td: ({ children, ...props }: any) => <td className="border-r px-3 py-2 align-top [overflow-wrap:anywhere] break-words whitespace-normal last:border-r-0" {...props}>{children}</td>,
-            }}
-          >
-            {renderedContent}
-          </ReactMarkdown>
+          <ChatMarkdown>{msg.content}</ChatMarkdown>
         </div>
-        {msg.citations && msg.citations.length > 0 && (
+        {cards.length > 0 && (
           <div className="mt-3 pt-3 border-t border-border/50">
             <p className="text-[11px] font-semibold text-muted-foreground mb-1.5">📎 Sources</p>
             <div className="space-y-1.5">
-              {msg.citations.map((cit, ci) => (
+              {cards.map(({ cit, content, visible }, ci) => (
                 <div key={ci} className="text-[11px] text-muted-foreground bg-background/50 rounded-lg px-2.5 py-1.5">
                   {cit.section_title && (
                     <span className="font-medium text-foreground/80">{cit.section_title}</span>
                   )}
-                  {cit.snippet && (
-                    <p className="mt-0.5 opacity-70 line-clamp-2 italic">
-                      &ldquo;{String(cit.snippet).replace(/^\[.*?\]\s*/, "")}&rdquo;
-                    </p>
+                  {visible && (
+                    <div className="mt-0.5 opacity-70 line-clamp-2 italic [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                      <ChatMarkdown compact>{content}</ChatMarkdown>
+                    </div>
                   )}
                 </div>
               ))}
