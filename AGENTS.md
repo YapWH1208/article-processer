@@ -91,7 +91,7 @@ code-review-graph build    # full re-parse
 
 `CHANGELOG.md` is the version source of truth — keep it updated alongside PRs:
 
-- **Creating a PR**: add/update a section for the changes (current version: `0.2.0`)
+- **Creating a PR**: add/update a section for the changes (current version: `0.2.1`)
 - **Updating a PR**: update the changelog to match the new state of the PR
 
 Entry format: `## [X.Y.Z] — YYYY-MM-DD` with `### Added` / `### Changed` / `### Fixed` bullet groups.
