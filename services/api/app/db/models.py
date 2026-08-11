@@ -136,6 +136,8 @@ class ArticleExtraction(Base):
     article_id = Column(Integer, ForeignKey("articles.id", ondelete="CASCADE"), nullable=False)
     schema_version = Column(String(16), default="1.0")
     extraction_json = Column(Text, nullable=True)  # Full extraction JSON
+    report_json = Column(Text, nullable=True)  # Deep Analysis report JSON
+    report_confidence = Column(Float, nullable=True)
     confidence = Column(Float, default=0.0)
     validation_errors = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
@@ -205,6 +207,7 @@ class ProcessingJob(Base):
     last_error = Column(Text, nullable=True)
     run_ai = Column(Integer, default=1)
     start_step = Column(String(32), default="parse")
+    analysis_mode = Column(String(16), default="quick")  # quick | deep
     output_language = Column(String(16), default="en")
     locked_at = Column(DateTime, nullable=True)
     worker_id = Column(String(128), nullable=True)
