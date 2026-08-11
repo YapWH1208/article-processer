@@ -87,6 +87,76 @@ class ExtractionService:
     """Service for managing extraction results."""
 
     @staticmethod
+    def normalize_deep_report(report: Any, article_title: str | None = None) -> dict:
+        """Normalize provider output into the canonical Deep Analysis report shape.
+
+        The report is a dict with ``title``, ``summary``, and ``sections``
+        (each with heading, content, and optional evidence).
+        """
+        source = dict(report) if isinstance(report, dict) else {}
+        normalized: dict[str, Any] = {
+            "title": ExtractionService._coerce_optional_string(
+                source.get("title"), fallback=article_title
+            ),
+            "summary": ExtractionService._coerce_optional_string(
+                source.get("summary")
+            ),
+            "sections": [],
+        }
+
+        raw_sections = source.get("sections")
+        items = (
+            raw_sections
+            if isinstance(raw_sections, list)
+            else ([] if raw_sections is None else [raw_sections])
+        )
+        for item in items:
+            if isinstance(item, str):
+                section = {
+                    "heading": None,
+                    "content": ExtractionService._value_to_text(item),
+                    "evidence": None,
+                }
+            elif isinstance(item, dict):
+                heading = ExtractionService._coerce_optional_string(
+                    item.get("heading") or item.get("title") or item.get("name")
+                )
+                content = ExtractionService._coerce_optional_string(
+                    item.get("content") or item.get("body") or item.get("text")
+                )
+                if not content:
+                    continue
+                evidence = item.get("evidence")
+                section = {
+                    "heading": heading,
+                    "content": content,
+                    "evidence": (
+                        evidence if isinstance(evidence, dict) else None
+                    ),
+                }
+            else:
+                continue
+            normalized["sections"].append(section)
+
+        return normalized
+
+    @staticmethod
+    def validate_deep_report(report: dict) -> list[str]:
+        """Validate a normalized Deep Analysis report. Empty list = valid."""
+        errors = []
+        for key in ("title", "summary", "sections"):
+            if key not in report:
+                errors.append(f"Missing field: {key}")
+        if not isinstance(report.get("summary"), str) or not report["summary"].strip():
+            errors.append("'summary' must be a non-empty string")
+        sections = report.get("sections")
+        if not isinstance(sections, list):
+            errors.append("'sections' must be an array")
+        elif not sections:
+            errors.append("'sections' must not be empty")
+        return errors
+
+    @staticmethod
     def normalize_extraction(extraction: Any, article_title: str | None = None) -> dict:
         """Normalize provider output into the canonical extraction schema.
 

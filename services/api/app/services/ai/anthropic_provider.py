@@ -68,6 +68,38 @@ class AnthropicProvider(BaseLLMProvider):
         errors = ExtractionService.validate_schema(result)
         return result, (errors or None), 0.85 if not errors else 0.6
 
+    async def generate_deep_report(
+        self,
+        markdown: str,
+        article_title: str,
+        extraction: dict | None,
+        output_language: str = "en",
+    ) -> tuple[dict | None, list[str] | None, float]:
+        protected_text = protect_prompt_from_injection(markdown)
+        input_template = get_input_template("deep_report")
+        user_content = input_template.format(
+            title=article_title,
+            document=protected_text,
+            extraction=json.dumps(extraction, ensure_ascii=False)
+            if extraction is not None
+            else "No structured extraction available.",
+        )
+        prompt = (
+            f"{get_system_message('deep_report', output_language=output_language)}\n\n"
+            f"{user_content}\n\n"
+            f"Respond with a JSON object only, no other text."
+        )
+        try:
+            parsed, _ = await self._call_claude(prompt, "deep_report", max_tokens=12000)
+        except Exception as e:
+            return None, [f"Provider error: {e}"], 0.0
+        if not isinstance(parsed, dict):
+            return None, ["JSON parse error"], 0.0
+
+        result = ExtractionService.normalize_deep_report(parsed, article_title=article_title)
+        errors = ExtractionService.validate_deep_report(result)
+        return result, (errors or None), 0.85 if not errors else 0.6
+
     async def answer_question(
         self,
         question: str,

@@ -121,6 +121,72 @@ class MockLLMProvider(BaseLLMProvider):
             logger.error(f"Mock extraction failed: {e}")
             return None, [str(e)], 0.0
 
+    async def generate_deep_report(
+        self,
+        markdown: str,
+        article_title: str,
+        extraction: dict | None,
+        output_language: str = "en",
+    ) -> tuple[dict | None, list[str] | None, float]:
+        """Deterministic Deep Analysis report assembled from the extraction."""
+        extraction = dict(extraction or {})
+        title = extraction.get("title") or article_title
+
+        sections: list[dict] = []
+
+        def add_section(heading: str, content: str | None) -> None:
+            content = (content or "").strip()
+            if content:
+                sections.append({
+                    "heading": heading,
+                    "content": content,
+                    "evidence": {"source_section": None, "page_number": None, "snippet": content[:200]},
+                })
+
+        add_section(
+            "Background and Context",
+            extraction.get("background") or extraction.get("abstract"),
+        )
+        add_section("Research Problem", extraction.get("research_problem"))
+
+        methodology = extraction.get("methodology")
+        datasets = extraction.get("datasets") or []
+        if methodology or datasets:
+            parts = [methodology] if methodology else []
+            if datasets:
+                parts.append("Datasets: " + ", ".join(datasets))
+            add_section("Methodology and Datasets", "\n\n".join(parts))
+
+        add_section("Results", extraction.get("results"))
+
+        claims = extraction.get("key_claims") or []
+        if claims:
+            claim_text = "\n".join(
+                f"- {claim.get('claim') if isinstance(claim, dict) else claim}"
+                for claim in claims
+            )
+            add_section("Key Findings and Claims", claim_text)
+
+        add_section("Limitations", extraction.get("limitations"))
+        add_section("Future Work", extraction.get("future_work"))
+
+        summary_parts = [f"## {title}"]
+        if extraction.get("abstract"):
+            summary_parts.append(extraction["abstract"])
+        if extraction.get("results"):
+            summary_parts.append(f"Key results: {extraction['results'][:400]}")
+        if not sections:
+            summary_parts.append(
+                "The document did not yield enough structured content for a detailed report."
+            )
+
+        report = {
+            "title": title,
+            "summary": "\n\n".join(summary_parts),
+            "sections": sections,
+        }
+        return report, None, 0.6
+
     async def answer_question(
         self,
         question: str,

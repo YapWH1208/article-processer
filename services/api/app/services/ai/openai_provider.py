@@ -179,6 +179,69 @@ class OpenAIProvider(BaseLLMProvider):
         confidence = 0.85 if not errors else (0.6 if result else 0.0)
         return result, errors, confidence
 
+    async def generate_deep_report(
+        self,
+        markdown: str,
+        article_title: str,
+        extraction: dict | None,
+        output_language: str = "en",
+    ) -> tuple[dict | None, list[str] | None, float]:
+        """Generate a comprehensive Deep Analysis report (JSON output)."""
+        protected_text = protect_prompt_from_injection(markdown)
+        input_template = get_input_template("deep_report")
+        user_content = input_template.format(
+            title=article_title,
+            document=protected_text,
+            extraction=json.dumps(extraction, ensure_ascii=False)
+            if extraction is not None
+            else "No structured extraction available.",
+        )
+        messages = [
+            {"role": "system", "content": get_system_message("deep_report", output_language=output_language)},
+            {"role": "user", "content": user_content},
+        ]
+
+        result, errors = None, None
+        for use_json_mode in (True, False):
+            try:
+                kwargs: dict = {
+                    "model": self.model,
+                    "messages": messages,
+                    "temperature": 0.2,
+                    "max_tokens": 12000,
+                }
+                if use_json_mode:
+                    kwargs["response_format"] = {"type": "json_object"}
+                response = await self.client.chat.completions.create(**kwargs)
+            except Exception as e:
+                err = str(e).lower()
+                if use_json_mode and ("response_format" in err or "json_object" in err):
+                    logger.info("Model rejected response_format for deep report — retrying without JSON mode")
+                    continue
+                logger.error(f"Deep report API call failed: {e}")
+                return None, [str(e)], 0.0
+
+            self._capture_usage(response)
+            raw = response.choices[0].message.content or ""
+            if not raw.strip():
+                errors = ["model returned empty response"]
+                continue
+
+            try:
+                result = ExtractionService.normalize_deep_report(
+                    _repair_json(raw), article_title=article_title
+                )
+            except json.JSONDecodeError:
+                errors = ["JSON parse error"]
+                continue
+
+            errors = ExtractionService.validate_deep_report(result)
+            if not errors:
+                return result, None, 0.85
+            break
+
+        return None, errors or ["deep report failed validation"], 0.0
+
     async def _extract_with(
         self,
         messages: list,
