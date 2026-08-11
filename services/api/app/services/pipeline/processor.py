@@ -352,7 +352,6 @@ async def run_pipeline(
                     f"Extraction attempt {attempt + 1} failed for article {article_id} "
                     f"(errors: {validation_errors}). Retrying in {delay:.1f}s..."
                 )
-                import asyncio
                 await asyncio.sleep(delay)
                 # Reset job error for retry
                 job.error = None

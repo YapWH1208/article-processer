@@ -37,6 +37,7 @@ from app.schemas.extraction import (
 from app.schemas.graph import GraphResponse
 from app.schemas.jobs import JobResponse
 from app.services.search import search_article_ids, upsert_article_search_index
+from app.services.pipeline.processor import run_pipeline_background
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -519,8 +520,6 @@ def reprocess_article(
     db.add(job)
     db.commit()
     db.refresh(job)
-
-    from app.services.pipeline.processor import run_pipeline_background
 
     run_pipeline_background(
         article.id,
