@@ -37,6 +37,7 @@ storage = LocalStorage()
 # ── Pipeline Retry ─────────────────────────────────────────────────────────
 
 _MAX_RETRIES = 3
+_MAX_REPORT_RETRIES = 2
 _RETRY_BASE_DELAY = 1.0  # seconds
 
 
@@ -153,11 +154,13 @@ async def run_pipeline(
     start_step: str = "parse",
     job_id: int | None = None,
     output_language: str = "en",
+    analysis_mode: str = "quick",
 ) -> None:
     """Run the processing pipeline for an article.
 
     run_ai=False: stops after chunking (parse-only mode).
     start_step="extract": skips parse + chunk, starts at AI extraction (requires existing markdown_text).
+    analysis_mode="deep": after extraction + graph, generates a comprehensive Deep Analysis report.
 
     Steps:
     1. Parse document to Markdown
@@ -165,6 +168,7 @@ async def run_pipeline(
     3. Chunk
     4. AI extraction
     5. Graph building
+    6. Deep Analysis report (deep mode only)
     """
     db = SessionLocal()
     job: ProcessingJob | None = None
@@ -195,6 +199,7 @@ async def run_pipeline(
                 run_ai=1 if run_ai else 0,
                 start_step=start_step,
                 output_language=output_language,
+                analysis_mode=analysis_mode,
             )
             db.add(job)
             db.flush()
@@ -202,6 +207,7 @@ async def run_pipeline(
             job.status = JobStatus.RUNNING.value
             job.run_ai = 1 if run_ai else 0
             job.start_step = start_step
+            job.analysis_mode = analysis_mode
             job.output_language = output_language
             job.locked_at = datetime.datetime.utcnow()
             db.commit()
@@ -462,6 +468,65 @@ async def run_pipeline(
 
             add_log("graph", f"Graph built: {len(graph_entities)} entities, {len(graph_relationships)} relationships")
 
+        # ── Step 5: Deep Analysis Report (deep mode only) ──────────────
+        if analysis_mode == "deep" and extraction_result is not None:
+            add_log("deep_report", "Generating Deep Analysis report...")
+            report = None
+            report_errors = None
+            report_confidence = 0.0
+
+            for attempt in range(_MAX_REPORT_RETRIES + 1):
+                try:
+                    report, report_errors, report_confidence = await llm.generate_deep_report(
+                        markdown=markdown,
+                        article_title=article.title,
+                        extraction=extraction_result,
+                        output_language=output_language,
+                    )
+                except Exception as report_err:
+                    report_errors = [str(report_err)]
+                    report = None
+
+                if report is not None and (report_errors is None or len(report_errors) == 0):
+                    break
+                if attempt < _MAX_REPORT_RETRIES:
+                    delay = _retry_delay(attempt)
+                    logger.warning(
+                        f"Deep report attempt {attempt + 1} failed for article {article_id} "
+                        f"(errors: {report_errors}). Retrying in {delay:.1f}s..."
+                    )
+                    await asyncio.sleep(delay)
+                    job.error = None
+                    db.commit()
+
+            # Record report token usage
+            if llm.last_usage and llm.last_usage.total_tokens > 0:
+                db.add(TokenUsage(
+                    article_id=article_id,
+                    step="deep_report",
+                    model=llm.last_usage.model,
+                    provider=llm.last_usage.provider,
+                    prompt_tokens=llm.last_usage.prompt_tokens,
+                    completion_tokens=llm.last_usage.completion_tokens,
+                    total_tokens=llm.last_usage.total_tokens,
+                    cost=compute_token_cost(
+                        llm.last_usage.model,
+                        llm.last_usage.prompt_tokens,
+                        llm.last_usage.completion_tokens,
+                    ),
+                ))
+
+            if report is not None and (report_errors is None or len(report_errors) == 0):
+                extraction.report_json = json.dumps(report)
+                extraction.report_confidence = report_confidence
+                add_log("deep_report", f"Deep Analysis report complete. Confidence: {report_confidence:.2f}")
+            else:
+                message = "; ".join(report_errors or ["Deep report generation returned no result"])
+                add_log("deep_report", f"Deep Analysis report failed: {message}", error=True)
+                article.needs_review = 1
+
+            db.commit()
+
         # ── Complete ───────────────────────────────────────────────────
         article.status = ArticleStatus.COMPLETED.value
         if article.needs_review:
@@ -535,6 +600,7 @@ async def run_queued_pipeline_job_once() -> bool:
         run_ai = bool(job.run_ai)
         start_step = job.start_step or "parse"
         output_language = normalize_output_language(job.output_language)
+        analysis_mode = job.analysis_mode or "quick"
         article_id = job.article_id
         job_id = job.id
         db.commit()
@@ -547,6 +613,7 @@ async def run_queued_pipeline_job_once() -> bool:
         start_step=start_step,
         job_id=job_id,
         output_language=output_language,
+        analysis_mode=analysis_mode,
     )
     return True
 
@@ -604,6 +671,7 @@ def run_pipeline_background(
     start_step: str = "parse",
     job_id: int | None = None,
     output_language: str = "en",
+    analysis_mode: str = "quick",
 ) -> None:
     """Persist pipeline job options and wake the local queue worker."""
     output_language = normalize_output_language(output_language)
@@ -624,6 +692,7 @@ def run_pipeline_background(
         if job:
             job.run_ai = 1 if run_ai else 0
             job.start_step = start_step
+            job.analysis_mode = analysis_mode
             job.output_language = output_language
             job.status = JobStatus.PENDING.value
             job.locked_at = None
@@ -634,10 +703,11 @@ def run_pipeline_background(
 
     ensure_pipeline_worker_started()
     logger.info(
-        "Pipeline job queued for article %s (run_ai=%s, start_step=%s, output_language=%s, job_id=%s)",
+        "Pipeline job queued for article %s (run_ai=%s, start_step=%s, output_language=%s, job_id=%s, analysis_mode=%s)",
         article_id,
         run_ai,
         start_step,
         output_language,
         job_id,
+        analysis_mode,
     )

@@ -29,7 +29,11 @@ from app.schemas.article import (
     ArticleListResponse,
     ReprocessResponse,
 )
-from app.schemas.extraction import ExtractionResponse, ExtractionUpdateRequest
+from app.schemas.extraction import (
+    DeepReportResponse,
+    ExtractionResponse,
+    ExtractionUpdateRequest,
+)
 from app.schemas.graph import GraphResponse
 from app.schemas.jobs import JobResponse
 from app.services.search import search_article_ids, upsert_article_search_index
@@ -310,6 +314,39 @@ def get_article_extraction(article_id: int, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/{article_id}/deep-report", response_model=DeepReportResponse)
+def get_article_deep_report(article_id: int, db: Session = Depends(get_db)):
+    """Get the Deep Analysis report for an article (404 when not generated)."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    extraction = (
+        db.query(ArticleExtraction)
+        .filter(ArticleExtraction.article_id == article_id)
+        .order_by(ArticleExtraction.created_at.desc())
+        .first()
+    )
+
+    if not extraction or not extraction.report_json:
+        raise HTTPException(
+            status_code=404,
+            detail="No Deep Analysis report available for this article. Reprocess with deep mode to generate one.",
+        )
+
+    try:
+        report_data = json.loads(extraction.report_json)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Stored deep report is corrupted")
+
+    return DeepReportResponse(
+        article_id=article_id,
+        report=report_data,
+        confidence=extraction.report_confidence,
+        created_at=extraction.created_at,
+    )
+
+
 @router.put("/{article_id}/extraction", response_model=ExtractionResponse)
 def update_article_extraction(
     article_id: int,
@@ -444,11 +481,12 @@ def reprocess_article(
     """Re-run processing for an article.
 
     mode:
-      - "full"        — parse + chunk + extract + graph
-      - "parse_only"  — parse + chunk only (no AI)
-      - "extract_only" — skip parse/chunk, start at AI extraction (needs existing markdown)
+      - "full" / "quick" — parse + chunk + extract + graph (quick read)
+      - "deep"           — quick read plus a comprehensive Deep Analysis report
+      - "parse_only"     — parse + chunk only (no AI)
+      - "extract_only"   — skip parse/chunk, start at AI extraction (needs existing markdown)
     """
-    valid_modes = {"full", "parse_only", "extract_only"}
+    valid_modes = {"full", "quick", "deep", "parse_only", "extract_only"}
     if mode not in valid_modes:
         raise HTTPException(status_code=422, detail=f"Invalid mode '{mode}'. Valid: {', '.join(sorted(valid_modes))}")
 
@@ -456,14 +494,19 @@ def reprocess_article(
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
 
+    run_ai = mode not in {"parse_only"}
+    analysis_mode = "deep" if mode == "deep" else "quick"
+    start_step = "extract" if mode == "extract_only" else "parse"
+
     # Create a new job
     import datetime
     job = ProcessingJob(
         article_id=article.id,
         status=JobStatus.PENDING.value,
         current_step="reprocess_queued",
-        run_ai=0 if mode == "parse_only" else 1,
-        start_step="extract" if mode == "extract_only" else "parse",
+        run_ai=1 if run_ai else 0,
+        start_step=start_step,
+        analysis_mode=analysis_mode,
         output_language=language,
         logs_json=json.dumps([
             {
@@ -479,12 +522,14 @@ def reprocess_article(
 
     from app.services.pipeline.processor import run_pipeline_background
 
-    if mode == "parse_only":
-        run_pipeline_background(article.id, run_ai=False, start_step="parse", job_id=job.id, output_language=language)
-    elif mode == "extract_only":
-        run_pipeline_background(article.id, run_ai=True, start_step="extract", job_id=job.id, output_language=language)
-    else:
-        run_pipeline_background(article.id, run_ai=True, start_step="parse", job_id=job.id, output_language=language)
+    run_pipeline_background(
+        article.id,
+        run_ai=run_ai,
+        start_step=start_step,
+        job_id=job.id,
+        output_language=language,
+        analysis_mode=analysis_mode,
+    )
 
     return ReprocessResponse(
         article_id=article.id,

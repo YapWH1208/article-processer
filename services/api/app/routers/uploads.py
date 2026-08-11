@@ -31,11 +31,28 @@ async def upload_file(
     file: Annotated[UploadFile, File()],
     run_ai: Annotated[str, Form()] = "true",
     language: Annotated[str, Form()] = "en",
+    mode: Annotated[str, Form()] = "quick",
     db: Session = Depends(get_db),
 ):
-    """Upload a PDF, ZIP, HTML, MD, or TXT file for processing."""
+    """Upload a PDF, ZIP, HTML, MD, or TXT file for processing.
+
+    mode:
+      - "quick"       — full pipeline: parse + extract + graph (default)
+      - "deep"        — quick plus a comprehensive Deep Analysis report
+      - "parse_only"  — parse + chunk only (no AI)
+    """
     # Explicitly parse run_ai — avoid FastAPI bool coercion edge cases
     run_ai_bool = run_ai.lower() in ("true", "1", "yes")
+    mode = mode.lower()
+    valid_modes = {"quick", "deep", "parse_only"}
+    if mode not in valid_modes:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid mode '{mode}'. Valid: {', '.join(sorted(valid_modes))}",
+        )
+    if mode == "parse_only":
+        run_ai_bool = False
+    analysis_mode = "deep" if mode == "deep" else "quick"
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
 
@@ -110,12 +127,13 @@ async def upload_file(
         current_step="uploaded",
         run_ai=1 if run_ai_bool else 0,
         start_step="parse",
+        analysis_mode=analysis_mode,
         output_language=language,
         logs_json=json.dumps([
             {
                 "step": "uploaded",
                 "timestamp": datetime.datetime.utcnow().isoformat(),
-                "message": f"File '{file.filename}' uploaded successfully",
+                "message": f"File '{file.filename}' uploaded successfully (mode={mode})",
             }
         ]),
     )
@@ -125,7 +143,13 @@ async def upload_file(
     db.refresh(job)
 
     # Kick off background processing
-    run_pipeline_background(article.id, run_ai=run_ai_bool, job_id=job.id, output_language=language)
+    run_pipeline_background(
+        article.id,
+        run_ai=run_ai_bool,
+        job_id=job.id,
+        output_language=language,
+        analysis_mode=analysis_mode,
+    )
 
     return UploadResponse(
         article_id=article.id,
