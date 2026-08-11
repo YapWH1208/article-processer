@@ -4,6 +4,19 @@ All notable changes to the Article Processor project.
 
 ---
 
+## [0.3.0] — 2026-08-11
+
+### Added
+
+- **Deep Analysis mode** - Processing now supports two AI modes alongside parse-only: **Quick Read** (the existing full pipeline — parse, extraction, knowledge graph — now the default) and **Deep Analysis** (Quick Read plus a comprehensive AI report). The report covers background, research problem, methodology deep-dive, datasets and setup, results interpretation, key findings, critical evaluation, reproducibility, limitations, and future work, with evidence pointers per section. Upload and URL import expose a three-way mode selector (Deep Analysis / Quick Read / Parse Only); article detail gains a Deep Analysis tab with a run action, and reprocess accepts `quick`/`deep` modes. The report is stored on the extraction record (`report_json`), exposed via `GET /articles/{id}/deep-report`, tracked as `deep_report` token usage, and editable as a new `deep_report` system message/input template in Settings. Mock AI generates a deterministic report so the feature works offline.
+- **Release workflow changelog notes** - The desktop release workflow now derives the version from the tag and reads the matching `## [X.Y.Z]` section from `CHANGELOG.md` as the GitHub Release notes (via `scripts/release_notes.py`); a missing entry fails the release step instead of publishing static placeholder notes.
+
+### Fixed
+
+- **Pipeline `asyncio` scoping bug** - An inner `import asyncio` shadowed the module import inside `run_pipeline`, breaking retry paths that call `asyncio.sleep` after a first-attempt success; the shadowing import is removed.
+
+---
+
 ## [0.2.1] — 2026-08-08
 
 ### Changed
