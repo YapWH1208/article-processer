@@ -29,8 +29,8 @@ Artifacts are written to `apps/desktop/dist/`.
 The desktop release workflow runs on tags that start with `v` and can also be run manually from GitHub Actions.
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 The workflow builds on:
@@ -40,6 +40,14 @@ The workflow builds on:
 - `ubuntu-latest`
 
 Each matrix job uploads its desktop artifacts. On tag builds, a release job attaches those artifacts to the GitHub Release for the tag.
+
+### Release Notes from CHANGELOG
+
+The release notes are read from `CHANGELOG.md`: the workflow extracts the section matching the tagged version (e.g. tag `v0.3.0` reads the `## [0.3.0] — YYYY-MM-DD` entry) and uses it as the GitHub Release body.
+
+- Keep `CHANGELOG.md` updated with the tagged version before pushing the tag.
+- If no `## [<version>]` entry exists for the tag, the release step **fails** with a message pointing at the missing section.
+- The section runs until the next `## ` heading or the `---` separator.
 
 ## Runtime Model
 

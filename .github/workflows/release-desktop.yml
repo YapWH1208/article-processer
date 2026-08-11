@@ -99,10 +99,18 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-artifacts
+
+      - name: Extract release notes from CHANGELOG
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          python3 scripts/release_notes.py CHANGELOG.md "$TAG_NAME" > release-notes.md
 
       - name: Publish release assets
         env:
@@ -112,7 +120,7 @@ jobs:
         run: |
           set -o pipefail
           gh release view "$TAG_NAME" >/dev/null 2>&1 || \
-            gh release create "$TAG_NAME" --title "$TAG_NAME" --notes "Desktop release $TAG_NAME"
+            gh release create "$TAG_NAME" --title "$TAG_NAME" --notes-file release-notes.md
           find release-artifacts -type f ! -name "builder-debug.yml" -print0 |
             while IFS= read -r -d '' asset; do
               gh release upload "$TAG_NAME" "$asset" --clobber
