@@ -124,6 +124,33 @@ export interface ExtractionResponse {
   created_at: string | null;
 }
 
+// ── Deep Analysis report types ────────────────────────────────────────
+
+export interface DeepReportEvidence {
+  source_section?: string | null;
+  page_number?: number | null;
+  snippet?: string | null;
+}
+
+export interface DeepReportSection {
+  heading?: string | null;
+  content: string;
+  evidence?: DeepReportEvidence | null;
+}
+
+export interface DeepReport {
+  title?: string | null;
+  summary: string;
+  sections: DeepReportSection[];
+}
+
+export interface DeepReportResponse {
+  article_id: number;
+  report: DeepReport | null;
+  confidence: number | null;
+  created_at: string | null;
+}
+
 // ── Graph types ───────────────────────────────────────────────────
 
 export interface GraphEntity {
