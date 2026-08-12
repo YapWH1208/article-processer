@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     storage_dir: str = "./storage"
     max_upload_mb: int = 50
 
+    # ── Scholarly source authentication ──────────────────────────────────
+    # Used only for exact-origin requests to https://api2.openreview.net.
+    openreview_username: str = ""
+    openreview_password: str = ""
+    openreview_access_token: str = ""
+
     # ── LLM Provider ──────────────────────────────────────────────────────
     # "openai" | "anthropic" | "custom" | "deepseek" | "openrouter" |
     # "glm" | "minimax" | "mimo" | "kimi"
@@ -171,12 +177,14 @@ def reload_settings() -> None:
     Mutates the global ``settings`` singleton in-place so existing
     references pick up the new values without a restart.
     """
-    global settings
     new_settings = Settings()
     # Copy the resolved paths
     new_settings.database_url = _resolve_sqlite_url(new_settings.database_url)
     new_settings.storage_dir = _resolve_path(new_settings.storage_dir)
-    settings = new_settings
+    # Preserve the singleton identity so modules that imported ``settings`` keep
+    # seeing updates made through PUT /settings.
+    for field_name in Settings.model_fields:
+        setattr(settings, field_name, getattr(new_settings, field_name))
 
 
 settings = Settings()
