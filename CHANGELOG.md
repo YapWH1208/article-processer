@@ -4,6 +4,19 @@ All notable changes to the Article Processor project.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **More scholarly URL sources** - Import from URL now accepts normal OpenReview
+  forum links and standards-based scholarly landing pages that advertise a PDF
+  through `citation_pdf_url` metadata. Resolved pages and PDFs retain public-IP,
+  redirect, TLS, size, and file-signature checks. Pages that require JavaScript,
+  authentication, or do not publish supported PDF metadata still require a
+  direct PDF link or manual upload.
+
+---
+
 ## [0.3.1] — 2026-08-12
 
 ### Fixed
