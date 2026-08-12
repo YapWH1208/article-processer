@@ -6,12 +6,13 @@ for inactive clients are periodically cleaned up to bound memory usage.
 
 Configuration
 -------------
-Global default: 60 requests / minute
+Normal reads: 300 requests / minute
+Other default requests: 60 requests / minute
 High-cost paths:
-- /articles/chat: 10 req/min for multi-article LLM calls
-- /articles/{id}/chat: 10 req/min for LLM calls
-- /uploads: 5 req/min for file uploads
-- /articles/{id}/reprocess: 5 req/min for pipeline runs
+- POST /articles/chat: 10 req/min for multi-article LLM calls
+- POST /articles/{id}/chat: 10 req/min for LLM calls
+- POST /uploads: 5 req/min for file uploads
+- POST /articles/{id}/reprocess: 5 req/min for pipeline runs
 """
 
 import asyncio
@@ -33,23 +34,27 @@ class _TokenBucket:
         self.capacity = capacity
 
 
-# (path_prefix, requests_per_minute)
-_ENDPOINT_LIMITS: list[tuple[str, int]] = [
-    ("/uploads", 5),
-    ("/articles/chat", 10),
-    ("/articles/{id}/chat", 10),
-    ("/articles/{id}/reprocess", 5),
+# (method, path_prefix, requests_per_minute)
+_ENDPOINT_LIMITS: list[tuple[str, str, int]] = [
+    ("POST", "/uploads", 5),
+    ("POST", "/articles/chat", 10),
+    ("POST", "/articles/{id}/chat", 10),
+    ("POST", "/articles/{id}/reprocess", 5),
 ]
 
+_READ_RPM = 300
 _DEFAULT_RPM = 60
 _CLEANUP_INTERVAL_S = 300
 _STALE_THRESHOLD_S = 600
 
 
-def _resolve_limit(path: str) -> tuple[int, str]:
-    """Return (requests-per-minute, scope_key) for a request path."""
+def _resolve_limit(method: str, path: str) -> tuple[int, str]:
+    """Return (requests-per-minute, scope_key) for a request method and path."""
+    method = method.upper()
     segments = path.rstrip("/").split("/")
-    for prefix, rpm in _ENDPOINT_LIMITS:
+    for limit_method, prefix, rpm in _ENDPOINT_LIMITS:
+        if method != limit_method:
+            continue
         prefix_segments = prefix.rstrip("/").split("/")
         if len(segments) == len(prefix_segments):
             if all(
@@ -57,6 +62,8 @@ def _resolve_limit(path: str) -> tuple[int, str]:
                 for seg, pseg in zip(segments, prefix_segments)
             ):
                 return rpm, prefix
+    if method in {"GET", "HEAD"}:
+        return _READ_RPM, "__read__"
     return _DEFAULT_RPM, "__default__"
 
 
@@ -68,9 +75,14 @@ class RateLimiter:
         self._lock = asyncio.Lock()
         self._last_cleanup = time.monotonic()
 
-    async def is_allowed(self, client_id: str, path: str) -> tuple[bool, int | None]:
+    async def is_allowed(
+        self,
+        client_id: str,
+        path: str,
+        method: str = "GET",
+    ) -> tuple[bool, int | None]:
         """Check and consume a request for a client/path pair."""
-        rpm, limit_scope = _resolve_limit(path)
+        rpm, limit_scope = _resolve_limit(method, path)
         rate = rpm / 60.0
         capacity = rpm
         now = time.monotonic()
@@ -163,7 +175,11 @@ class RateLimitMiddleware:
 
         client_id = self._get_client_id(scope)
 
-        is_allowed, retry_after = await self.limiter.is_allowed(client_id, path)
+        is_allowed, retry_after = await self.limiter.is_allowed(
+            client_id,
+            path,
+            scope.get("method", "GET"),
+        )
         if not is_allowed:
             await send(
                 {
