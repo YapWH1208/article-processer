@@ -115,7 +115,7 @@ def _detect_url_type(url: str) -> tuple[str, str | None]:
     host = (parsed.hostname or "").lower()
     path = parsed.path or ""
 
-    if host.endswith("arxiv.org"):
+    if host == "arxiv.org" or host.endswith(".arxiv.org"):
         m = re.search(r"^/abs/(\d{4}\.\d{4,}(?:v\d+)?)$", path) or re.search(r"^/pdf/(\d{4}\.\d{4,}(?:v\d+)?)(?:\.pdf)?$", path)
         if m:
             return ("arxiv", m.group(1))
@@ -124,6 +124,11 @@ def _detect_url_type(url: str) -> tuple[str, str | None]:
         m = re.search(r"^/(10\.\d{4,}/[^\s?#]+)$", path)
         if m:
             return ("doi", m.group(1))
+
+    if (host == "openreview.net" or host.endswith(".openreview.net")) and path.rstrip("/").lower() == "/pdf":
+        paper_id = urllib.parse.parse_qs(parsed.query).get("id", [""])[0].strip()
+        if paper_id:
+            return ("direct-pdf", url)
 
     if path.lower().endswith(".pdf") or _PDF_URL_RE.search(url):
         return ("direct-pdf", url)
@@ -215,6 +220,14 @@ async def import_from_url(
     try:
         _download_file(download_url, temp_file, max_bytes=settings.max_upload_bytes, timeout=120)
     except urllib.error.HTTPError as e:
+        if e.code in {401, 403, 429}:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The source blocked automatic PDF download. Download the PDF in your "
+                    "browser, then upload it here to continue processing."
+                ),
+            )
         raise HTTPException(status_code=502, detail=f"Failed to download from {url_type} URL: HTTP {e.code}")
     except urllib.error.URLError as e:
         raise HTTPException(status_code=502, detail=f"Failed to reach {url_type} URL: {e.reason}")
