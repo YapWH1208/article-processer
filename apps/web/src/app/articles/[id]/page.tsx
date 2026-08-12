@@ -13,7 +13,7 @@ import {
   FileText, MessageCircle, Info, ScrollText, Loader2, Send,
   RotateCw, Download, AlertCircle, CheckCircle2, Trash2, Archive, ArchiveRestore, Plus,
   PanelRightClose, PanelRightOpen, X, Wand2, ArrowLeft, ChevronRight,
-  Calendar, Activity,
+  Calendar, Activity, Layers,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,10 +28,10 @@ import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useLanguage } from "@/components/LanguageProvider";
-import { sendChatMessage, sendMultiArticleChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, updateArticleExtraction, toggleArchiveArticle, deleteArticle, getRelatedArticles } from "@/lib/api";
+import { sendChatMessage, sendMultiArticleChatMessage, streamChatMessage, getArticle, getArticleMarkdown, getArticleExtraction, getArticleGraph, reprocessArticle, getChatHistory, listSkills, runSkill, getArticleJobs, getArticleActiveJob, updateArticle, updateArticleExtraction, toggleArchiveArticle, deleteArticle, getRelatedArticles, getDeepReport } from "@/lib/api";
 import { getPromptText, translateUiText } from "@/lib/languageState.mjs";
 import { normalizeHtmlTablesForMarkdown } from "@/lib/markdownHtmlTables.mjs";
-import type { ExtractionResult } from "@/lib/types";
+import type { ExtractionResult, DeepReport } from "@/lib/types";
 import { TypingDots, PulseDot, FadeIn } from "@/components/ui/animated";
 import { createArticleStatusCallout, createChatSubmission, createCitationReaderTarget, createWorkspacePanelSummary, slugifyWorkspaceText } from "../articleWorkspaceState.mjs";
 import { formatExtractionForReview, parseReviewedExtraction } from "../extractionReviewState.mjs";
@@ -60,13 +60,17 @@ interface Citation {
   page_start?: number | null;
   page_end?: number | null;
 }
-interface JobInfo { id: number; status: string; current_step: string | null; logs: Record<string, unknown>[] | null; error: string | null; created_at: string; completed_at: string | null; }
+interface JobInfo { id: number; status: string; current_step: string | null; logs: Record<string, unknown>[] | null; error: string | null; analysis_mode?: string | null; created_at: string; completed_at: string | null; }
 interface RelatedArticleItem { id: number; title: string; status: string; source_type: string; similarity: number; shared_entities: string[]; }
 
 const TERMINAL_ARTICLE_STATUSES = new Set(["completed", "failed", "needs_review"]);
 
 function isTerminalArticleStatus(status: string | null | undefined) {
   return !!status && TERMINAL_ARTICLE_STATUSES.has(status);
+}
+
+function isDeepJobInProgress(job: JobInfo | null | undefined): boolean {
+  return !!job && job.analysis_mode === "deep" && (job.status === "pending" || job.status === "running");
 }
 
 export default function ArticleDetailPage() {
@@ -79,6 +83,8 @@ export default function ArticleDetailPage() {
   const [markdown, setMarkdown] = useState("");
   const [extraction, setExtraction] = useState<ExtractionResult | null>(null);
   const [extractionErrors, setExtractionErrors] = useState<string[]>([]);
+  const [deepReport, setDeepReport] = useState<DeepReport | null>(null);
+  const [deepReportMissing, setDeepReportMissing] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewDraft, setReviewDraft] = useState("");
   const [reviewError, setReviewError] = useState<string | null>(null);
@@ -131,6 +137,12 @@ export default function ArticleDetailPage() {
       setExtraction(extResp?.extraction || null);
       setExtractionErrors(extResp?.validation_errors || []);
       setGraph(gr);
+      getDeepReport(articleId)
+        .then((resp) => {
+          setDeepReport(resp.report);
+          setDeepReportMissing(!resp.report);
+        })
+        .catch(() => setDeepReportMissing(true));
       // Hydrate chat history from server
       if (histResp?.messages?.length) {
         setMessages(histResp.messages.map((m: { role: string; content: string; citations: unknown[] | null; prompt_tokens?: number; completion_tokens?: number }) => ({
@@ -289,13 +301,19 @@ export default function ArticleDetailPage() {
     }
   }, [articleId, language]);
 
-  const handleReprocess = async (mode: "full" | "extract_only" = "extract_only") => {
+  const handleReprocess = async (mode: "full" | "quick" | "deep" | "extract_only" = "extract_only") => {
     setReprocessing(true);
     try {
       await reprocessArticle(articleId, mode, language);
       setArticle((prev) => prev ? { ...prev, status: "extracting", processing_error: null } : prev);
       setExtractionErrors([]);
-      toast.success(mode === "extract_only" ? "AI extraction started" : "Full reprocessing started");
+      if (mode === "deep") {
+        setDeepReport(null);
+        setDeepReportMissing(true);
+        toast.success("Deep analysis started");
+      } else {
+        toast.success(mode === "extract_only" ? "AI extraction started" : "Full reprocessing started");
+      }
     }
     catch { toast.error("Reprocess failed"); }
     finally { setReprocessing(false); }
@@ -360,6 +378,10 @@ export default function ArticleDetailPage() {
   };
 
   const isProcessing = article && !isTerminalArticleStatus(article.status);
+  // A deep job may still be running (or queued) even when the local
+  // `reprocessing` flag was reset by a page reload — avoid showing the
+  // empty state and queueing a duplicate deep job in that case.
+  const deepJobInProgress = isDeepJobInProgress(activeJob) || jobs.some(isDeepJobInProgress);
   const workspaceSummary = createWorkspacePanelSummary({ messages, jobs, graph });
   const statusCallout = createArticleStatusCallout({ article, extractionErrors });
   const citations = (msg: ChatMessage): Citation[] => {
@@ -580,6 +602,7 @@ export default function ArticleDetailPage() {
                 <TabsTrigger value="guide" className="gap-1.5"><ChevronRight className="h-4 w-4"/>{translateUiText("Guide", language)}</TabsTrigger>
                 <TabsTrigger value="reader" className="gap-1.5"><ScrollText className="h-4 w-4"/>Reader</TabsTrigger>
                 <TabsTrigger value="summary" className="gap-1.5"><FileText className="h-4 w-4"/>Summary</TabsTrigger>
+                <TabsTrigger value="deep" className="gap-1.5"><Layers className="h-4 w-4"/>Deep Analysis</TabsTrigger>
                 <TabsTrigger value="skills" className="gap-1.5"><Wand2 className="h-4 w-4"/>Skills</TabsTrigger>
                 <TabsTrigger value="metadata" className="gap-1.5"><Info className="h-4 w-4"/>Metadata</TabsTrigger>
               </TabsList>
@@ -739,6 +762,54 @@ export default function ArticleDetailPage() {
                           </div>
                         ) : (
                           <div className="flex flex-col items-center py-12 text-muted-foreground"><FileText className="h-10 w-10 opacity-30"/><p>No extraction yet.</p></div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+                </motion.div>
+              )}
+
+              {/* Deep Analysis */}
+              {tab === "deep" && (
+                <motion.div key="deep" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 min-h-0">
+                  <TabsContent value="deep" forceMount className="h-full m-0">
+                    <Card className="h-full flex flex-col">
+                      <CardHeader className="shrink-0 flex flex-row items-center justify-between">
+                        <div>
+                          <CardTitle className="text-lg flex items-center gap-2">
+                            <Layers className="h-4 w-4 text-primary" /> Deep Analysis Report
+                          </CardTitle>
+                          <CardDescription>Comprehensive section-by-section analysis generated by AI.</CardDescription>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={() => handleReprocess("deep")} disabled={reprocessing || deepJobInProgress} className="gap-1">
+                          <RotateCw className={`h-3.5 w-3.5 ${reprocessing || deepJobInProgress ? "animate-spin" : ""}`}/>
+                          {reprocessing || deepJobInProgress ? "Starting..." : "Run deep analysis"}
+                        </Button>
+                      </CardHeader>
+                      <CardContent className="flex-1 min-h-0 p-4">
+                        {deepReport ? (
+                          <ScrollArea className="h-full">
+                            <DeepReportContent report={deepReport} />
+                          </ScrollArea>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3 text-center">
+                            {reprocessing || deepJobInProgress ? (
+                              <>
+                                <Loader2 className="h-10 w-10 text-primary animate-spin" />
+                                <p className="font-medium text-foreground">Generating Deep Analysis report...</p>
+                                <p className="text-xs max-w-md">Extraction runs first, then the comprehensive report is written. This can take a few minutes.</p>
+                              </>
+                            ) : (
+                              <>
+                                <Layers className="h-10 w-10 opacity-30" />
+                                <p className="font-medium text-foreground">No Deep Analysis report yet</p>
+                                <p className="text-xs max-w-md">Run deep analysis to generate a comprehensive report covering background, methodology, results, critical evaluation, reproducibility, and future work.</p>
+                                <Button variant="outline" size="sm" onClick={() => handleReprocess("deep")} className="gap-1">
+                                  <Layers className="h-3.5 w-3.5" /> Run deep analysis
+                                </Button>
+                              </>
+                            )}
+                          </div>
                         )}
                       </CardContent>
                     </Card>
@@ -1458,6 +1529,41 @@ function ChatComposer({
       <Button size="icon" className="h-9 w-9" onClick={submit} disabled={!canSubmit}>
         <Send className="h-3.5 w-3.5" />
       </Button>
+    </div>
+  );
+}
+
+/** Deep Analysis report content */
+function DeepReportContent({ report }: { report: DeepReport }) {
+  return (
+    <div className="space-y-5 text-sm">
+      {report.title && <h2 className="text-lg font-bold tracking-tight">{report.title}</h2>}
+      {report.summary && (
+        <div className="rounded-md border bg-accent/40 p-4">
+          <h3 className="font-semibold mb-2 text-primary">Executive Summary</h3>
+          <div className="prose prose-sm dark:prose-invert max-w-none text-muted-foreground">
+            <ReactMarkdown>{report.summary}</ReactMarkdown>
+          </div>
+        </div>
+      )}
+      {report.sections.map((section, index) => (
+        <section key={index} className="space-y-2">
+          <h3 className="font-semibold border-b pb-1">
+            {section.heading || `Section ${index + 1}`}
+          </h3>
+          <div className="prose prose-sm dark:prose-invert max-w-none text-muted-foreground">
+            <ReactMarkdown>{section.content}</ReactMarkdown>
+          </div>
+          {section.evidence?.snippet && (
+            <blockquote className="border-l-2 border-primary/40 pl-3 text-xs text-muted-foreground italic">
+              {section.evidence.snippet}
+              {section.evidence.source_section && (
+                <span className="not-italic"> — {section.evidence.source_section}</span>
+              )}
+            </blockquote>
+          )}
+        </section>
+      ))}
     </div>
   );
 }

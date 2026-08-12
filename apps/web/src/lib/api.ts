@@ -46,20 +46,23 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 // URL Import
 
-export async function importFromUrl(url: string, runAi = true, language = "en") {
+export type AnalysisMode = "quick" | "deep" | "parse_only";
+
+export async function importFromUrl(url: string, mode: AnalysisMode = "quick", language = "en") {
   return apiFetch<import("./types").UrlImportResponse>("/imports/url", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, run_ai: runAi, language }),
+    body: JSON.stringify({ url, mode, language }),
   });
 }
 
 // Uploads
 
-export async function uploadFile(file: File, runAi = true, language = "en") {
+export async function uploadFile(file: File, mode: AnalysisMode = "quick", language = "en") {
   const formData = new FormData();
   formData.append("file", file);
-  formData.append("run_ai", String(runAi));
+  formData.append("run_ai", String(mode !== "parse_only"));
+  formData.append("mode", mode);
   formData.append("language", language);
   return apiFetch<import("./types").UploadResponse>("/uploads", {
     method: "POST",
@@ -156,12 +159,16 @@ export async function getArticleActiveJob(id: number) {
   );
 }
 
-export async function reprocessArticle(id: number, mode: "full" | "parse_only" | "extract_only" = "full", language = "en") {
+export async function reprocessArticle(id: number, mode: "full" | "quick" | "deep" | "parse_only" | "extract_only" = "full", language = "en") {
   const params = new URLSearchParams({ mode, language });
   return apiFetch<{ article_id: number; job_id: number; status: string }>(
     `/articles/${id}/reprocess?${params.toString()}`,
     { method: "POST" }
   );
+}
+
+export async function getDeepReport(id: number) {
+  return apiFetch<import("./types").DeepReportResponse>(`/articles/${id}/deep-report`);
 }
 
 export async function toggleArchiveArticle(id: number, isArchived: boolean) {

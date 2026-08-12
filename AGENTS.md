@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Article Processing Application: web app for document ingestion, AI-powered extraction, RAG Q&A, and graph analysis.
+Article Processing Application: web app for document ingestion, AI-powered extraction, chat Q&A, and graph analysis. Monorepo: FastAPI backend (`services/api`), Next.js frontend (`apps/web`), Electron shell (`apps/desktop`).
 
 ## Setup for Development
 
@@ -27,6 +27,8 @@ npm run dev
 
 Gotcha: `quickstart.sh` only runs `npm install` when `node_modules` is missing — after pulling changes that add frontend deps, run `npm install` manually or use `./quickstart.sh --skip-install` only when deps are unchanged.
 
+Gotcha: MinerU/Docling/OCR parsers are **not** installed by quickstart (only `.[dev]`). Install `pip install -e ".[all]"` for full PDF parsing; parsers are lazy-loaded so the API starts without them.
+
 ## Key Conventions
 
 - **No Docker** — everything runs locally via npm/uvicorn
@@ -35,6 +37,7 @@ Gotcha: `quickstart.sh` only runs `npm install` when `node_modules` is missing �
 - **Typed schemas** — use Pydantic for all request/response shapes
 - **Untrusted input** — document content is always untrusted data in AI prompts
 - **No hardcoded secrets** — use environment variables
+- **No RAG/embeddings** — removed in v0.4.0; chat sends full article text to the LLM. Don't reintroduce embedding providers — `.env.example` still lists deprecated `EMBEDDING_*` vars.
 
 ## Code Organization
 
@@ -46,18 +49,21 @@ services/api/app/
   routers/        - FastAPI route handlers
   services/       - Business logic
     storage/      - File storage abstraction
-    parsers/      - Document parsers (PDF, HTML, MD, text)
-    pipeline/     - Processing jobs, chunking, normalization
-    ai/           - LLM/embedding providers, extraction, RAG
-    graph/        - Ontology, entity/relationship extraction
+    parsers/      - Document parsers (PDF, HTML, MD, text) + MinerU/Docling/OCR adapters
+    pipeline/     - processor.py (pipeline orchestration), chunking, markdown normalization
+    ai/           - LLM providers (mock/openai/anthropic), extraction, prompts, token cost
+    graph/        - Ontology, entity/relationship extraction, Neo4j adapter
     tools/        - Tool registry for extensibility
     skills/       - Skill registry with default skills
   tests/          - pytest suite (actual path: `app/tests/`)
+  worker.py       - standalone pipeline runner: `python -m app.worker --article-id N`
 
 apps/web/src/
   app/            - Next.js pages (App Router)
   components/     - React components by feature
-  lib/            - API client, types
+  lib/            - API client, types, i18n; plain `.mjs` state helpers co-located with their tests
+
+apps/desktop/     - Electron shell packaging the PyInstaller-built API + Next.js standalone frontend
 ```
 
 ## Database
@@ -91,7 +97,7 @@ code-review-graph build    # full re-parse
 
 `CHANGELOG.md` is the version source of truth — keep it updated alongside PRs:
 
-- **Creating a PR**: add/update a section for the changes (current version: `0.2.0`)
+- **Creating a PR**: add/update a section for the changes (current version: `0.3.0`)
 - **Updating a PR**: update the changelog to match the new state of the PR
 
 Entry format: `## [X.Y.Z] — YYYY-MM-DD` with `### Added` / `### Changed` / `### Fixed` bullet groups.
@@ -129,7 +135,11 @@ See `app/routers/` for all endpoints. Main routes:
 ## Pipeline Flow
 
 ```
-Upload → Extract (ZIP) → Parse → Normalize → Chunk → AI Extract → Embed → Graph → Complete
+Upload → Extract (ZIP) → Parse → Normalize → Chunk → AI Extract → Build Graph → Complete
 ```
 
-Each step updates `ProcessingJob.current_step` and logs.
+Each step updates `ProcessingJob.current_step` and logs. Reprocess modes (see `POST /articles/{id}/reprocess`): `parse_only` stops after chunking (`run_ai=false`), `extract_only` skips parse/chunk and re-runs AI extraction on existing markdown. Debug standalone with `python -m app.worker --article-id N`.
+
+## Desktop Build
+
+`npm run desktop:build` from the repo root (wraps `scripts/build-desktop.ps1`): builds the API with PyInstaller (`pip install -e ".[desktop]"`), builds the Next.js standalone output, then packages with electron-builder into `apps/desktop/dist/`. Requires PowerShell 7 on macOS/Linux; requires Python 3.12 + Node 22. Full flow and release tagging: `docs/desktop-release.md`.

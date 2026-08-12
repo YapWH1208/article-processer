@@ -32,6 +32,7 @@ router = APIRouter()
 class UrlImportRequest(BaseModel):
     url: str = Field(..., min_length=5, max_length=2048, description="URL to an arXiv abstract, DOI, or direct PDF")
     run_ai: bool = Field(default=True, description="Whether to run AI extraction after import")
+    mode: str = Field(default="quick", max_length=16, description="Processing mode: quick, deep, or parse_only")
     language: str = Field(default="en", max_length=16, description="UI language for AI output")
 
 
@@ -274,18 +275,29 @@ async def import_from_url(
     db.add(article)
     db.flush()
 
+    mode = (body.mode or "quick").lower()
+    valid_modes = {"quick", "deep", "parse_only"}
+    if mode not in valid_modes:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid mode '{mode}'. Valid: {', '.join(sorted(valid_modes))}",
+        )
+    run_ai_bool = body.run_ai and mode != "parse_only"
+    analysis_mode = "deep" if mode == "deep" else "quick"
+
     # Create processing job
     job = ProcessingJob(
         article_id=article.id,
         status=JobStatus.PENDING.value,
         current_step="url_import_queued",
-        run_ai=1 if body.run_ai else 0,
+        run_ai=1 if run_ai_bool else 0,
         start_step="parse",
+        analysis_mode=analysis_mode,
         output_language=body.language,
         logs_json=json.dumps([{
             "step": "url_import_queued",
             "timestamp": datetime.datetime.utcnow().isoformat(),
-            "message": f"Imported from URL: {url}",
+            "message": f"Imported from URL: {url} (mode={mode})",
         }]),
     )
     db.add(job)
@@ -295,7 +307,13 @@ async def import_from_url(
 
     # Start background processing
     from app.services.pipeline.processor import run_pipeline_background
-    run_pipeline_background(article.id, run_ai=body.run_ai, job_id=job.id, output_language=body.language)
+    run_pipeline_background(
+        article.id,
+        run_ai=run_ai_bool,
+        job_id=job.id,
+        output_language=body.language,
+        analysis_mode=analysis_mode,
+    )
 
     logger.info(f"URL import created article {article.id} from {url_type}: {url}")
 

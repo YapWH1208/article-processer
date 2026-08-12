@@ -135,6 +135,32 @@ class ExtractionResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class DeepReportEvidence(BaseModel):
+    source_section: Optional[str] = None
+    page_number: Optional[int] = None
+    snippet: Optional[str] = None
+
+
+class DeepReportSection(BaseModel):
+    heading: Optional[str] = None
+    content: str
+    evidence: Optional[DeepReportEvidence] = None
+
+
+class DeepReport(BaseModel):
+    """Schema for the Deep Analysis report generated in deep mode."""
+    title: Optional[str] = None
+    summary: str
+    sections: list[DeepReportSection] = Field(default_factory=list)
+
+
+class DeepReportResponse(BaseModel):
+    article_id: int
+    report: Optional[DeepReport] = None
+    confidence: Optional[float] = None
+    created_at: Optional[datetime] = None
+
+
 class ExtractionUpdateRequest(BaseModel):
     extraction: ExtractionResult
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)

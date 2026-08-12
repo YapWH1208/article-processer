@@ -12,6 +12,7 @@ class JobResponse(BaseModel):
     current_step: Optional[str] = None
     logs: Optional[list[dict]] = None
     error: Optional[str] = None
+    analysis_mode: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     completed_at: Optional[datetime] = None

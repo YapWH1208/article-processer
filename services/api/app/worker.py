@@ -35,15 +35,28 @@ def main():
         default=None,
         help="Run only a specific pipeline step (parse, chunk, extract, embed, graph)",
     )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="quick",
+        choices=["quick", "deep", "parse_only"],
+        help="Processing mode: quick (default), deep (adds Deep Analysis report), or parse_only",
+    )
     args = parser.parse_args()
 
     setup_logging(logging.INFO)
     logger = logging.getLogger("worker")
 
-    logger.info(f"Starting worker for article {args.article_id}")
+    logger.info(f"Starting worker for article {args.article_id} (mode={args.mode})")
     logger.info(f"Mock AI: {settings.use_mock_ai}")
 
-    asyncio.run(run_pipeline(args.article_id))
+    asyncio.run(
+        run_pipeline(
+            args.article_id,
+            run_ai=args.mode != "parse_only",
+            analysis_mode=args.mode,
+        )
+    )
 
     logger.info("Worker finished")
 

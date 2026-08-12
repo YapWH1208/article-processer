@@ -7,7 +7,10 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.config import settings, DOTENV_PATH, reload_settings
-from app.services.ai.prompts import DEFAULT_EXTRACTION_SYSTEM_MESSAGE
+from app.services.ai.prompts import (
+    DEFAULT_DEEP_REPORT_SYSTEM_MESSAGE,
+    DEFAULT_EXTRACTION_SYSTEM_MESSAGE,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -24,6 +27,7 @@ DEFAULT_DEV_CONFIG = {
     "presence_penalty": 0.0,
     "system_messages": {
         "extraction": DEFAULT_EXTRACTION_SYSTEM_MESSAGE,
+        "deep_report": DEFAULT_DEEP_REPORT_SYSTEM_MESSAGE,
         "chat": (
             "You are a meticulous research assistant helping a user understand academic papers. "
             "You receive the FULL TEXT of one or more articles along with the user's question.\n\n"
@@ -55,6 +59,12 @@ DEFAULT_DEV_CONFIG = {
             "Title: {title}\n\n"
             "<document>\n{document}\n</document>\n\n"
             "Extract all fields according to the schema. Return ONLY the JSON object, no other text."
+        ),
+        "deep_report": (
+            "Title: {title}\n\n"
+            "<extraction>\n{extraction}\n</extraction>\n\n"
+            "<document>\n{document}\n</document>\n\n"
+            "Write the Deep Analysis report according to the schema. Return ONLY the JSON object, no other text."
         ),
         "chat": (
             "{context_header}\n\n"

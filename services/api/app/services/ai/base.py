@@ -65,6 +65,28 @@ class BaseLLMProvider(ABC):
         ...
 
     @abstractmethod
+    async def generate_deep_report(
+        self,
+        markdown: str,
+        article_title: str,
+        extraction: dict | None,
+        output_language: str = "en",
+    ) -> tuple[dict | None, list[str] | None, float]:
+        """Generate a comprehensive Deep Analysis report for an article.
+
+        Args:
+            markdown: Full article Markdown text.
+            article_title: Title of the article.
+            extraction: The normalized extraction dict (may be None if unavailable).
+            output_language: UI language code for the model response language.
+
+        Returns:
+            (report, validation_errors, confidence). ``report`` is a dict with
+            ``title``, ``summary``, and ``sections`` keys.
+        """
+        ...
+
+    @abstractmethod
     async def answer_question(
         self,
         question: str,

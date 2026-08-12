@@ -3,12 +3,10 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileText, CheckCircle2, AlertCircle, Inbox, Sparkles, Brain, Loader2, Eye, X, Settings2 } from "lucide-react";
+import { Upload, FileText, CheckCircle2, AlertCircle, Inbox, Sparkles, Brain, Loader2, Eye, X, Settings2, Zap } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { uploadFile, getArticleActiveJob } from "@/lib/api";
 import { useLanguage } from "@/components/LanguageProvider";
@@ -28,14 +26,60 @@ const STEP_ORDER = ["uploaded", "parsing", "extracting", "embedding", "graph"] a
 const TERMINAL_STEPS = new Set(["completed", "failed", "needs_review"]);
 const UPLOAD_QUEUE_STORAGE_KEY = "article-processor.uploadQueue";
 
+type AnalysisMode = "quick" | "deep" | "parse_only";
+
+const MODE_OPTIONS: { value: AnalysisMode; label: string; icon: typeof Brain; detail: string }[] = [
+  { value: "deep", label: "Deep Analysis", icon: Brain, detail: "Extraction, graph, and a comprehensive report" },
+  { value: "quick", label: "Quick Read", icon: Zap, detail: "Full extraction and graph (default)" },
+  { value: "parse_only", label: "Parse Only", icon: Eye, detail: "Convert to readable markdown, no AI" },
+];
+
+function ModeSelector({ value, onChange, disabled }: {
+  value: AnalysisMode;
+  onChange: (mode: AnalysisMode) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="grid w-full gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Analysis mode">
+      {MODE_OPTIONS.map((option) => {
+        const active = value === option.value;
+        const Icon = option.icon;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            disabled={disabled}
+            onClick={() => onChange(option.value)}
+            className={`flex flex-col items-start gap-1 rounded-md border px-3 py-2 text-left transition-colors disabled:opacity-50 ${
+              active
+                ? "border-primary bg-primary/10"
+                : "border-muted-foreground/25 hover:border-primary/50 hover:bg-accent/50"
+            }`}
+          >
+            <span className={`flex items-center gap-1.5 text-sm font-medium ${active ? "text-primary" : ""}`}>
+              <Icon className="h-3.5 w-3.5" />
+              {option.label}
+            </span>
+            <span className="text-xs text-muted-foreground leading-4">{option.detail}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function stepLabel(step: string | null): string {
   if (!step) return "Starting…";
   const labels: Record<string, string> = {
     uploaded: "Uploaded",
     parsing: "Parsing document…",
+    chunking: "Chunking document…",
     extracting: "AI extracting…",
     embedding: "Building embeddings…",
     graph: "Building graph…",
+    deep_report: "Generating deep analysis report…",
   };
   return labels[step] || step;
 }
@@ -50,7 +94,7 @@ function stepProgress(step: string | null): number {
 export default function UploadPage() {
   const { language } = useLanguage();
   const [dragover, setDragover] = useState(false);
-  const [runAI, setRunAI] = useState(true);
+  const [mode, setMode] = useState<AnalysisMode>("quick");
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [processingFiles, setProcessingFiles] = useState<ProcessingFile[]>([]);
@@ -152,7 +196,7 @@ export default function UploadPage() {
 
     for (let i = 0; i < arr.length; i++) {
       try {
-        const r = await uploadFile(arr[i], runAI, language);
+        const r = await uploadFile(arr[i], mode, language);
         startPolling(r.article_id, arr[i].name);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Upload failed");
@@ -161,7 +205,7 @@ export default function UploadPage() {
     }
     setUploading(false);
     if (arr.length > 0) { setShowSparkle(true); setTimeout(() => setShowSparkle(false), 2500); }
-  }, [language, runAI, startPolling]);
+  }, [language, mode, startPolling]);
 
   const handleClearFinished = useCallback(() => {
     if (clearingFinished) return;
@@ -175,7 +219,7 @@ export default function UploadPage() {
   }, [clearingFinished]);
 
   const hasFinishedProcessingFiles = processingFiles.some((file) => !shouldResumeProcessingFile(file));
-  const setupChecklist = createUploadSetupChecklist({ modelInfo, runAI, queueRestored });
+  const setupChecklist = createUploadSetupChecklist({ modelInfo, runAI: mode !== "parse_only", queueRestored });
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
@@ -290,12 +334,8 @@ export default function UploadPage() {
                 accept=".pdf,.zip,.html,.htm,.md,.txt,.markdown"
                 onChange={(e) => e.target.files && handleUpload(e.target.files)} />
             </label>
-            <div className="flex items-center gap-2 mt-3">
-              <Switch id="run-ai" checked={runAI} onCheckedChange={setRunAI} disabled={uploading} />
-              <Label htmlFor="run-ai" className="text-xs text-muted-foreground cursor-pointer flex items-center gap-1.5">
-                <Brain className="h-3.5 w-3.5" />
-                Run AI pipeline (extraction, embeddings, graph)
-              </Label>
+            <div className="mt-4 flex w-full max-w-md flex-col gap-2">
+              <ModeSelector value={mode} onChange={setMode} disabled={uploading} />
             </div>
           </CardContent>
 
@@ -496,7 +536,7 @@ function UrlImportCard({ onImported }: { onImported: (articleId: number, filenam
   const [importUrl, setImportUrl] = useState("");
   const [importing, setImporting] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
-  const [runAI, setRunAI] = useState(true);
+  const [mode, setMode] = useState<AnalysisMode>("quick");
 
   const handleUrlImport = async () => {
     const trimmed = importUrl.trim();
@@ -505,7 +545,7 @@ function UrlImportCard({ onImported }: { onImported: (articleId: number, filenam
     setUrlError(null);
     try {
       const { importFromUrl } = await import("@/lib/api");
-      const r = await importFromUrl(trimmed, runAI, language);
+      const r = await importFromUrl(trimmed, mode, language);
       onImported(r.article_id, r.filename);
       setImportUrl("");
     } catch (e: unknown) {
@@ -536,11 +576,8 @@ function UrlImportCard({ onImported }: { onImported: (articleId: number, filenam
             {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Import"}
           </Button>
         </div>
-        <div className="flex items-center gap-2 mt-2">
-          <Switch id="url-run-ai" checked={runAI} onCheckedChange={setRunAI} disabled={importing} />
-          <Label htmlFor="url-run-ai" className="text-xs text-muted-foreground cursor-pointer">
-            Run AI pipeline after import
-          </Label>
+        <div className="mt-3 flex flex-col gap-2">
+          <ModeSelector value={mode} onChange={setMode} disabled={importing} />
         </div>
         {urlError && (
           <p className="text-xs text-destructive mt-2">{urlError}</p>
