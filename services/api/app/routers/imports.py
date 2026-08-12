@@ -12,7 +12,9 @@ import urllib.parse
 import shutil
 import socket
 import ipaddress
+import ssl
 from pathlib import Path
+import certifi
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -106,6 +108,11 @@ class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+def _create_download_tls_context() -> ssl.SSLContext:
+    """Build a verified TLS context using the packaged Mozilla CA bundle."""
+    return ssl.create_default_context(cafile=certifi.where())
+
+
 def _detect_url_type(url: str) -> tuple[str, str | None]:
     """Detect the type of URL and extract an identifier.
 
@@ -140,7 +147,10 @@ def _download_file(url: str, dest_path: Path, max_bytes: int, timeout: int = 60)
     """Download a file from a URL with progress tracking."""
     _validate_public_http_url(url)
     req = urllib.request.Request(url, headers={"User-Agent": "ArticleProcessor/1.0"})
-    opener = urllib.request.build_opener(SafeRedirectHandler)
+    opener = urllib.request.build_opener(
+        SafeRedirectHandler,
+        urllib.request.HTTPSHandler(context=_create_download_tls_context()),
+    )
     with opener.open(req, timeout=timeout) as response:
         final_url = response.geturl()
         _validate_public_http_url(final_url)

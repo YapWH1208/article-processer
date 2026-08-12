@@ -45,6 +45,21 @@ def test_safe_redirect_handler_rejects_private_redirect_targets():
         )
 
 
+def test_download_tls_context_uses_certifi_ca_bundle(monkeypatch):
+    captured: dict[str, str] = {}
+    sentinel = object()
+
+    def create_default_context(*, cafile):
+        captured["cafile"] = cafile
+        return sentinel
+
+    monkeypatch.setattr(imports.certifi, "where", lambda: "/tmp/ca-bundle.pem")
+    monkeypatch.setattr(imports.ssl, "create_default_context", create_default_context)
+
+    assert imports._create_download_tls_context() is sentinel
+    assert captured == {"cafile": "/tmp/ca-bundle.pem"}
+
+
 def test_url_type_detection_accepts_arxiv_and_openreview_pdf_endpoints():
     assert imports._detect_url_type("https://arxiv.org/abs/1706.03762") == (
         "arxiv",
