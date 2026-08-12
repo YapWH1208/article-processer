@@ -26,7 +26,7 @@ const REQUIRED_TRANSLATED_UI_STRINGS = [
   "Drag and drop documents to upload.",
   "Browse Files",
   "Import from URL",
-  "Paste an arXiv, DOI, or direct PDF link",
+  "Paste an arXiv, OpenReview, DOI, scholarly page, or direct PDF link",
   "Setup Checklist",
   "Checking local backend",
   "AI pipeline",

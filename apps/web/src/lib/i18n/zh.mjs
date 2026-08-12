@@ -191,7 +191,7 @@ export default {
     "PDF, ZIP, HTML, Markdown, TXT — up to 50 MB": "PDF、ZIP、HTML、Markdown、TXT，最大 50 MB",
     "Browse Files": "浏览文件",
     "Import from URL": "从 URL 导入",
-    "Paste an arXiv, DOI, or direct PDF link": "粘贴 arXiv、DOI 或 PDF 直链",
+    "Paste an arXiv, OpenReview, DOI, scholarly page, or direct PDF link": "粘贴 arXiv、OpenReview、DOI、学术页面或 PDF 直链",
 
     "Article Library": "文章文库",
     Articles: "文章",
