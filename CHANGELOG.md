@@ -6,6 +6,10 @@ All notable changes to the Article Processor project.
 
 ## [Unreleased]
 
+---
+
+## [0.3.2] — 2026-08-12
+
 ### Added
 
 - **More scholarly URL sources** - Import from URL now accepts normal OpenReview
