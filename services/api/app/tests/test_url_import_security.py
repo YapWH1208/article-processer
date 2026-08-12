@@ -12,6 +12,47 @@ from app.db.session import Base
 from app.routers import imports
 
 
+class FakeResponse:
+    def __init__(
+        self,
+        body: bytes,
+        *,
+        final_url: str = "https://8.8.8.8/article",
+        content_type: str = "text/html; charset=utf-8",
+        content_length: str | None = None,
+    ):
+        self._body = body
+        self._offset = 0
+        self._final_url = final_url
+        self.headers = {"Content-Type": content_type}
+        if content_length is not None:
+            self.headers["Content-Length"] = content_length
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def geturl(self):
+        return self._final_url
+
+    def read(self, size: int = -1):
+        if size < 0:
+            size = len(self._body) - self._offset
+        start = self._offset
+        self._offset = min(len(self._body), self._offset + size)
+        return self._body[start:self._offset]
+
+
+class FakeOpener:
+    def __init__(self, response: FakeResponse):
+        self.response = response
+
+    def open(self, request, timeout):
+        return self.response
+
+
 @pytest.fixture
 def db_session(tmp_path):
     engine = create_engine(
@@ -60,7 +101,7 @@ def test_download_tls_context_uses_certifi_ca_bundle(monkeypatch):
     assert captured == {"cafile": "/tmp/ca-bundle.pem"}
 
 
-def test_url_type_detection_accepts_arxiv_and_openreview_pdf_endpoints():
+def test_url_type_detection_accepts_existing_and_openreview_endpoints():
     assert imports._detect_url_type("https://arxiv.org/abs/1706.03762") == (
         "arxiv",
         "1706.03762",
@@ -74,6 +115,11 @@ def test_url_type_detection_accepts_arxiv_and_openreview_pdf_endpoints():
         "https://openreview.net/pdf?id=paper-1",
     )
     assert imports._detect_url_type("https://openreview.net/forum?id=paper-1") == (
+        "openreview",
+        "paper-1",
+    )
+    assert imports._detect_url_type("https://openreview.net/forum") == ("unknown", None)
+    assert imports._detect_url_type("https://evil-openreview.net/forum?id=paper-1") == (
         "unknown",
         None,
     )
@@ -81,6 +127,115 @@ def test_url_type_detection_accepts_arxiv_and_openreview_pdf_endpoints():
         "unknown",
         None,
     )
+
+
+def test_openreview_forum_resolution_preserves_encoded_note_id_safely():
+    url = "https://openreview.net/forum?id=venue%2Fpaper%20one"
+    url_type, identifier = imports._detect_url_type(url)
+
+    download_url, filename = imports._resolve_download_target(url, url_type, identifier)
+
+    assert download_url == "https://openreview.net/pdf?id=venue%2Fpaper+one"
+    assert filename == "venue_paper_one.pdf"
+
+
+@pytest.mark.parametrize(
+    ("metadata_url", "expected"),
+    [
+        ("https://1.1.1.1/files/paper.pdf", "https://1.1.1.1/files/paper.pdf"),
+        ("../files/paper.pdf", "https://8.8.8.8/files/paper.pdf"),
+    ],
+)
+def test_landing_page_resolves_absolute_and_relative_citation_metadata(
+    monkeypatch,
+    metadata_url,
+    expected,
+):
+    response = FakeResponse(
+        f'<html><head><meta name="citation_pdf_url" content="{metadata_url}"></head></html>'.encode(),
+        final_url="https://8.8.8.8/papers/article",
+    )
+    monkeypatch.setattr(imports, "_build_safe_opener", lambda: FakeOpener(response))
+
+    assert imports._resolve_landing_page_pdf_url("https://8.8.8.8/start") == expected
+
+
+def test_landing_page_accepts_a_direct_pdf_response(monkeypatch):
+    response = FakeResponse(
+        b"",
+        final_url="https://8.8.8.8/download?id=paper-1",
+        content_type="application/pdf",
+    )
+    monkeypatch.setattr(imports, "_build_safe_opener", lambda: FakeOpener(response))
+
+    assert imports._resolve_landing_page_pdf_url("https://8.8.8.8/start") == response.geturl()
+
+
+@pytest.mark.parametrize(
+    ("body", "content_type", "detail"),
+    [
+        (b"<html><head></head></html>", "text/html", "does not advertise a PDF URL"),
+        (b"plain text", "text/plain", "did not return an HTML scholarly page or a PDF"),
+    ],
+)
+def test_landing_page_rejects_unsupported_content(monkeypatch, body, content_type, detail):
+    response = FakeResponse(body, content_type=content_type)
+    monkeypatch.setattr(imports, "_build_safe_opener", lambda: FakeOpener(response))
+
+    with pytest.raises(imports.UrlResolutionError, match=detail):
+        imports._resolve_landing_page_pdf_url("https://8.8.8.8/article")
+
+
+def test_landing_page_rejects_oversized_html(monkeypatch):
+    response = FakeResponse(
+        b"<html></html>",
+        content_length=str(imports._LANDING_PAGE_MAX_BYTES + 1),
+    )
+    monkeypatch.setattr(imports, "_build_safe_opener", lambda: FakeOpener(response))
+
+    with pytest.raises(imports.UrlResolutionError, match="too large"):
+        imports._resolve_landing_page_pdf_url("https://8.8.8.8/article")
+
+
+def test_landing_page_enforces_streamed_html_limit_without_content_length(monkeypatch):
+    response = FakeResponse(b"<html>more than ten bytes</html>")
+    monkeypatch.setattr(imports, "_build_safe_opener", lambda: FakeOpener(response))
+
+    with pytest.raises(imports.UrlResolutionError, match="too large"):
+        imports._resolve_landing_page_pdf_url("https://8.8.8.8/article", max_bytes=10)
+
+
+def test_landing_page_rejects_private_metadata_target(monkeypatch):
+    response = FakeResponse(
+        b'<meta name="citation_pdf_url" content="http://127.0.0.1/internal.pdf">',
+    )
+    monkeypatch.setattr(imports, "_build_safe_opener", lambda: FakeOpener(response))
+
+    with pytest.raises(imports.UnsafeUrlError, match="non-public"):
+        imports._resolve_landing_page_pdf_url("https://8.8.8.8/article")
+
+
+def test_landing_page_rejects_non_http_metadata_target(monkeypatch):
+    response = FakeResponse(
+        b'<meta name="citation_pdf_url" content="javascript:alert(1)">',
+    )
+    monkeypatch.setattr(imports, "_build_safe_opener", lambda: FakeOpener(response))
+
+    with pytest.raises(imports.UnsafeUrlError, match="Only http/https"):
+        imports._resolve_landing_page_pdf_url("https://8.8.8.8/article")
+
+
+def test_landing_page_rejects_ambiguous_pdf_metadata(monkeypatch):
+    response = FakeResponse(
+        b"""
+        <meta name="citation_pdf_url" content="https://1.1.1.1/one.pdf">
+        <meta name="citation_pdf_url" content="https://1.1.1.1/two.pdf">
+        """,
+    )
+    monkeypatch.setattr(imports, "_build_safe_opener", lambda: FakeOpener(response))
+
+    with pytest.raises(imports.UrlResolutionError, match="multiple PDF URLs"):
+        imports._resolve_landing_page_pdf_url("https://8.8.8.8/article")
 
 
 @pytest.mark.asyncio
@@ -116,6 +271,99 @@ async def test_arxiv_import_downloads_export_pdf_and_creates_article(
     assert response.filename == "1706.03762.pdf"
     assert db_session.query(Article).count() == 1
     assert db_session.query(ProcessingJob).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_openreview_forum_import_resolves_pdf_and_creates_article(
+    db_session,
+    tmp_path,
+    monkeypatch,
+):
+    downloaded_urls: list[str] = []
+
+    monkeypatch.setattr(
+        imports.socket,
+        "getaddrinfo",
+        lambda host, port, *args, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", port))
+        ],
+    )
+    monkeypatch.setattr(imports.settings, "storage_dir", str(tmp_path / "storage"))
+
+    def fake_download(url, dest_path, max_bytes, timeout=60):
+        downloaded_urls.append(url)
+        dest_path.write_bytes(b"%PDF-1.4\nOpenReview test paper\n")
+
+    monkeypatch.setattr(imports, "_download_file", fake_download)
+
+    from app.services.pipeline import processor
+
+    monkeypatch.setattr(processor, "run_pipeline_background", lambda *args, **kwargs: None)
+
+    original_url = "https://openreview.net/forum?id=paper-1"
+    response = await imports.import_from_url(
+        imports.UrlImportRequest(url=original_url, run_ai=False),
+        db=db_session,
+    )
+
+    assert downloaded_urls == ["https://openreview.net/pdf?id=paper-1"]
+    assert response.url == original_url
+    assert response.filename == "paper-1.pdf"
+    assert db_session.query(Article).count() == 1
+    assert db_session.query(ProcessingJob).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_scholarly_landing_page_import_preserves_original_url(
+    db_session,
+    tmp_path,
+    monkeypatch,
+):
+    original_url = "https://8.8.8.8/papers/article"
+    resolved_url = "https://1.1.1.1/files/article.pdf"
+    monkeypatch.setattr(imports.settings, "storage_dir", str(tmp_path / "storage"))
+    monkeypatch.setattr(imports, "_resolve_landing_page_pdf_url", lambda url: resolved_url)
+
+    def fake_download(url, dest_path, max_bytes, timeout=60):
+        assert url == resolved_url
+        dest_path.write_bytes(b"%PDF-1.4\nGeneric scholarly paper\n")
+
+    monkeypatch.setattr(imports, "_download_file", fake_download)
+
+    from app.services.pipeline import processor
+
+    monkeypatch.setattr(processor, "run_pipeline_background", lambda *args, **kwargs: None)
+
+    response = await imports.import_from_url(
+        imports.UrlImportRequest(url=original_url, run_ai=False),
+        db=db_session,
+    )
+
+    assert response.url == original_url
+    assert response.filename == "article.pdf"
+    assert db_session.query(Article).count() == 1
+    assert db_session.query(ProcessingJob).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_landing_page_resolution_failure_creates_no_records(db_session, monkeypatch):
+    def unsupported_page(url):
+        raise imports.UrlResolutionError(
+            "This scholarly page does not advertise a PDF URL that can be imported."
+        )
+
+    monkeypatch.setattr(imports, "_resolve_landing_page_pdf_url", unsupported_page)
+
+    with pytest.raises(imports.HTTPException) as exc_info:
+        await imports.import_from_url(
+            imports.UrlImportRequest(url="https://8.8.8.8/article", run_ai=False),
+            db=db_session,
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "does not advertise a PDF URL" in exc_info.value.detail
+    assert db_session.query(Article).count() == 0
+    assert db_session.query(ProcessingJob).count() == 0
 
 
 @pytest.mark.asyncio

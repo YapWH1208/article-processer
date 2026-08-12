@@ -15,6 +15,7 @@ import ipaddress
 import ssl
 from pathlib import Path
 import certifi
+from bs4 import BeautifulSoup
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -32,7 +33,12 @@ router = APIRouter()
 # ── URL Import Request ────────────────────────────────────────────────────
 
 class UrlImportRequest(BaseModel):
-    url: str = Field(..., min_length=5, max_length=2048, description="URL to an arXiv abstract, DOI, or direct PDF")
+    url: str = Field(
+        ...,
+        min_length=5,
+        max_length=2048,
+        description="URL to arXiv, OpenReview, a DOI, a scholarly landing page, or a direct PDF",
+    )
     run_ai: bool = Field(default=True, description="Whether to run AI extraction after import")
     mode: str = Field(default="quick", max_length=16, description="Processing mode: quick, deep, or parse_only")
     language: str = Field(default="en", max_length=16, description="UI language for AI output")
@@ -54,9 +60,19 @@ _PDF_URL_RE = re.compile(r'\.pdf(\?|#|$)', re.IGNORECASE)
 # arXiv mirror for PDF downloads (more reliable than main site for programmatic access)
 _ARXIV_PDF_BASE = "https://export.arxiv.org/pdf/"
 
+# Scholarly citation metadata is normally near the top of a page. Keep landing
+# page discovery much smaller and faster than the configured PDF upload limit.
+_LANDING_PAGE_MAX_BYTES = 2 * 1024 * 1024
+_LANDING_PAGE_TIMEOUT_SECONDS = 30
+_DOWNLOAD_USER_AGENT = "ArticleProcessor/1.0"
+
 
 class UnsafeUrlError(ValueError):
     """Raised when a URL is not safe for server-side fetching."""
+
+
+class UrlResolutionError(ValueError):
+    """Raised when a public landing page does not expose a supported PDF."""
 
 
 def _validate_public_http_url(url: str) -> urllib.parse.ParseResult:
@@ -113,10 +129,19 @@ def _create_download_tls_context() -> ssl.SSLContext:
     return ssl.create_default_context(cafile=certifi.where())
 
 
+def _build_safe_opener() -> urllib.request.OpenerDirector:
+    """Build an opener that validates redirects and verifies HTTPS."""
+    return urllib.request.build_opener(
+        SafeRedirectHandler,
+        urllib.request.HTTPSHandler(context=_create_download_tls_context()),
+    )
+
+
 def _detect_url_type(url: str) -> tuple[str, str | None]:
     """Detect the type of URL and extract an identifier.
 
-    Returns (type, identifier) where type is one of 'arxiv', 'doi', 'direct-pdf', 'unknown'.
+    Returns (type, identifier) where type is one of 'arxiv', 'doi',
+    'openreview', 'direct-pdf', or 'unknown'.
     """
     parsed = urllib.parse.urlparse(url)
     host = (parsed.hostname or "").lower()
@@ -132,9 +157,11 @@ def _detect_url_type(url: str) -> tuple[str, str | None]:
         if m:
             return ("doi", m.group(1))
 
-    if (host == "openreview.net" or host.endswith(".openreview.net")) and path.rstrip("/").lower() == "/pdf":
+    if (host == "openreview.net" or host.endswith(".openreview.net")) and path.rstrip("/").lower() in {"/forum", "/pdf"}:
         paper_id = urllib.parse.parse_qs(parsed.query).get("id", [""])[0].strip()
         if paper_id:
+            if path.rstrip("/").lower() == "/forum":
+                return ("openreview", paper_id)
             return ("direct-pdf", url)
 
     if path.lower().endswith(".pdf") or _PDF_URL_RE.search(url):
@@ -143,14 +170,132 @@ def _detect_url_type(url: str) -> tuple[str, str | None]:
     return ("unknown", None)
 
 
+def _response_content_type(response) -> str:
+    """Return a normalized response media type for urllib and test doubles."""
+    content_type = response.headers.get("Content-Type", "")
+    return content_type.split(";", 1)[0].strip().lower()
+
+
+def _read_bounded_response(response, max_bytes: int) -> bytes:
+    """Read a response body without allowing it to exceed max_bytes."""
+    content_length = response.headers.get("Content-Length")
+    if content_length:
+        try:
+            declared_length = int(content_length)
+        except ValueError:
+            declared_length = None
+        if declared_length is not None and declared_length > max_bytes:
+            raise UrlResolutionError(
+                "The scholarly landing page is too large to inspect safely. "
+                "Please provide a direct PDF link or upload the PDF manually."
+            )
+
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = response.read(64 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise UrlResolutionError(
+                "The scholarly landing page is too large to inspect safely. "
+                "Please provide a direct PDF link or upload the PDF manually."
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _discover_citation_pdf_url(html: bytes, base_url: str) -> str:
+    """Extract one explicit citation_pdf_url from untrusted landing-page HTML."""
+    soup = BeautifulSoup(html, "html.parser")
+    candidates: list[str] = []
+    for meta in soup.find_all("meta"):
+        name = meta.get("name")
+        if not isinstance(name, str) or name.strip().lower() != "citation_pdf_url":
+            continue
+        content = meta.get("content")
+        if not isinstance(content, str) or not content.strip():
+            continue
+        candidate = urllib.parse.urljoin(base_url, content.strip())
+        if candidate not in candidates:
+            candidates.append(candidate)
+
+    if not candidates:
+        raise UrlResolutionError(
+            "This scholarly page does not advertise a PDF URL that can be imported. "
+            "Please provide a direct PDF link or upload the PDF manually."
+        )
+    if len(candidates) > 1:
+        raise UrlResolutionError(
+            "This scholarly page advertises multiple PDF URLs, so the correct file "
+            "cannot be selected safely. Please provide a direct PDF link."
+        )
+
+    _validate_public_http_url(candidates[0])
+    return candidates[0]
+
+
+def _resolve_landing_page_pdf_url(
+    url: str,
+    max_bytes: int = _LANDING_PAGE_MAX_BYTES,
+    timeout: int = _LANDING_PAGE_TIMEOUT_SECONDS,
+) -> str:
+    """Resolve a public scholarly landing page to its declared PDF URL."""
+    _validate_public_http_url(url)
+    req = urllib.request.Request(url, headers={"User-Agent": _DOWNLOAD_USER_AGENT})
+    with _build_safe_opener().open(req, timeout=timeout) as response:
+        final_url = response.geturl()
+        _validate_public_http_url(final_url)
+        content_type = _response_content_type(response)
+        if content_type == "application/pdf":
+            return final_url
+        if content_type not in {"text/html", "application/xhtml+xml"}:
+            raise UrlResolutionError(
+                "The URL did not return an HTML scholarly page or a PDF. "
+                "Please provide a direct PDF link or upload the PDF manually."
+            )
+        html = _read_bounded_response(response, max_bytes=max_bytes)
+
+    return _discover_citation_pdf_url(html, base_url=final_url)
+
+
+def _resolve_download_target(
+    url: str,
+    url_type: str,
+    identifier: str | None,
+) -> tuple[str, str]:
+    """Resolve an accepted source URL to a PDF URL and local filename."""
+    if url_type == "arxiv":
+        download_url = f"{_ARXIV_PDF_BASE}{identifier}.pdf"
+        filename = f"{identifier}.pdf"
+    elif url_type == "openreview":
+        query = urllib.parse.urlencode({"id": identifier or ""})
+        download_url = f"https://openreview.net/pdf?{query}"
+        safe_identifier = re.sub(r"[^A-Za-z0-9._-]+", "_", identifier or "").strip("._")
+        filename = f"{safe_identifier or 'openreview'}.pdf"
+    elif url_type == "doi":
+        download_url = _resolve_landing_page_pdf_url(url)
+        filename = (identifier or "downloaded").replace("/", "_") + ".pdf"
+    elif url_type == "direct-pdf":
+        download_url = url
+        path_part = url.split("?", 1)[0].split("#", 1)[0]
+        filename = path_part.rsplit("/", 1)[-1] or "downloaded.pdf"
+    else:
+        download_url = _resolve_landing_page_pdf_url(url)
+        path_part = download_url.split("?", 1)[0].split("#", 1)[0]
+        filename = path_part.rsplit("/", 1)[-1] or "downloaded.pdf"
+
+    if not filename.lower().endswith(".pdf"):
+        filename += ".pdf"
+    return download_url, filename
+
+
 def _download_file(url: str, dest_path: Path, max_bytes: int, timeout: int = 60) -> None:
     """Download a file from a URL with progress tracking."""
     _validate_public_http_url(url)
-    req = urllib.request.Request(url, headers={"User-Agent": "ArticleProcessor/1.0"})
-    opener = urllib.request.build_opener(
-        SafeRedirectHandler,
-        urllib.request.HTTPSHandler(context=_create_download_tls_context()),
-    )
+    req = urllib.request.Request(url, headers={"User-Agent": _DOWNLOAD_USER_AGENT})
+    opener = _build_safe_opener()
     with opener.open(req, timeout=timeout) as response:
         final_url = response.geturl()
         _validate_public_http_url(final_url)
@@ -187,7 +332,8 @@ async def import_from_url(
 ):
     """Import an article from a URL.
 
-    Supports arXiv (abs/pdf), DOI redirects, and direct PDF links.
+    Supports arXiv, OpenReview, DOI and standards-based scholarly landing pages,
+    and direct PDF links.
     Downloads the PDF to local storage, creates an article record,
     and starts the processing pipeline.
     """
@@ -199,35 +345,13 @@ async def import_from_url(
 
     url_type, identifier = _detect_url_type(url)
 
-    if url_type == "unknown":
-        raise HTTPException(
-            status_code=400,
-            detail="Could not detect URL type. Please provide an arXiv (arxiv.org/abs/...), DOI (doi.org/...), or direct PDF link.",
-        )
-
-    # Resolve the download URL
-    if url_type == "arxiv":
-        download_url = f"{_ARXIV_PDF_BASE}{identifier}.pdf"
-        filename = f"{identifier}.pdf"
-    elif url_type == "doi":
-        download_url = f"https://doi.org/{identifier}"
-        filename = identifier.replace("/", "_") + ".pdf"
-    else:  # direct-pdf
-        download_url = url
-        # Derive filename from URL path
-        path_part = url.split("?")[0].split("#")[0]
-        filename = path_part.rsplit("/", 1)[-1] or "downloaded.pdf"
-
-    # Ensure filename ends with .pdf
-    if not filename.lower().endswith(".pdf"):
-        filename += ".pdf"
-
-    # Download to temp location first
-    temp_dir = Path(tempfile.gettempdir()) / "article_processor_imports"
-    temp_dir.mkdir(parents=True, exist_ok=True)
-    temp_file = temp_dir / f"{datetime.datetime.utcnow().timestamp()}_{filename}"
-
     try:
+        download_url, filename = _resolve_download_target(url, url_type, identifier)
+
+        # Download to temp location first
+        temp_dir = Path(tempfile.gettempdir()) / "article_processor_imports"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        temp_file = temp_dir / f"{datetime.datetime.utcnow().timestamp()}_{filename}"
         _download_file(download_url, temp_file, max_bytes=settings.max_upload_bytes, timeout=120)
     except urllib.error.HTTPError as e:
         if e.code in {401, 403, 429}:
@@ -242,6 +366,8 @@ async def import_from_url(
     except urllib.error.URLError as e:
         raise HTTPException(status_code=502, detail=f"Failed to reach {url_type} URL: {e.reason}")
     except UnsafeUrlError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except UrlResolutionError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=413, detail=str(e))
