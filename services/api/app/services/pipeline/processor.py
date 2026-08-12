@@ -48,6 +48,43 @@ def _retry_delay(attempt: int) -> float:
     return base * (0.75 + random.random() * 0.5)
 
 
+def _snapshot_usage(usage: TokenUsage | None) -> TokenUsage | None:
+    """Copy a provider usage snapshot so later calls can be diffed against it.
+
+    ``last_usage`` on providers is accumulative and never reset, so a step
+    must snapshot the counter after its calls and diff before recording.
+    """
+    if usage is None or usage.total_tokens <= 0:
+        return None
+    return TokenUsage(
+        prompt_tokens=usage.prompt_tokens,
+        completion_tokens=usage.completion_tokens,
+        total_tokens=usage.total_tokens,
+        model=usage.model,
+        provider=usage.provider,
+    )
+
+
+def _record_token_usage(db, article_id: int, step: str, usage: TokenUsage | None) -> None:
+    """Persist a TokenUsage row if the snapshot recorded any tokens."""
+    if usage is None or usage.total_tokens <= 0:
+        return
+    db.add(TokenUsage(
+        article_id=article_id,
+        step=step,
+        model=usage.model,
+        provider=usage.provider,
+        prompt_tokens=usage.prompt_tokens,
+        completion_tokens=usage.completion_tokens,
+        total_tokens=usage.total_tokens,
+        cost=compute_token_cost(
+            usage.model,
+            usage.prompt_tokens,
+            usage.completion_tokens,
+        ),
+    ))
+
+
 # Parser registry. Optional PDF engines are intentionally lazy: importing
 # Docling/MinerU can take tens of seconds, so startup should not probe them.
 _mineru = None
@@ -358,7 +395,17 @@ async def run_pipeline(
                 job.retry_count = attempt + 1
                 db.commit()
 
-        # Delete old extractions
+        # Delete old extractions, carrying over any existing Deep Analysis
+        # report so quick/extract-only re-runs don't silently wipe it.
+        old_extraction = (
+            db.query(ArticleExtraction)
+            .filter(ArticleExtraction.article_id == article_id)
+            .order_by(ArticleExtraction.created_at.desc())
+            .first()
+        )
+        prev_report_json = old_extraction.report_json if old_extraction else None
+        prev_report_confidence = old_extraction.report_confidence if old_extraction else None
+
         db.query(ArticleExtraction).filter(
             ArticleExtraction.article_id == article_id
         ).delete()
@@ -369,25 +416,15 @@ async def run_pipeline(
             extraction_json=json.dumps(extraction_result) if extraction_result else None,
             confidence=confidence,
             validation_errors=json.dumps(validation_errors) if validation_errors else None,
+            report_json=prev_report_json,
+            report_confidence=prev_report_confidence,
         )
         db.add(extraction)
 
-        # Record extraction token usage
-        if llm.last_usage and llm.last_usage.total_tokens > 0:
-            db.add(TokenUsage(
-                article_id=article_id,
-                step="extraction",
-                model=llm.last_usage.model,
-                provider=llm.last_usage.provider,
-                prompt_tokens=llm.last_usage.prompt_tokens,
-                completion_tokens=llm.last_usage.completion_tokens,
-                total_tokens=llm.last_usage.total_tokens,
-                cost=compute_token_cost(
-                    llm.last_usage.model,
-                    llm.last_usage.prompt_tokens,
-                    llm.last_usage.completion_tokens,
-                ),
-            ))
+        # Record extraction token usage — snapshot now so the deep-report step
+        # below can record only its own (incremental) tokens.
+        extraction_usage = _snapshot_usage(llm.last_usage)
+        _record_token_usage(db, article_id, "extraction", extraction_usage)
 
         if extraction_result is None:
             failure_message = "; ".join(validation_errors or ["AI extraction returned no result"])
@@ -409,6 +446,9 @@ async def run_pipeline(
             article.needs_review = 1
         else:
             add_log("extracting", f"Extraction complete. Confidence: {confidence:.2f}")
+            # A clean extraction supersedes any review flag from a previous run
+            # (e.g. a failed deep report); it is re-set below if this run fails.
+            article.needs_review = 0
 
         db.commit()
 
@@ -498,22 +538,16 @@ async def run_pipeline(
                     job.error = None
                     db.commit()
 
-            # Record report token usage
-            if llm.last_usage and llm.last_usage.total_tokens > 0:
-                db.add(TokenUsage(
-                    article_id=article_id,
-                    step="deep_report",
-                    model=llm.last_usage.model,
-                    provider=llm.last_usage.provider,
-                    prompt_tokens=llm.last_usage.prompt_tokens,
-                    completion_tokens=llm.last_usage.completion_tokens,
-                    total_tokens=llm.last_usage.total_tokens,
-                    cost=compute_token_cost(
-                        llm.last_usage.model,
-                        llm.last_usage.prompt_tokens,
-                        llm.last_usage.completion_tokens,
-                    ),
-                ))
+            # Record only the incremental report tokens — last_usage is
+            # accumulative, so subtract the extraction snapshot. If the report
+            # failed before the provider captured usage, the diff is zero and
+            # no (stale) deep_report row is written.
+            report_usage = _snapshot_usage(llm.last_usage)
+            if report_usage is not None and extraction_usage is not None:
+                report_usage.prompt_tokens -= extraction_usage.prompt_tokens
+                report_usage.completion_tokens -= extraction_usage.completion_tokens
+                report_usage.total_tokens -= extraction_usage.total_tokens
+            _record_token_usage(db, article_id, "deep_report", report_usage)
 
             if report is not None and (report_errors is None or len(report_errors) == 0):
                 extraction.report_json = json.dumps(report)
@@ -532,6 +566,9 @@ async def run_pipeline(
             article.status = ArticleStatus.NEEDS_REVIEW.value
 
         job.status = JobStatus.COMPLETED.value
+        # Step-level failures (e.g. a failed deep report) stay visible in the
+        # job logs; the job itself completed, so clear the error marker.
+        job.error = None
         job.completed_at = datetime.datetime.utcnow()
         job.locked_at = None
         job.worker_id = None

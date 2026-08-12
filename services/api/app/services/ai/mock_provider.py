@@ -10,6 +10,7 @@ import hashlib
 import math
 from typing import Any
 from app.services.ai.base import BaseLLMProvider
+from app.services.ai.extraction import ExtractionService
 from app.services.ai.prompts import normalize_output_language
 
 logger = logging.getLogger(__name__)
@@ -185,6 +186,12 @@ class MockLLMProvider(BaseLLMProvider):
             "summary": "\n\n".join(summary_parts),
             "sections": sections,
         }
+        # Apply the same validation as real providers so mock vs. real AI
+        # modes behave identically for the same input (e.g. a sparse
+        # extraction yields an empty report and must be rejected).
+        errors = ExtractionService.validate_deep_report(report)
+        if errors:
+            return None, errors, 0.0
         return report, None, 0.6
 
     async def answer_question(

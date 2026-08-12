@@ -75,9 +75,11 @@ function stepLabel(step: string | null): string {
   const labels: Record<string, string> = {
     uploaded: "Uploaded",
     parsing: "Parsing document…",
+    chunking: "Chunking document…",
     extracting: "AI extracting…",
     embedding: "Building embeddings…",
     graph: "Building graph…",
+    deep_report: "Generating deep analysis report…",
   };
   return labels[step] || step;
 }

@@ -13,6 +13,16 @@ All notable changes to the Article Processor project.
 
 ### Fixed
 
+- **Deep mode token double-counting** - `deep_report` token usage rows included the extraction tokens because provider usage is accumulative and never reset; the pipeline now snapshots usage after extraction and records only the incremental report tokens, so dashboard metrics no longer double-count (and a failed report writes no stale row).
+- **Deep report lost on re-extract** - Reprocessing in quick/extract-only mode deleted the old extraction row and silently wiped an existing Deep Analysis report; the report is now carried over to the new extraction record (and only replaced when a new report is actually generated).
+- **Article stuck in `needs_review`** - A failed deep report set `needs_review`, which no later successful run cleared; a clean extraction re-run now resets the flag instead of leaving the article in review forever.
+- **Completed jobs showing errors** - A `COMPLETED` job retained the `error` marker from a step-level failure (e.g. failed deep report), showing a red error line in the logs page; the marker is now cleared on completion while the failure stays visible in the log entries.
+- **Mock vs real deep report divergence** - The mock provider skipped `validate_deep_report`, so sparse documents produced an empty report in mock mode that real providers would reject; the mock now validates identically.
+- **Deep tab not tracking background jobs** - Reloading the article page during a running deep job showed the "No Deep Analysis report yet" empty state and allowed queueing a duplicate job; jobs now expose `analysis_mode`, and the Deep tab shows the in-progress state (and disables re-run) while a deep job is pending or running.
+- **Raw step labels on upload page** - `chunking` and `deep_report` steps fell through to the raw internal step name; both now have human-readable labels.
+
+### Fixed
+
 - **Pipeline `asyncio` scoping bug** - An inner `import asyncio` shadowed the module import inside `run_pipeline`, breaking retry paths that call `asyncio.sleep` after a first-attempt success; the shadowing import is removed.
 
 ---

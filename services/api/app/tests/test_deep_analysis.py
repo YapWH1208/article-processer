@@ -55,18 +55,29 @@ def _make_article(session_factory, title="Deep Paper"):
 
 
 class ReportCapProvider(MockLLMProvider):
-    """Mock provider that records deep report calls and can fail them."""
+    """Mock provider that records deep report calls and can fail them.
+
+    Simulates accumulative provider usage: extraction consumes 100 tokens,
+    a successful report consumes 50 more (last_usage = 150 after the report).
+    """
 
     def __init__(self, fail_report=False):
         super().__init__()
         self.report_calls = 0
         self.fail_report = fail_report
-        self.last_usage = ProviderUsage(total_tokens=100, model="mock", provider="mock")
+        self.last_usage = ProviderUsage(
+            prompt_tokens=60, completion_tokens=40, total_tokens=100,
+            model="mock", provider="mock",
+        )
 
     async def generate_deep_report(self, markdown, article_title, extraction, output_language="en"):
         self.report_calls += 1
         if self.fail_report:
             return None, ["report generation failed"], 0.0
+        self.last_usage = ProviderUsage(
+            prompt_tokens=80, completion_tokens=70, total_tokens=150,
+            model="mock", provider="mock",
+        )
         return await super().generate_deep_report(markdown, article_title, extraction, output_language)
 
 
@@ -119,7 +130,10 @@ async def test_deep_mode_generates_and_persists_report(run_pipeline_env, tmp_pat
     article = db.query(Article).filter(Article.id == article_id).one()
     extraction = db.query(ArticleExtraction).filter(ArticleExtraction.article_id == article_id).one()
     job = db.query(ProcessingJob).filter(ProcessingJob.article_id == article_id).one()
-    token_usage = db.query(TokenUsage).filter(
+    extraction_usage = db.query(TokenUsage).filter(
+        TokenUsage.article_id == article_id, TokenUsage.step == "extraction"
+    ).first()
+    report_usage = db.query(TokenUsage).filter(
         TokenUsage.article_id == article_id, TokenUsage.step == "deep_report"
     ).first()
 
@@ -131,7 +145,10 @@ async def test_deep_mode_generates_and_persists_report(run_pipeline_env, tmp_pat
     assert report["title"] == "Deep Paper"
     assert report["summary"]
     assert all("heading" in s and "content" in s for s in report["sections"])
-    assert token_usage is not None and token_usage.total_tokens == 100
+    # Usage rows must not double-count: extraction records the 100-token
+    # snapshot, deep_report only the 50 incremental report tokens.
+    assert extraction_usage is not None and extraction_usage.total_tokens == 100
+    assert report_usage is not None and report_usage.total_tokens == 50
     logs = json.loads(job.logs_json or "[]")
     assert any(entry.get("step") == "deep_report" for entry in logs)
     db.close()
@@ -153,12 +170,90 @@ async def test_deep_report_failure_marks_review_but_completes(run_pipeline_env, 
     assert article.status == ArticleStatus.NEEDS_REVIEW.value
     assert article.needs_review == 1
     assert job.status == JobStatus.COMPLETED.value
+    # The job completed with only a step-level failure: no error marker
+    # (the failure stays visible in the log entries) and no stale
+    # deep_report token row (the report consumed nothing).
+    assert job.error is None
     assert extraction.report_json is None
     assert extraction.extraction_json is not None
+    report_usage = db.query(TokenUsage).filter(
+        TokenUsage.article_id == article_id, TokenUsage.step == "deep_report"
+    ).first()
+    assert report_usage is None
     logs = json.loads(job.logs_json or "[]")
     error_log = next((e for e in logs if e.get("step") == "deep_report" and e.get("error")), None)
     assert error_log is not None
     db.close()
+
+
+@pytest.mark.asyncio
+async def test_quick_rerun_preserves_existing_report(run_pipeline_env, tmp_path, monkeypatch):
+    provider = ReportCapProvider()
+    monkeypatch.setattr(processor, "get_llm_provider", lambda: provider)
+
+    article_id = _make_article(run_pipeline_env)
+
+    await processor.run_pipeline(article_id, run_ai=True, start_step="extract", analysis_mode="deep")
+    db = run_pipeline_env()
+    extraction = db.query(ArticleExtraction).filter(ArticleExtraction.article_id == article_id).one()
+    assert extraction.report_json is not None
+    db.close()
+
+    # A quick (default reprocess) run must keep the existing deep report.
+    await processor.run_pipeline(article_id, run_ai=True, start_step="extract", analysis_mode="quick")
+
+    db = run_pipeline_env()
+    extraction = db.query(ArticleExtraction).filter(ArticleExtraction.article_id == article_id).one()
+    assert extraction.report_json is not None
+    assert extraction.report_confidence == 0.6
+    report = json.loads(extraction.report_json)
+    assert report["title"] == "Deep Paper"
+    db.close()
+
+
+@pytest.mark.asyncio
+async def test_quick_rerun_after_failed_report_clears_needs_review(run_pipeline_env, tmp_path, monkeypatch):
+    provider = ReportCapProvider(fail_report=True)
+    monkeypatch.setattr(processor, "get_llm_provider", lambda: provider)
+
+    article_id = _make_article(run_pipeline_env)
+    await processor.run_pipeline(article_id, run_ai=True, start_step="extract", analysis_mode="deep")
+
+    db = run_pipeline_env()
+    article = db.query(Article).filter(Article.id == article_id).one()
+    assert article.needs_review == 1
+    db.close()
+
+    # A later successful run with a clean extraction clears the review flag
+    # instead of leaving the article stuck in needs_review.
+    provider.fail_report = False
+    await processor.run_pipeline(article_id, run_ai=True, start_step="extract", analysis_mode="quick")
+
+    db = run_pipeline_env()
+    article = db.query(Article).filter(Article.id == article_id).one()
+    assert article.needs_review == 0
+    assert article.status == ArticleStatus.COMPLETED.value
+    db.close()
+
+
+@pytest.mark.asyncio
+async def test_mock_deep_report_validates_like_real_providers():
+    provider = MockLLMProvider()
+    sparse_extraction = {
+        "title": "Sparse Paper", "abstract": None, "background": None,
+        "research_problem": None, "methodology": None, "results": None,
+        "limitations": None, "future_work": None, "key_claims": [],
+    }
+    report, errors, confidence = await provider.generate_deep_report(
+        markdown="# Sparse Paper\n\nOnly a preamble, no headed sections.",
+        article_title="Sparse Paper",
+        extraction=sparse_extraction,
+    )
+    # An empty report would be rejected by OpenAI/Anthropic; the mock must
+    # behave the same instead of passing an empty sections list through.
+    assert report is None
+    assert errors is not None and any("sections" in e for e in errors)
+    assert confidence == 0.0
 
 
 def test_reprocess_accepts_deep_and_quick_modes(tmp_path, monkeypatch):
