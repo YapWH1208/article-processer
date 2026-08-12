@@ -263,6 +263,7 @@ def test_openreview_pdf_download_scopes_bearer_to_api_v2(monkeypatch, tmp_path):
         "timeout": 120,
         "headers": {
             "Accept": "application/pdf",
+            "Content-Type": "application/pdf",
             "Authorization": "Bearer test-token",
         },
     }

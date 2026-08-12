@@ -455,6 +455,7 @@ def _download_openreview_pdf(
         timeout=timeout,
         headers={
             "Accept": "application/pdf",
+            "Content-Type": "application/pdf",
             "Authorization": f"Bearer {token}",
         },
     )
