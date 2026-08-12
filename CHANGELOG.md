@@ -11,7 +11,9 @@ All notable changes to the Article Processor project.
 - **Import from URL** - OpenReview PDF links using `/pdf?id=...` are now
   recognized. When a source blocks an automated download (401, 403, or 429),
   the app now explains the safe browser-download and manual-upload recovery
-  path instead of returning an opaque failure.
+  path instead of returning an opaque failure. HTTPS imports use a packaged CA
+  bundle so they continue to verify certificates where Python has no configured
+  system CA path.
 - **Normal UI requests receiving 429 responses** - Dashboard and home-cockpit
   reads now use a separate 300-RPM GET/HEAD budget. Upload, chat, and
   reprocess operations retain their strict POST limits.
