@@ -9,6 +9,7 @@ import {
   Plus, Trash2, Pencil, Brain, CheckCircle2, MessageSquare,
   ArrowLeft, ArrowRight,
   SlidersHorizontal, SwitchCamera, Maximize2, Database,
+  KeyRound,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,12 +29,16 @@ import {
   createProviderEditDraft,
   getProviderAddWizardSteps,
 } from "./providerSettingsState.mjs";
+import { buildOpenReviewSettingsPayload } from "./openreviewSettingsState.mjs";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
 interface SettingsData {
   host: string; port: number; env_path: string;
   use_mock_ai: boolean; max_upload_mb: number; parser_priority: string;
+  openreview_username: string;
+  openreview_password_configured: boolean;
+  openreview_access_token_configured: boolean;
 }
 
 interface SystemMessageItem { content: string; }
@@ -122,6 +127,13 @@ export default function SettingsPage() {
   const [mockAi, setMockAi] = useState(true);
   const [maxUploadMb, setMaxUploadMb] = useState(50);
   const [parserPriority, setParserPriority] = useState("mineru_first");
+  const [openReviewUsername, setOpenReviewUsername] = useState("");
+  const [openReviewPassword, setOpenReviewPassword] = useState("");
+  const [openReviewAccessToken, setOpenReviewAccessToken] = useState("");
+  const [openReviewPasswordConfigured, setOpenReviewPasswordConfigured] = useState(false);
+  const [openReviewAccessTokenConfigured, setOpenReviewAccessTokenConfigured] = useState(false);
+  const [clearOpenReviewPassword, setClearOpenReviewPassword] = useState(false);
+  const [clearOpenReviewAccessToken, setClearOpenReviewAccessToken] = useState(false);
   const [parsers, setParsers] = useState<ParserInfo[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -181,6 +193,9 @@ export default function SettingsPage() {
       setMockAi(d.use_mock_ai);
       setMaxUploadMb(d.max_upload_mb);
       setParserPriority(d.parser_priority);
+      setOpenReviewUsername(d.openreview_username || "");
+      setOpenReviewPasswordConfigured(Boolean(d.openreview_password_configured));
+      setOpenReviewAccessTokenConfigured(Boolean(d.openreview_access_token_configured));
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Settings load failed"); }
   };
 
@@ -209,11 +224,30 @@ export default function SettingsPage() {
   const handleGeneralSave = async () => {
     setSaving(true);
     try {
-      const body: Record<string, unknown> = { max_upload_mb: maxUploadMb, parser_priority: parserPriority };
+      const body: Record<string, unknown> = {
+        max_upload_mb: maxUploadMb,
+        parser_priority: parserPriority,
+        ...buildOpenReviewSettingsPayload({
+          username: openReviewUsername,
+          password: openReviewPassword,
+          accessToken: openReviewAccessToken,
+          clearPassword: clearOpenReviewPassword,
+          clearAccessToken: clearOpenReviewAccessToken,
+        }),
+      };
       const res = await apiRawFetch("/settings", {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error((await res.json()).detail || "Save failed");
+      const updated: SettingsData = await res.json();
+      setSettings(updated);
+      setOpenReviewUsername(updated.openreview_username || "");
+      setOpenReviewPasswordConfigured(Boolean(updated.openreview_password_configured));
+      setOpenReviewAccessTokenConfigured(Boolean(updated.openreview_access_token_configured));
+      setOpenReviewPassword("");
+      setOpenReviewAccessToken("");
+      setClearOpenReviewPassword(false);
+      setClearOpenReviewAccessToken(false);
       toast.success("General settings saved");
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Save failed"); }
     finally { setSaving(false); }
@@ -848,6 +882,78 @@ export default function SettingsPage() {
                         <SelectItem value="ocr">OCR (Tesseract)</SelectItem>
                       </SelectContent>
                     </Select>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><KeyRound className="h-4 w-4"/>OpenReview imports</CardTitle>
+                    <CardDescription>
+                      OpenReview may require a verified account before it serves PDFs. Credentials stay in this app&apos;s local settings and are sent only to api2.openreview.net. An access token is preferred when configured.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="openreview-username">Username or email</Label>
+                      <Input
+                        id="openreview-username"
+                        autoComplete="username"
+                        value={openReviewUsername}
+                        onChange={(event) => setOpenReviewUsername(event.target.value)}
+                        placeholder="name@example.com"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <Label htmlFor="openreview-password">Password</Label>
+                        {openReviewPasswordConfigured && !clearOpenReviewPassword && (
+                          <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setClearOpenReviewPassword(true); setOpenReviewPassword(""); }}>
+                            Clear saved password
+                          </Button>
+                        )}
+                        {clearOpenReviewPassword && (
+                          <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setClearOpenReviewPassword(false)}>
+                            <RotateCcw className="mr-1 h-3 w-3"/>Keep saved password
+                          </Button>
+                        )}
+                      </div>
+                      <Input
+                        id="openreview-password"
+                        type="password"
+                        autoComplete="current-password"
+                        value={openReviewPassword}
+                        disabled={clearOpenReviewPassword}
+                        onChange={(event) => { setOpenReviewPassword(event.target.value); setClearOpenReviewPassword(false); }}
+                        placeholder={openReviewPasswordConfigured ? "Saved — leave blank to keep" : "Optional when using an access token"}
+                      />
+                      {clearOpenReviewPassword && <p className="text-xs text-destructive">The saved password will be cleared when you save.</p>}
+                    </div>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <Label htmlFor="openreview-access-token">Access token</Label>
+                        {openReviewAccessTokenConfigured && !clearOpenReviewAccessToken && (
+                          <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setClearOpenReviewAccessToken(true); setOpenReviewAccessToken(""); }}>
+                            Clear saved token
+                          </Button>
+                        )}
+                        {clearOpenReviewAccessToken && (
+                          <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setClearOpenReviewAccessToken(false)}>
+                            <RotateCcw className="mr-1 h-3 w-3"/>Keep saved token
+                          </Button>
+                        )}
+                      </div>
+                      <Input
+                        id="openreview-access-token"
+                        type="password"
+                        autoComplete="off"
+                        value={openReviewAccessToken}
+                        disabled={clearOpenReviewAccessToken}
+                        onChange={(event) => { setOpenReviewAccessToken(event.target.value); setClearOpenReviewAccessToken(false); }}
+                        placeholder={openReviewAccessTokenConfigured ? "Saved — leave blank to keep" : "Optional; preferred over password login"}
+                      />
+                      <p className="text-xs text-muted-foreground">Use a token for an account that requires MFA. Existing secrets are never loaded back into this page.</p>
+                      {clearOpenReviewAccessToken && <p className="text-xs text-destructive">The saved access token will be cleared when you save.</p>}
+                    </div>
                   </CardContent>
                 </Card>
 

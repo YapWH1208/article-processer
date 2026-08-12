@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 from app.db.session import SessionLocal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import reload_settings, DOTENV_PATH, settings
 from app.core.config import Settings as SettingsClass
@@ -74,6 +74,10 @@ class SettingsResponse(BaseModel):
     use_mock_ai: bool
     max_upload_mb: int
     parser_priority: str
+    # Scholarly sources. Secrets are never returned by the normal settings API.
+    openreview_username: str = ""
+    openreview_password_configured: bool = False
+    openreview_access_token_configured: bool = False
     # Server (read-only)
     host: str
     port: int
@@ -114,6 +118,21 @@ class SettingsUpdate(BaseModel):
     use_mock_ai: bool | None = None
     max_upload_mb: int | None = Field(default=None, ge=1, le=500)
     parser_priority: str | None = None
+    # Scholarly sources. Empty secret values intentionally clear saved values.
+    openreview_username: str | None = Field(default=None, max_length=320)
+    openreview_password: str | None = Field(default=None, max_length=1024)
+    openreview_access_token: str | None = Field(default=None, max_length=4096)
+
+    @field_validator(
+        "openreview_username",
+        "openreview_password",
+        "openreview_access_token",
+    )
+    @classmethod
+    def reject_multiline_openreview_credentials(cls, value: str | None) -> str | None:
+        if value is not None and ("\n" in value or "\r" in value):
+            raise ValueError("OpenReview credentials must be single-line values")
+        return value
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -210,6 +229,9 @@ def _build_response(cfg: SettingsClass) -> SettingsResponse:
         use_mock_ai=cfg.use_mock_ai,
         max_upload_mb=cfg.max_upload_mb,
         parser_priority=cfg.parser_priority,
+        openreview_username=cfg.openreview_username,
+        openreview_password_configured=bool(cfg.openreview_password),
+        openreview_access_token_configured=bool(cfg.openreview_access_token),
         host=cfg.host, port=cfg.port,
         env_path=str(DOTENV_PATH),
     )
@@ -311,6 +333,14 @@ def update_settings(update: SettingsUpdate):
         if update.parser_priority not in PARSER_PRIORITIES:
             raise HTTPException(400, f"Unknown parser priority: {update.parser_priority}")
         env_vars["PARSER_PRIORITY"] = update.parser_priority
+
+    # ── Scholarly sources ─────────────────────────────────────────────
+    if update.openreview_username is not None:
+        env_vars["OPENREVIEW_USERNAME"] = update.openreview_username.strip()
+    if update.openreview_password is not None:
+        env_vars["OPENREVIEW_PASSWORD"] = update.openreview_password
+    if update.openreview_access_token is not None:
+        env_vars["OPENREVIEW_ACCESS_TOKEN"] = update.openreview_access_token.strip()
 
     try:
         _write_env_file(env_vars)

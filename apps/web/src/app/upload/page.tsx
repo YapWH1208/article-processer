@@ -559,7 +559,7 @@ function UrlImportCard({ onImported }: { onImported: (articleId: number, filenam
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-base">Import from URL</CardTitle>
-        <CardDescription>Paste an arXiv, DOI, or direct PDF link</CardDescription>
+        <CardDescription>Paste an arXiv, OpenReview, DOI, scholarly page, or direct PDF link</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="flex gap-2">
@@ -568,7 +568,7 @@ function UrlImportCard({ onImported }: { onImported: (articleId: number, filenam
             value={importUrl}
             onChange={(e) => setImportUrl(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleUrlImport()}
-            placeholder="https://arxiv.org/abs/2301.12345"
+            placeholder="https://openreview.net/forum?id=..."
             className="flex-1 px-3 py-2 rounded-md border bg-background text-sm"
             disabled={importing}
           />

@@ -147,7 +147,7 @@ const UI_STRINGS = [
   "PDF, ZIP, HTML, Markdown, TXT — up to 50 MB",
   "Browse Files",
   "Import from URL",
-  "Paste an arXiv, DOI, or direct PDF link",
+  "Paste an arXiv, OpenReview, DOI, scholarly page, or direct PDF link",
   "Article Library",
   "Articles",
   "Search titles & filenames...",
