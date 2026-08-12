@@ -52,7 +52,7 @@ cp .env.example apps/web/.env.local
 ## Features
 
 - **Operational Home Cockpit**: The home page opens directly into workspace status, full-text search, AI/provider health, queue attention, recent articles, and primary actions
-- **Document Ingestion**: Upload PDF, ZIP (containing PDFs/HTML/MD/TXT), HTML, Markdown, or plain text, with setup readiness checks and upload/import progress that resumes after refresh
+- **Document Ingestion**: Upload PDF, ZIP (containing PDFs/HTML/MD/TXT), HTML, Markdown, or plain text; URL import supports arXiv, DOI, OpenReview, direct PDFs, and scholarly pages with `citation_pdf_url` metadata
 - **Automatic Parsing**: Convert documents to canonical Markdown with structure preservation — MinerU v3.x (best), Docling, or pypdf
 - **5-Step Processing Pipeline**: Parse → Semantic Chunk → AI Extract → Build Graph → Complete. Live progress bar with step-by-step status.
 - **Global Job Queue**: Jobs navigation and the Logs page show active, queued, failed, and completed processing jobs with current step, age, worker, errors, article links, and retry for failed jobs
@@ -134,6 +134,9 @@ See `.env.example` for all configuration options. Key variables:
 | `KIMI_MODEL` | `moonshot-v1-8k` | Kimi model |
 | `USE_MOCK_AI` | `true` | Offline regex extraction (no API key needed) |
 | `MAX_UPLOAD_MB` | `50` | Max file size |
+| `OPENREVIEW_USERNAME` | — | OpenReview username/email for challenged PDF imports |
+| `OPENREVIEW_PASSWORD` | — | OpenReview password; used only when no access token is configured |
+| `OPENREVIEW_ACCESS_TOKEN` | — | OpenReview bearer token; preferred over username/password |
 | `PARSER_PRIORITY` | `mineru_first` | PDF parser: `mineru_first`, `docling`, `pypdf`, or `ocr` |
 | `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` | Backend URL for frontend |
 
@@ -202,6 +205,23 @@ KIMI_MODEL=moonshot-v1-8k
 ```
 
 All settings can also be configured from the Settings page in the UI (`/settings`).
+
+### OpenReview URL Imports
+
+OpenReview currently challenges unauthenticated automated PDF requests. To
+import a normal URL such as `https://openreview.net/forum?id=...`, open
+**Settings → General → OpenReview imports** and configure either:
+
+- an access token, which takes precedence; or
+- your OpenReview username/email and password, which the backend exchanges for
+  a short-lived token once per import.
+
+The values are stored only in the app's local backend `.env`. Normal settings
+responses never return the password or token, and authorization is attached
+only to exact `https://api2.openreview.net` requests. Cross-origin redirects
+lose the authorization header. Interactive MFA is not automated; for an
+MFA-enabled account, configure an existing OpenReview access token or download
+the PDF in your browser and upload it manually.
 
 ## Known Limitations
 

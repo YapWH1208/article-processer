@@ -11,9 +11,21 @@ All notable changes to the Article Processor project.
 - **More scholarly URL sources** - Import from URL now accepts normal OpenReview
   forum links and standards-based scholarly landing pages that advertise a PDF
   through `citation_pdf_url` metadata. Resolved pages and PDFs retain public-IP,
-  redirect, TLS, size, and file-signature checks. Pages that require JavaScript,
-  authentication, or do not publish supported PDF metadata still require a
-  direct PDF link or manual upload.
+  redirect, TLS, size, and file-signature checks. OpenReview downloads use its
+  API v2 and can authenticate with a locally stored access token or
+  username/password configured under Settings → General; tokens are scoped to
+  the exact OpenReview API origin and are stripped from cross-origin redirects.
+  Other pages that require JavaScript or authentication, and pages that do not
+  publish supported PDF metadata, still require a direct PDF link or manual
+  upload.
+
+### Fixed
+
+- **OpenReview challenge-blocked URL imports** - A normal OpenReview forum URL
+  no longer stops at the provider's automated-download challenge when valid
+  authentication is configured. Missing, invalid, or MFA-dependent password
+  authentication now returns credential-setup and manual-upload recovery
+  guidance without creating an article or exposing secrets.
 
 ---
 
