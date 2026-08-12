@@ -204,6 +204,23 @@ def test_openreview_login_uses_official_api_v2_payload(monkeypatch):
     assert request.get_header("Content-type") == "application/json"
 
 
+def test_openreview_login_dns_failure_raises_auth_error(monkeypatch):
+    def unresolvable(host, port, *args, **kwargs):
+        raise socket.gaierror(-2, "Name or service not known")
+
+    monkeypatch.setattr(imports.socket, "getaddrinfo", unresolvable)
+    monkeypatch.setattr(
+        imports,
+        "_build_safe_opener",
+        lambda: pytest.fail("network open should not run before host resolution"),
+    )
+
+    with pytest.raises(imports.OpenReviewAuthenticationError) as exc_info:
+        imports._login_to_openreview("user@example.com", "test-password")
+
+    assert str(exc_info.value) == imports._OPENREVIEW_AUTH_FAILED_DETAIL
+
+
 def test_openreview_login_rejects_mfa_without_exposing_response(monkeypatch):
     upstream_secret = "mfa-secret-that-must-not-leak"
     response = FakeResponse(

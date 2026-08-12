@@ -291,7 +291,13 @@ def _resolve_landing_page_pdf_url(
 ) -> str:
     """Resolve a public scholarly landing page to its declared PDF URL."""
     _validate_public_http_url(url)
-    req = urllib.request.Request(url, headers={"User-Agent": _DOWNLOAD_USER_AGENT})
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": _DOWNLOAD_USER_AGENT,
+            "Accept-Encoding": "identity",
+        },
+    )
     with _build_safe_opener().open(req, timeout=timeout) as response:
         final_url = response.geturl()
         _validate_public_http_url(final_url)
@@ -390,7 +396,6 @@ def _login_to_openreview(
     timeout: int = _OPENREVIEW_AUTH_TIMEOUT_SECONDS,
 ) -> str:
     """Authenticate with OpenReview API v2 and return its short-lived token."""
-    _require_exact_openreview_api_url(_OPENREVIEW_LOGIN_URL)
     payload = json.dumps({"id": username, "password": password}).encode("utf-8")
     request = urllib.request.Request(
         _OPENREVIEW_LOGIN_URL,
@@ -403,6 +408,7 @@ def _login_to_openreview(
         method="POST",
     )
     try:
+        _require_exact_openreview_api_url(_OPENREVIEW_LOGIN_URL)
         with _build_safe_opener().open(request, timeout=timeout) as response:
             _require_exact_openreview_api_url(response.geturl())
             raw_response = response.read(_OPENREVIEW_AUTH_RESPONSE_MAX_BYTES + 1)
