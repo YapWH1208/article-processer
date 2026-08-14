@@ -160,6 +160,7 @@ function BackendRecoveryCard({ state, onRetry }: { state: BackendState; onRetry:
 }
 
 function HealthySetupDetails({ checklist }: { checklist: SetupChecklist }) {
+  const readinessLabel = `${checklist.readyCount}/${checklist.total} ready`;
   return (
     <Card>
       <details>
@@ -170,7 +171,7 @@ function HealthySetupDetails({ checklist }: { checklist: SetupChecklist }) {
             <span className="mt-1 block text-xs text-muted-foreground">Review connection, AI, and restored queue details.</span>
           </span>
           <Badge variant="outline" className="shrink-0">
-            {checklist.readyCount}/{checklist.total} ready
+            {readinessLabel}
           </Badge>
         </summary>
         <CardContent className="space-y-3 border-t pt-4">
