@@ -166,7 +166,8 @@ function HealthySetupDetails({ checklist }: { checklist: SetupChecklist }) {
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-5 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
           <span>
             <span className="block text-sm font-semibold">Processing setup</span>
-            <span className="mt-1 block text-xs text-muted-foreground">{checklist.primaryMessage}. Review connection, AI, and restored queue details.</span>
+            <span className="mt-1 block text-xs text-muted-foreground">{checklist.primaryMessage}</span>
+            <span className="mt-1 block text-xs text-muted-foreground">Review connection, AI, and restored queue details.</span>
           </span>
           <Badge variant="outline" className="shrink-0">
             {checklist.readyCount}/{checklist.total} ready
