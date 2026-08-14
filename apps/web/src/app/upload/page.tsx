@@ -318,7 +318,11 @@ export default function UploadPage() {
   }, [processingFiles, queueRestored]);
 
   const handleUpload = useCallback(async (files: FileList | File[]) => {
-    if (backendState !== "ready" || uploading) {
+    if (uploading) {
+      setError("An upload is already in progress.");
+      return;
+    }
+    if (backendState !== "ready") {
       setError("Connect to the local API before uploading files.");
       return;
     }
