@@ -8,8 +8,15 @@ function hasProviderDetails(modelInfo) {
   );
 }
 
-export function createUploadSetupChecklist({ modelInfo, runAI, queueRestored }) {
-  const backendReady = Boolean(modelInfo);
+export function createUploadSetupChecklist({
+  modelInfo,
+  runAI,
+  queueRestored,
+  restoredCount = 0,
+  backendState = modelInfo ? "ready" : "checking",
+}) {
+  const backendReady = backendState === "ready" && Boolean(modelInfo);
+  const backendUnavailable = backendState === "unavailable";
   const providerReady = hasProviderDetails(modelInfo);
   const aiReady = Boolean(runAI && backendReady && providerReady);
   const needsProviderSetup = Boolean(runAI && backendReady && !providerReady);
@@ -18,8 +25,12 @@ export function createUploadSetupChecklist({ modelInfo, runAI, queueRestored }) 
     {
       id: "backend",
       label: "Local API",
-      state: backendReady ? "complete" : "pending",
-      detail: backendReady ? "Connected and ready to receive uploads." : "Checking the backend health endpoint.",
+      state: backendReady ? "complete" : backendUnavailable ? "error" : "pending",
+      detail: backendReady
+        ? "Connected and ready to receive uploads."
+        : backendUnavailable
+          ? "Connection failed. Start the local API, then retry."
+          : "Checking the backend health endpoint.",
     },
     {
       id: "ai",
@@ -28,7 +39,9 @@ export function createUploadSetupChecklist({ modelInfo, runAI, queueRestored }) 
       detail: !runAI
         ? "Extraction, embeddings, and graph creation are off."
         : !backendReady
-          ? "Waiting for model status from the backend."
+          ? backendUnavailable
+            ? "AI readiness cannot be checked until the local API reconnects."
+            : "Waiting for model status from the backend."
           : needsProviderSetup
             ? "Choose a provider and model before relying on AI extraction."
             : modelInfo?.mock
@@ -39,13 +52,19 @@ export function createUploadSetupChecklist({ modelInfo, runAI, queueRestored }) 
       id: "queue",
       label: "Upload queue",
       state: queueRestored ? "complete" : "pending",
-      detail: queueRestored ? "Previous in-progress uploads have been restored." : "Restoring local upload progress.",
+      detail: !queueRestored
+        ? "Restoring local upload progress."
+        : restoredCount > 0
+          ? `${restoredCount} active upload${restoredCount === 1 ? "" : "s"} restored.`
+          : "Queue checked — no active uploads to restore.",
     },
   ];
 
   const readyCount = items.filter((item) => item.state === "complete").length;
-  const primaryMessage = !backendReady
-    ? "Checking local backend"
+  const primaryMessage = backendUnavailable
+    ? "Local API unavailable"
+    : !backendReady
+      ? "Checking local backend"
     : !runAI
       ? "Upload only mode"
       : needsProviderSetup
@@ -60,5 +79,7 @@ export function createUploadSetupChecklist({ modelInfo, runAI, queueRestored }) 
     total: items.length,
     primaryMessage,
     needsProviderSetup,
+    backendReady,
+    backendUnavailable,
   };
 }
