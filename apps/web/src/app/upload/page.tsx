@@ -414,6 +414,12 @@ export default function UploadPage() {
                 disabled={sourceControlsDisabled}
                 multiple
                 accept=".pdf,.zip,.html,.htm,.md,.txt,.markdown"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.currentTarget.click();
+                  }
+                }}
                 onChange={(e) => {
                   if (e.target.files) void handleUpload(e.target.files);
                   e.currentTarget.value = "";
