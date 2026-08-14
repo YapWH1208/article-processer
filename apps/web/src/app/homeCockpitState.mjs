@@ -93,3 +93,10 @@ export function createHomeContentSearchHref(query = "") {
   const params = new URLSearchParams({ q: trimmed });
   return `/articles?${params.toString()}`;
 }
+
+/** @param {{ loading?: boolean, error?: string | null, total?: number }} input */
+export function createHomeExperienceState({ loading = false, error = null, total } = {}) {
+  if (loading) return "loading";
+  if (error || !Number.isFinite(total)) return "cockpit";
+  return total === 0 ? "first_run" : "cockpit";
+}
