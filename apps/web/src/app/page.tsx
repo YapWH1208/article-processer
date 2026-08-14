@@ -238,7 +238,7 @@ function FirstRunWorkspace({
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {healthSummary.connected
-                    ? `${healthSummary.providerLabel} · ${healthSummary.modelLabel}`
+                    ? <><span>{healthSummary.providerLabel}</span><span aria-hidden="true"> · </span><span>{healthSummary.modelLabel}</span></>
                     : "Start the local API, then check the connection again."}
                 </p>
               </div>
