@@ -6,6 +6,23 @@ All notable changes to the Article Processor project.
 
 ## [Unreleased]
 
+### Fixed
+
+- **First-run onboarding hierarchy and completion handoff** - Empty workspaces
+  now lead with one clear first-upload journey while populated workspaces retain
+  the operational cockpit. The upload page prioritizes source selection, uses a
+  keyboard-focusable native file picker, reports restored queue state accurately,
+  and turns completed rows into explicit reading-guide actions.
+- **Recoverable local API and bilingual setup states** - Upload and URL import
+  remain guarded until a bounded health check succeeds, with clear unavailable
+  and retry states. New first-run, setup, mode, accepted-file, progress, recovery,
+  and success copy is covered in both English and Chinese, including dynamic
+  queue counts.
+- **Onboarding accessibility and reduced motion** - Navigation no longer nests
+  interactive controls, shared onboarding transitions respect reduced-motion
+  preferences, and decorative upload loops and sparkles are suppressed when
+  reduced motion is requested.
+
 ---
 
 ## [0.3.2] — 2026-08-12
