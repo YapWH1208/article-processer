@@ -531,59 +531,6 @@ def list_parsers():
     """Return available PDF parsers with installation status."""
     parsers: list[ParserInfo] = []
 
-    # MinerU (v3.x package: "mineru", formerly "magic-pdf")
-    mineru_installed = False
-    mineru_ver = None
-    try:
-        import mineru
-        mineru_ver = getattr(mineru, "__version__", None)
-        mineru_installed = True
-    except ImportError:
-        # Try legacy package name
-        try:
-            import magic_pdf
-            mineru_ver = getattr(magic_pdf, "__version__", None)
-            mineru_installed = True
-        except ImportError:
-            pass
-
-    # Also check CLI availability
-    import shutil
-    cli_available = shutil.which("mineru") is not None
-
-    # Remote API mode (cloud mineru.net or self-hosted mineru-api)
-    api_configured = bool(
-        settings.mineru_api_enabled
-        and (
-            settings.mineru_api_key.strip()
-            or settings.mineru_api_mode == "selfhosted"
-        )
-    )
-
-    name = "MinerU"
-    if cli_available and not mineru_installed:
-        name += " (CLI)"
-    if api_configured and not (mineru_installed or cli_available):
-        name += " (API)"
-    description = (
-        "State-of-the-art PDF parsing with layout preservation, image extraction, "
-        "table detection, and formula recognition (v3.x+)."
-    )
-    if api_configured:
-        description += (
-            f" Remote API configured "
-            f"({settings.mineru_api_mode}, model {settings.mineru_api_model})."
-        )
-
-    parsers.append(ParserInfo(
-        key="mineru",
-        name=name,
-        installed=mineru_installed or cli_available or api_configured,
-        version=mineru_ver,
-        description=description,
-        install_cmd=None if (mineru_installed or api_configured) else 'pip install -U "mineru[all]"',
-    ))
-
     # Docling
     try:
         from docling.document_converter import DocumentConverter
@@ -613,22 +560,6 @@ def list_parsers():
         install_cmd=None,
     ))
 
-    # Marker
-    try:
-        import marker
-        marker_ver = getattr(marker, "__version__", None)
-        parsers.append(ParserInfo(
-            key="marker", name="Marker", installed=True, version=marker_ver,
-            description="High-accuracy PDF to Markdown conversion with math/formula support.",
-            install_cmd=None,
-        ))
-    except ImportError:
-        parsers.append(ParserInfo(
-            key="marker", name="Marker", installed=False,
-            description="High-accuracy PDF to Markdown conversion with math/formula support.",
-            install_cmd="pip install marker-pdf",
-        ))
-
     # OCR (Tesseract)
     ocr_available = False
     try:
@@ -642,13 +573,6 @@ def list_parsers():
         key="ocr", name="OCR (Tesseract)", installed=ocr_available,
         description="Optical character recognition for scanned/image-based PDFs. Used as fallback by pypdf.",
         install_cmd="pip install pytesseract Pillow pdf2image\n# Then install tesseract: brew install tesseract (macOS) or apt install tesseract-ocr (Ubuntu)",
-    ))
-
-    # GROBID (placeholder)
-    parsers.append(ParserInfo(
-        key="grobid", name="GROBID", installed=False,
-        description="Extracts structured metadata from academic PDFs. Requires a running GROBID server.",
-        install_cmd="docker run -p 8070:8070 lfoppiano/grobid:latest",
     ))
 
     return parsers
