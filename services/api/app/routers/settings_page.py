@@ -74,6 +74,19 @@ class SettingsResponse(BaseModel):
     use_mock_ai: bool
     max_upload_mb: int
     parser_priority: str
+    # MinerU API
+    mineru_api_enabled: bool = False
+    mineru_api_mode: str = "cloud"
+    mineru_api_key: str = ""       # masked
+    mineru_api_base_url: str = "https://mineru.net"
+    mineru_api_model: str = "pipeline"
+    mineru_api_enable_formula: bool = True
+    mineru_api_is_ocr: bool = False
+    mineru_api_language: str = "en"
+    mineru_api_timeout_seconds: int = 600
+    mineru_api_poll_interval: int = 3
+    # Public base URL used for absolute image URLs in parsed markdown
+    api_base_url: str = ""
     # Scholarly sources. Secrets are never returned by the normal settings API.
     openreview_username: str = ""
     openreview_password_configured: bool = False
@@ -118,6 +131,18 @@ class SettingsUpdate(BaseModel):
     use_mock_ai: bool | None = None
     max_upload_mb: int | None = Field(default=None, ge=1, le=500)
     parser_priority: str | None = None
+    # MinerU API
+    mineru_api_enabled: bool | None = None
+    mineru_api_mode: str | None = None
+    mineru_api_key: str | None = Field(default=None, max_length=256)
+    mineru_api_base_url: str | None = Field(default=None, max_length=512)
+    mineru_api_model: str | None = None
+    mineru_api_enable_formula: bool | None = None
+    mineru_api_is_ocr: bool | None = None
+    mineru_api_language: str | None = None
+    mineru_api_timeout_seconds: int | None = Field(default=None, ge=30, le=3600)
+    mineru_api_poll_interval: int | None = Field(default=None, ge=1, le=60)
+    api_base_url: str | None = Field(default=None, max_length=512)
     # Scholarly sources. Empty secret values intentionally clear saved values.
     openreview_username: str | None = Field(default=None, max_length=320)
     openreview_password: str | None = Field(default=None, max_length=1024)
@@ -229,6 +254,17 @@ def _build_response(cfg: SettingsClass) -> SettingsResponse:
         use_mock_ai=cfg.use_mock_ai,
         max_upload_mb=cfg.max_upload_mb,
         parser_priority=cfg.parser_priority,
+        mineru_api_enabled=cfg.mineru_api_enabled,
+        mineru_api_mode=cfg.mineru_api_mode,
+        mineru_api_key=_mask_key(cfg.mineru_api_key),
+        mineru_api_base_url=cfg.mineru_api_base_url,
+        mineru_api_model=cfg.mineru_api_model,
+        mineru_api_enable_formula=cfg.mineru_api_enable_formula,
+        mineru_api_is_ocr=cfg.mineru_api_is_ocr,
+        mineru_api_language=cfg.mineru_api_language,
+        mineru_api_timeout_seconds=cfg.mineru_api_timeout_seconds,
+        mineru_api_poll_interval=cfg.mineru_api_poll_interval,
+        api_base_url=cfg.api_base_url,
         openreview_username=cfg.openreview_username,
         openreview_password_configured=bool(cfg.openreview_password),
         openreview_access_token_configured=bool(cfg.openreview_access_token),
@@ -334,6 +370,44 @@ def update_settings(update: SettingsUpdate):
             raise HTTPException(400, f"Unknown parser priority: {update.parser_priority}")
         env_vars["PARSER_PRIORITY"] = update.parser_priority
 
+    # ── MinerU API ──────────────────────────────────────────────────────
+    if update.mineru_api_enabled is not None:
+        env_vars["MINERU_API_ENABLED"] = str(update.mineru_api_enabled).lower()
+
+    if update.mineru_api_mode is not None:
+        if update.mineru_api_mode not in ("cloud", "selfhosted"):
+            raise HTTPException(400, f"Unknown MinerU API mode: {update.mineru_api_mode}")
+        env_vars["MINERU_API_MODE"] = update.mineru_api_mode
+
+    if update.mineru_api_key is not None and not all(c == "*" for c in update.mineru_api_key):
+        env_vars["MINERU_API_KEY"] = update.mineru_api_key
+
+    if update.mineru_api_base_url is not None:
+        env_vars["MINERU_API_BASE_URL"] = update.mineru_api_base_url
+
+    if update.mineru_api_model is not None:
+        if update.mineru_api_model not in ("pipeline", "vlm", "MinerU-HTML"):
+            raise HTTPException(400, f"Unknown MinerU API model: {update.mineru_api_model}")
+        env_vars["MINERU_API_MODEL"] = update.mineru_api_model
+
+    if update.mineru_api_enable_formula is not None:
+        env_vars["MINERU_API_ENABLE_FORMULA"] = str(update.mineru_api_enable_formula).lower()
+
+    if update.mineru_api_is_ocr is not None:
+        env_vars["MINERU_API_IS_OCR"] = str(update.mineru_api_is_ocr).lower()
+
+    if update.mineru_api_language is not None:
+        env_vars["MINERU_API_LANGUAGE"] = update.mineru_api_language
+
+    if update.mineru_api_timeout_seconds is not None:
+        env_vars["MINERU_API_TIMEOUT_SECONDS"] = str(update.mineru_api_timeout_seconds)
+
+    if update.mineru_api_poll_interval is not None:
+        env_vars["MINERU_API_POLL_INTERVAL"] = str(update.mineru_api_poll_interval)
+
+    if update.api_base_url is not None:
+        env_vars["API_BASE_URL"] = update.api_base_url
+
     # ── Scholarly sources ─────────────────────────────────────────────
     if update.openreview_username is not None:
         env_vars["OPENREVIEW_USERNAME"] = update.openreview_username.strip()
@@ -368,6 +442,7 @@ class SettingsExportResponse(SettingsResponse):
     minimax_api_key: str = ""    # unmasked
     mimo_api_key: str = ""       # unmasked
     kimi_api_key: str = ""       # unmasked
+    mineru_api_key: str = ""     # unmasked
 
 
 @router.get("/export")
@@ -476,13 +551,37 @@ def list_parsers():
     import shutil
     cli_available = shutil.which("mineru") is not None
 
+    # Remote API mode (cloud mineru.net or self-hosted mineru-api)
+    api_configured = bool(
+        settings.mineru_api_enabled
+        and (
+            settings.mineru_api_key.strip()
+            or settings.mineru_api_mode == "selfhosted"
+        )
+    )
+
+    name = "MinerU"
+    if cli_available and not mineru_installed:
+        name += " (CLI)"
+    if api_configured and not (mineru_installed or cli_available):
+        name += " (API)"
+    description = (
+        "State-of-the-art PDF parsing with layout preservation, image extraction, "
+        "table detection, and formula recognition (v3.x+)."
+    )
+    if api_configured:
+        description += (
+            f" Remote API configured "
+            f"({settings.mineru_api_mode}, model {settings.mineru_api_model})."
+        )
+
     parsers.append(ParserInfo(
         key="mineru",
-        name="MinerU" + (" (CLI)" if cli_available and not mineru_installed else ""),
-        installed=mineru_installed or cli_available,
+        name=name,
+        installed=mineru_installed or cli_available or api_configured,
         version=mineru_ver,
-        description="State-of-the-art PDF parsing with layout preservation, image extraction, table detection, and formula recognition (v3.x+).",
-        install_cmd=None if mineru_installed else 'pip install -U "mineru[all]"',
+        description=description,
+        install_cmd=None if (mineru_installed or api_configured) else 'pip install -U "mineru[all]"',
     ))
 
     # Docling
