@@ -23,7 +23,12 @@ WORKDIR /app/services/api
 # Install dependencies first for better layer caching.
 COPY pyproject.toml alembic.ini ./
 COPY app ./app
-RUN pip install --timeout=60 --retries=5 -e ".[all]"
+# Install CPU-only torch first: the default PyPI wheel bundles CUDA runtime +
+# triton (~4.5 GB) which is useless in this CPU-only image. Docling then
+# reuses this torch instead of pulling the CUDA build.
+RUN pip install --timeout=60 --retries=5 \
+        "torch>=2.2" --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --timeout=60 --retries=5 -e ".[all]"
 
 # ── Runtime ──────────────────────────────────────────────────────────────
 FROM base AS runtime
