@@ -353,7 +353,11 @@ class MinerUAdapter(BaseParser):
             md_content = self._rewrite_image_paths(md_content, output_dir, stored_image_dir)
 
         return self._build_result_from_markdown(
-            md_content, file_path, engine=engine, stored_image_dir=stored_image_dir
+            md_content,
+            file_path,
+            engine=engine,
+            stored_image_dir=stored_image_dir,
+            image_count=len(image_paths),
         )
 
     def _build_result_from_markdown(
@@ -363,6 +367,7 @@ class MinerUAdapter(BaseParser):
         *,
         engine: str,
         stored_image_dir: str = "",
+        image_count: int = 0,
     ) -> ParseResult:
         """Build a ParseResult from markdown + any images already in storage."""
         title = file_path.stem
@@ -380,7 +385,7 @@ class MinerUAdapter(BaseParser):
                 "parser": "mineru",
                 "engine": engine,
                 "image_dir": stored_image_dir,
-                "image_count": 0,
+                "image_count": image_count,
             },
         )
 
