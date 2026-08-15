@@ -23,7 +23,7 @@ WORKDIR /app/services/api
 # Install dependencies first for better layer caching.
 COPY pyproject.toml alembic.ini ./
 COPY app ./app
-RUN pip install -e ".[all]"
+RUN pip install --timeout=60 --retries=5 -e ".[all]"
 
 # ── Runtime ──────────────────────────────────────────────────────────────
 FROM base AS runtime
@@ -36,7 +36,7 @@ ENV DATABASE_URL=sqlite:////data/app.sqlite3 \
     PORT=8000
 
 RUN useradd --create-home --uid 1000 appuser \
-    && mkdir -p /data && chown -R appuser:appuser /data
+    && mkdir -p /data && chown -R appuser:appuser /data /app
 
 USER appuser
 
