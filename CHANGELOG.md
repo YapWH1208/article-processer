@@ -6,6 +6,22 @@ All notable changes to the Article Processor project.
 
 ## [Unreleased]
 
+### Added
+
+- **MinerU remote API parsing** - PDFs can now be parsed through a remote
+  MinerU service instead of a local install. Cloud mode uses the MinerU
+  Precision API at mineru.net (token via `MINERU_API_KEY`); self-hosted mode
+  talks to a `mineru-api` service over its `/tasks` protocol. Configured under
+  Settings → General → MinerU API (enable toggle, mode, model, formula/OCR and
+  language options); results, extracted images, and page counts flow through
+  the same pipeline as the local parser.
+- **Docker deployment** - `docker-compose.yml` builds the FastAPI backend
+  (`services/api/Dockerfile`, includes Docling + OCR, excludes the heavy local
+  MinerU install) and the Next.js standalone frontend (`apps/web/Dockerfile`).
+  SQLite + storage live on an `app-data` volume at `/data`. An opt-in
+  `mineru-api` service (profile `mineru`) provides self-hosted MinerU parsing
+  at port 8001. See `docs/docker.md`.
+
 ### Fixed
 
 - **First-run onboarding hierarchy and completion handoff** - Empty workspaces
