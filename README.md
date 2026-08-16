@@ -52,8 +52,9 @@ cp .env.example apps/web/.env.local
 ## Features
 
 - **Operational Home Cockpit**: The home page opens directly into workspace status, full-text search, AI/provider health, queue attention, recent articles, and primary actions
+- **Guided First-Run Experience**: Empty workspaces lead with a first-upload journey (add a source → local AI organizes it → read, ask, explore) and a live local-API readiness check; the upload page keeps source controls guarded until the backend responds, with clear retry and restored-queue states
 - **Document Ingestion**: Upload PDF, ZIP (containing PDFs/HTML/MD/TXT), HTML, Markdown, or plain text; URL import supports arXiv, DOI, OpenReview, direct PDFs, and scholarly pages with `citation_pdf_url` metadata
-- **Automatic Parsing**: Convert documents to canonical Markdown with structure preservation — MinerU v3.x (best), Docling, or pypdf
+- **Automatic Parsing**: Convert documents to canonical Markdown with structure preservation — MinerU v3.x (best), Docling, or pypdf. MinerU runs locally or via a remote API: cloud mode uses the hosted mineru.net Precision API, self-hosted mode talks to your own `mineru-api` service — no local MinerU install required (Settings → General → MinerU API)
 - **5-Step Processing Pipeline**: Parse → Semantic Chunk → AI Extract → Build Graph → Complete. Live progress bar with step-by-step status.
 - **Global Job Queue**: Jobs navigation and the Logs page show active, queued, failed, and completed processing jobs with current step, age, worker, errors, article links, and retry for failed jobs
 - **AI Extraction**: Extract structured research information (authors, methodology, results, claims, entities, references) with evidence trails and confidence scoring
@@ -71,7 +72,7 @@ cp .env.example apps/web/.env.local
 - **Export**: Individual article export (JSON, Markdown) and unified export/import (settings + articles + skills) from Settings
 - **Multi-Provider AI**: 9 LLM providers — OpenAI, Anthropic, DeepSeek, OpenRouter, GLM (Zhipu), MiniMax, Kimi (Moonshot), and Custom (any OpenAI/Anthropic-compatible endpoint). Configure in Settings → Providers.
 - **PDF Original View**: Toggle between parsed Markdown and the original PDF inline in the Reader
-- **Unified Settings Page**: Single `/settings` page with 5 tabs — Providers, System Messages, Input Templates, Model Params, and General (parsers, mock AI, limits, data export/import)
+- **Unified Settings Page**: Single `/settings` page with 6 tabs — Providers, System Messages, Input Templates, Model Params, General (parser priority, MinerU API, mock AI, limits, OpenReview credentials), and Data (export/import)
 - **Locale-backed bilingual UI**: Header language button switches the app shell, pages, placeholders, generated chat prompts, and AI output-language instructions between English and Chinese using per-language locale files for future expansion
 - **Dark Mode**: Full light/dark theme with system preference detection and live OS theme switching
 - **Inline Title Editing**: Click any article title to rename it inline — defaults to the original filename
@@ -92,6 +93,22 @@ npm test
 npm run build
 ```
 
+## Docker Deployment
+
+Production-style container deployment of the whole stack (FastAPI backend + Next.js standalone frontend):
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+```
+
+- Web UI at http://localhost:3000, API at http://localhost:8000 (`/docs`, `/health`)
+- SQLite + uploaded files live on the `app-data` volume at `/data`; migrations run automatically on startup
+- Optional self-hosted MinerU parsing: `docker compose --profile mineru up -d --build`, then set `MINERU_API_ENABLED=true`, `MINERU_API_MODE=selfhosted`, `MINERU_API_BASE_URL=http://mineru-api:8000` (the API image deliberately excludes the heavy local `mineru[all]` install)
+- The frontend image bakes `NEXT_PUBLIC_API_BASE_URL` at build time (default `http://localhost:8000`) — rebuild after changing it
+
+Full guide: `docs/docker.md`.
+
 ## Architecture
 
 ```
@@ -99,6 +116,7 @@ apps/web/          - Next.js frontend
 services/api/      - FastAPI backend
 storage/           - Local file storage
 data/              - SQLite database
+docker-compose.yml - Docker deployment of api + web (+ optional mineru-api profile)
 ```
 
 ## Technology Stack
@@ -138,7 +156,15 @@ See `.env.example` for all configuration options. Key variables:
 | `OPENREVIEW_PASSWORD` | — | OpenReview password; used only when no access token is configured |
 | `OPENREVIEW_ACCESS_TOKEN` | — | OpenReview bearer token; preferred over username/password |
 | `PARSER_PRIORITY` | `mineru_first` | PDF parser: `mineru_first`, `docling`, `pypdf`, or `ocr` |
+| `MINERU_API_ENABLED` | `false` | Parse PDFs via a remote MinerU service instead of a local install |
+| `MINERU_API_MODE` | `cloud` | `cloud` (mineru.net Precision API, needs `MINERU_API_KEY`) or `selfhosted` (`mineru-api` service via `MINERU_API_BASE_URL`, no key) |
+| `MINERU_API_KEY` | — | MinerU cloud API token |
+| `MINERU_API_BASE_URL` | `https://mineru.net` | Cloud API base URL or self-hosted `mineru-api` URL |
+| `MINERU_API_MODEL` | `pipeline` | `pipeline`, `vlm`, or `MinerU-HTML` |
+| `API_BASE_URL` | `http://localhost:8000` | Public API base used to build absolute image URLs in parsed markdown (override for Docker/remote deployments) |
 | `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` | Backend URL for frontend |
+
+> **Note:** See `.env.example` for the full MinerU API option set (formula/OCR toggles, language, timeout, poll interval).
 
 > **Note:** Multiple providers can also be configured from Settings → Providers in the UI. Providers configured in the UI take precedence over `.env` variables.
 
@@ -230,7 +256,7 @@ the PDF in your browser and upload it manually.
 - Local-first app without user accounts
 - Worker runs as a local SQLite-backed queue inside the API process
 - No Redis/Celery; single-process execution
-- MinerU image extraction requires `mineru` package (optional, falls back to Docling/pypdf)
+- MinerU image extraction requires the local `mineru` package or a configured remote MinerU API (cloud or self-hosted); falls back to Docling/pypdf otherwise
 - Embeddings and vector search removed in v0.4.0
 
 ## Next Steps
