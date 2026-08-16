@@ -8,6 +8,17 @@ All notable changes to the Article Processor project.
 
 ### Added
 
+- **Docker release workflow** - Pushing a `v*` tag builds and publishes the
+  `api` and `web` images to GitHub Container Registry
+  (`ghcr.io/yapwh1208/article-processer-{api,web}`) with semver + `latest`
+  tags, using the built-in `GITHUB_TOKEN` (`packages: write`).
+
+---
+
+## [0.3.4] — 2026-08-16
+
+### Added
+
 - **MinerU remote API parsing** - PDFs can now be parsed through a remote
   MinerU service instead of a local install. Cloud mode uses the MinerU
   Precision API at mineru.net (token via `MINERU_API_KEY`); self-hosted mode
@@ -21,27 +32,9 @@ All notable changes to the Article Processor project.
   SQLite + storage live on an `app-data` volume at `/data`. An opt-in
   `mineru-api` service (profile `mineru`) provides self-hosted MinerU parsing
   at port 8001. See `docs/docker.md`.
-- **Docker release workflow** - Pushing a `v*` tag builds and publishes the
-  `api` and `web` images to GitHub Container Registry
-  (`ghcr.io/yapwh1208/article-processer-{api,web}`) with semver + `latest`
-  tags, using the built-in `GITHUB_TOKEN` (`packages: write`).
 
 ### Fixed
 
-- **First-run onboarding hierarchy and completion handoff** - Empty workspaces
-  now lead with one clear first-upload journey while populated workspaces retain
-  the operational cockpit. The upload page prioritizes source selection, uses a
-  keyboard-focusable native file picker, reports restored queue state accurately,
-  and turns completed rows into explicit reading-guide actions.
-- **Recoverable local API and bilingual setup states** - Upload and URL import
-  remain guarded until a bounded health check succeeds, with clear unavailable
-  and retry states. New first-run, setup, mode, accepted-file, progress, recovery,
-  and success copy is covered in both English and Chinese, including dynamic
-  queue counts.
-- **Onboarding accessibility and reduced motion** - Navigation no longer nests
-  interactive controls, shared onboarding transitions respect reduced-motion
-  preferences, and decorative upload loops and sparkles are suppressed when
-  reduced motion is requested.
 - **MinerU API configuration applied without restart** - Enabling or changing
   the MinerU API in Settings now takes effect immediately: the parser adapter
   reads configuration live instead of caching it at startup.
@@ -61,6 +54,27 @@ All notable changes to the Article Processor project.
   files that were never extracted. Storage URLs also work when `STORAGE_DIR` is
   an absolute path outside the data root (Docker), where the old
   `relative_to(data_root)` call would fail and silently drop images.
+
+---
+
+## [0.3.3] — 2026-08-16
+
+### Fixed
+
+- **First-run onboarding hierarchy and completion handoff** - Empty workspaces
+  now lead with one clear first-upload journey while populated workspaces retain
+  the operational cockpit. The upload page prioritizes source selection, uses a
+  keyboard-focusable native file picker, reports restored queue state accurately,
+  and turns completed rows into explicit reading-guide actions.
+- **Recoverable local API and bilingual setup states** - Upload and URL import
+  remain guarded until a bounded health check succeeds, with clear unavailable
+  and retry states. New first-run, setup, mode, accepted-file, progress, recovery,
+  and success copy is covered in both English and Chinese, including dynamic
+  queue counts.
+- **Onboarding accessibility and reduced motion** - Navigation no longer nests
+  interactive controls, shared onboarding transitions respect reduced-motion
+  preferences, and decorative upload loops and sparkles are suppressed when
+  reduced motion is requested.
 
 ---
 
