@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   canOpenArticleDetail,
   clearFinishedProcessingFiles,
+  createUploadQueueSummary,
   createUploadQueueSnapshot,
   shouldResumeProcessingFile,
   upsertProcessingFile,
@@ -63,5 +64,41 @@ test("upload queue clears finished rows without dropping active progress", () =>
     [
       { articleId: 1, filename: "active.pdf", status: "processing", step: "extracting", error: null },
     ]
+  );
+});
+
+test("upload queue summary switches from processing to an explicit ready handoff", () => {
+  assert.deepEqual(
+    createUploadQueueSummary([
+      { articleId: 1, status: "processing" },
+      { articleId: 2, status: "completed" },
+    ]),
+    {
+      counts: { processing: 1, ready: 1, failed: 0 },
+      title: "Processing 1 file",
+      hasFinished: true,
+    },
+  );
+
+  assert.equal(
+    createUploadQueueSummary([
+      { articleId: 1, status: "completed" },
+      { articleId: 2, status: "needs_review" },
+    ]).title,
+    "2 articles ready",
+  );
+});
+
+test("upload queue summary keeps failed work visible beside ready articles", () => {
+  assert.equal(
+    createUploadQueueSummary([
+      { articleId: 1, status: "completed" },
+      { articleId: 2, status: "failed" },
+    ]).title,
+    "1 article ready · 1 upload needs attention",
+  );
+  assert.equal(
+    createUploadQueueSummary([{ articleId: 2, status: "failed" }]).title,
+    "1 upload needs attention",
   );
 });

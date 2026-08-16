@@ -27,11 +27,34 @@ npm run dev
 
 Gotcha: `quickstart.sh` only runs `npm install` when `node_modules` is missing — after pulling changes that add frontend deps, run `npm install` manually or use `./quickstart.sh --skip-install` only when deps are unchanged.
 
-Gotcha: MinerU/Docling/OCR parsers are **not** installed by quickstart (only `.[dev]`). Install `pip install -e ".[all]"` for full PDF parsing; parsers are lazy-loaded so the API starts without them.
+Gotcha: MinerU/Docling/OCR parsers are **not** installed by quickstart (only `.[dev]`). Install `pip install -e ".[all]"` for full PDF parsing; parsers are lazy-loaded so the API starts without them. MinerU can also run remotely — see "MinerU API" below.
+
+## Docker
+
+Production-style Docker deployment lives at the repo root: `docker-compose.yml` builds `services/api` (Dockerfile) and `apps/web` (Dockerfile, Next.js standalone output); an opt-in `mineru-api` service is behind the `mineru` profile. Full guide: `docs/docker.md`.
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+docker compose --profile mineru up -d --build   # + self-hosted MinerU
+```
+
+Gotchas:
+- SQLite/storage live on the `app-data` volume at `/data`; the API image sets absolute `DATABASE_URL`/`STORAGE_DIR` (config.py passes absolute paths through untouched).
+- The API image deliberately **excludes** the heavy local `mineru[all]` install — MinerU runs via cloud API or the `mineru-api` sidecar.
+- Settings saved through the web UI inside Docker are ephemeral (written to the container's `.env`); the compose `.env` is the source of truth.
+
+## MinerU API
+
+`MINERU_API_ENABLED=true` makes the MinerU parser use a remote service first:
+- `MINERU_API_MODE=cloud` (default) — mineru.net v4 Precision API; requires `MINERU_API_KEY`; configurable model (`MINERU_API_MODEL`: `pipeline`|`vlm`|`MinerU-HTML`), formula/OCR/language (`MINERU_API_ENABLE_FORMULA`, `MINERU_API_IS_OCR`, `MINERU_API_LANGUAGE`).
+- `MINERU_API_MODE=selfhosted` — a `mineru-api` service via `POST /tasks`; no key needed, `MINERU_API_BASE_URL` points at it.
+
+Both are implemented in `services/api/app/services/parsers/mineru_adapter.py` (strategy order: API → CLI → do_parse → legacy magic_pdf). `api_base_url` (or the `http://localhost:8000` fallback) is used for absolute image URLs in parsed markdown.
 
 ## Key Conventions
 
-- **No Docker** — everything runs locally via npm/uvicorn
+- **Local-first, Docker optional** — daily dev runs via npm/uvicorn (quickstart.sh); Docker is for deployment
 - **SQLite default** — migrations must work with SQLite
 - **Mock providers** — all AI features must work with `USE_MOCK_AI=true`
 - **Typed schemas** — use Pydantic for all request/response shapes

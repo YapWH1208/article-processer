@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createHomeArticleSummary,
   createHomeContentSearchHref,
+  createHomeExperienceState,
   createHomeHealthSummary,
   createHomeQueueSummary,
 } from "./homeCockpitState.mjs";
@@ -113,4 +114,15 @@ test("home queue summary prioritizes active and failed work", () => {
 test("home content search links to the article content query parameter", () => {
   assert.equal(createHomeContentSearchHref(" retrieval augmented generation "), "/articles?q=retrieval+augmented+generation");
   assert.equal(createHomeContentSearchHref(""), null);
+});
+
+test("home experience shows first-run content only for a confirmed empty library", () => {
+  assert.equal(createHomeExperienceState({ loading: false, error: null, total: 0 }), "first_run");
+  assert.equal(createHomeExperienceState({ loading: false, error: null, total: 4 }), "cockpit");
+});
+
+test("home experience never treats loading, failed, or unknown totals as first run", () => {
+  assert.equal(createHomeExperienceState({ loading: true, error: null, total: 0 }), "loading");
+  assert.equal(createHomeExperienceState({ loading: false, error: "Unable to load articles.", total: 0 }), "cockpit");
+  assert.equal(createHomeExperienceState({ loading: false, error: null, total: undefined }), "cockpit");
 });

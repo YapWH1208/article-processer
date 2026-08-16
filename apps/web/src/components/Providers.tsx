@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Toaster } from "sonner";
 import {
   FileText, Sun, Moon, Home, FileUp, MessageCircle,
@@ -21,6 +21,7 @@ import { summarizeNavQueue } from "./navQueueState.mjs";
 function ThemeToggle() {
   const [dark, setDark] = useState(false);
   const { copy } = useLanguage();
+  const shouldReduceMotion = useReducedMotion();
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -51,9 +52,9 @@ function ThemeToggle() {
     <Button variant="ghost" size="icon" onClick={toggle} title={dark ? copy.lightMode : copy.darkMode}>
       <motion.div
         key={dark ? "sun" : "moon"}
-        initial={{ rotate: -90, opacity: 0, scale: 0.5 }}
+        initial={shouldReduceMotion ? false : { rotate: -90, opacity: 0, scale: 0.5 }}
         animate={{ rotate: 0, opacity: 1, scale: 1 }}
-        transition={{ duration: 0.3 }}
+        transition={{ duration: shouldReduceMotion ? 0 : 0.3 }}
       >
         {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
       </motion.div>
@@ -97,6 +98,7 @@ const navLinks = [
 function NavBar() {
   const pathname = usePathname();
   const { copy } = useLanguage();
+  const shouldReduceMotion = useReducedMotion();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [queueSummary, setQueueSummary] = useState(() => summarizeNavQueue([]));
 
@@ -137,8 +139,8 @@ function NavBar() {
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2.5 group flex-shrink-0 ml-2 md:ml-0">
           <motion.div
-            whileHover={{ rotate: 15, scale: 1.15 }}
-            transition={{ type: "spring", stiffness: 400 }}
+            whileHover={shouldReduceMotion ? undefined : { rotate: 15, scale: 1.15 }}
+            transition={shouldReduceMotion ? { duration: 0 } : { type: "spring", stiffness: 400 }}
           >
             <FileText className="h-6 w-6 text-primary" />
           </motion.div>
@@ -150,16 +152,18 @@ function NavBar() {
         {/* Center: nav links — hidden on mobile */}
         <nav className="hidden md:flex items-center gap-1 mx-4 overflow-x-auto">
           {navLinks.map(({ href, labelKey, icon: Icon }) => (
-            <Link key={href} href={href}>
-              <Button
-                variant={isActive(href) ? "secondary" : "ghost"}
-                size="sm"
-                className="gap-2 h-9"
-              >
+            <Button
+              key={href}
+              asChild
+              variant={isActive(href) ? "secondary" : "ghost"}
+              size="sm"
+              className="gap-2 h-9"
+            >
+              <Link href={href}>
                 <Icon className="h-4 w-4" />
                 <span className="hidden sm:inline">{copy.nav[labelKey]}</span>
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           ))}
         </nav>
 
@@ -167,17 +171,18 @@ function NavBar() {
         <div className="flex items-center gap-2 flex-shrink-0">
           {/* Processing indicator */}
           {queueSummary.shouldShowBadge && (
-            <Link href="/logs">
-              <Button
-                variant="ghost"
-                size="sm"
-                className={`gap-1.5 h-8 text-xs ${
-                  queueSummary.badgeTone === "destructive" ? "text-destructive hover:text-destructive" : ""
-                }`}
-              >
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className={`gap-1.5 h-8 text-xs ${
+                queueSummary.badgeTone === "destructive" ? "text-destructive hover:text-destructive" : ""
+              }`}
+            >
+              <Link href="/logs">
                 <span className="relative flex h-2 w-2">
                   <span
-                    className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                    className={`animate-ping motion-reduce:animate-none absolute inline-flex h-full w-full rounded-full opacity-75 ${
                       queueSummary.badgeTone === "destructive" ? "bg-destructive" : "bg-amber-400"
                     }`}
                   />
@@ -188,15 +193,15 @@ function NavBar() {
                   />
                 </span>
                 <span className="hidden sm:inline">{queueSummary.badgeLabel}</span>
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           )}
           <LanguageToggle />
-          <Link href="/settings" className="hidden md:inline-flex">
-            <Button variant="ghost" size="icon" className="h-9 w-9" title={copy.settings} aria-label={copy.settings}>
+          <Button asChild variant="ghost" size="icon" className="hidden h-9 w-9 md:inline-flex">
+            <Link href="/settings" title={copy.settings} aria-label={copy.settings}>
               <Settings2 className="h-5 w-5" />
-            </Button>
-          </Link>
+            </Link>
+          </Button>
           <ThemeToggle />
         </div>
       </div>
@@ -208,18 +213,19 @@ function NavBar() {
             {/* Backdrop */}
             <motion.div
               className="fixed inset-0 z-50 bg-black/50 md:hidden"
-              initial={{ opacity: 0 }}
+              initial={shouldReduceMotion ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              exit={shouldReduceMotion ? undefined : { opacity: 0 }}
+              transition={{ duration: shouldReduceMotion ? 0 : 0.2 }}
               onClick={closeMobile}
             />
             {/* Drawer panel */}
             <motion.div
               className="fixed inset-y-0 left-0 z-50 w-72 bg-card border-r shadow-2xl md:hidden flex flex-col"
-              initial={{ x: "-100%" }}
+              initial={shouldReduceMotion ? false : { x: "-100%" }}
               animate={{ x: 0 }}
-              exit={{ x: "-100%" }}
-              transition={{ type: "spring", stiffness: 400, damping: 35 }}
+              exit={shouldReduceMotion ? undefined : { x: "-100%" }}
+              transition={shouldReduceMotion ? { duration: 0 } : { type: "spring", stiffness: 400, damping: 35 }}
             >
               {/* Drawer header */}
               <div className="flex items-center justify-between p-4 border-b">
@@ -232,26 +238,28 @@ function NavBar() {
               {/* Nav links */}
               <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
                 {navLinks.map(({ href, labelKey, icon: Icon }) => (
-                  <Link key={href} href={href} onClick={closeMobile}>
-                    <Button
-                      variant={isActive(href) ? "secondary" : "ghost"}
-                      className="w-full justify-start gap-3 h-11"
-                    >
+                  <Button
+                    key={href}
+                    asChild
+                    variant={isActive(href) ? "secondary" : "ghost"}
+                    className="w-full justify-start gap-3 h-11"
+                  >
+                    <Link href={href} onClick={closeMobile}>
                       <Icon className="h-5 w-5" />
                       <span>{copy.nav[labelKey]}</span>
-                    </Button>
-                  </Link>
+                    </Link>
+                  </Button>
                 ))}
               </nav>
 
               {/* Drawer footer */}
               <div className="p-4 border-t">
-                <Link href="/settings" onClick={closeMobile}>
-                  <Button variant="outline" className="w-full justify-start gap-3 h-11">
+                <Button asChild variant="outline" className="w-full justify-start gap-3 h-11">
+                  <Link href="/settings" onClick={closeMobile}>
                     <Settings2 className="h-5 w-5" />
                     <span>{copy.settings}</span>
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
             </motion.div>
           </>
@@ -265,14 +273,15 @@ function NavBar() {
 
 function PageTransition({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const shouldReduceMotion = useReducedMotion();
   return (
-    <AnimatePresence mode="wait">
+    <AnimatePresence mode={shouldReduceMotion ? "sync" : "wait"} initial={!shouldReduceMotion}>
       <motion.div
         key={pathname}
-        initial={{ opacity: 0, y: 8 }}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -8 }}
-        transition={{ duration: 0.2, ease: "easeInOut" }}
+        exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
+        transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: "easeInOut" }}
       >
         {children}
       </motion.div>

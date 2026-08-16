@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { motion, useInView } from "framer-motion";
+import { motion, useInView, useReducedMotion } from "framer-motion";
 
 export function AnimatedCounter({
   value,
@@ -14,10 +14,16 @@ export function AnimatedCounter({
   const ref = useRef<HTMLSpanElement>(null);
   const inView = useInView(ref, { once: true, margin: "-50px" });
   const started = useRef(false);
+  const shouldReduceMotion = useReducedMotion();
 
   useEffect(() => {
     if (!inView || started.current) return;
     started.current = true;
+
+    if (shouldReduceMotion) {
+      setDisplay(value);
+      return;
+    }
 
     let start = 0;
     const startTime = performance.now();
@@ -35,7 +41,7 @@ export function AnimatedCounter({
     };
 
     requestAnimationFrame(tick);
-  }, [inView, value, duration]);
+  }, [inView, value, duration, shouldReduceMotion]);
 
   return <span ref={ref}>{display}</span>;
 }
@@ -50,13 +56,14 @@ export function StaggerContainer({
   className?: string;
   staggerDelay?: number;
 }) {
+  const shouldReduceMotion = useReducedMotion();
   return (
     <motion.div
-      initial="hidden"
+      initial={shouldReduceMotion ? false : "hidden"}
       animate="visible"
       variants={{
         hidden: {},
-        visible: { transition: { staggerChildren: staggerDelay } },
+        visible: { transition: { staggerChildren: shouldReduceMotion ? 0 : staggerDelay } },
       }}
       className={className}
     >
@@ -73,11 +80,12 @@ export function StaggerItem({
   children: React.ReactNode;
   className?: string;
 }) {
+  const shouldReduceMotion = useReducedMotion();
   return (
     <motion.div
       variants={{
-        hidden: { opacity: 0, y: 16 },
-        visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } },
+        hidden: shouldReduceMotion ? {} : { opacity: 0, y: 16 },
+        visible: { opacity: 1, y: 0, transition: { duration: shouldReduceMotion ? 0 : 0.4, ease: "easeOut" } },
       }}
       className={className}
     >
@@ -94,10 +102,11 @@ export function HoverCard({
   children: React.ReactNode;
   className?: string;
 }) {
+  const shouldReduceMotion = useReducedMotion();
   return (
     <motion.div
-      whileHover={{ y: -4, boxShadow: "0 12px 24px hsl(var(--shadow-color))" }}
-      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+      whileHover={shouldReduceMotion ? undefined : { y: -4, boxShadow: "0 12px 24px hsl(var(--shadow-color))" }}
+      transition={shouldReduceMotion ? { duration: 0 } : { type: "spring", stiffness: 400, damping: 25 }}
       className={className}
     >
       {children}
@@ -115,12 +124,13 @@ export function FadeIn({
   className?: string;
   delay?: number;
 }) {
+  const shouldReduceMotion = useReducedMotion();
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-60px" }}
-      transition={{ duration: 0.5, delay, ease: "easeOut" }}
+      transition={{ duration: shouldReduceMotion ? 0 : 0.5, delay: shouldReduceMotion ? 0 : delay, ease: "easeOut" }}
       className={className}
     >
       {children}
@@ -135,7 +145,7 @@ export function TypingDots() {
       {[0, 1, 2].map((i) => (
         <span
           key={i}
-          className={`inline-block h-2 w-2 rounded-full bg-muted-foreground/50 animate-bounce-dot bounce-delay-${i + 1}`}
+          className={`inline-block h-2 w-2 rounded-full bg-muted-foreground/50 animate-bounce-dot motion-reduce:animate-none bounce-delay-${i + 1}`}
         />
       ))}
     </div>
@@ -146,7 +156,7 @@ export function TypingDots() {
 export function PulseDot({ color = "bg-green-500" }: { color?: string }) {
   return (
     <span className="relative flex h-2.5 w-2.5">
-      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${color} opacity-75`} />
+      <span className={`animate-ping motion-reduce:animate-none absolute inline-flex h-full w-full rounded-full ${color} opacity-75`} />
       <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${color}`} />
     </span>
   );

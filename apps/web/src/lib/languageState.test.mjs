@@ -24,13 +24,55 @@ const REQUIRED_TRANSLATED_UI_STRINGS = [
   "This permanently deletes all selected articles and their data. This cannot be undone.",
   "Archived",
   "Drag and drop documents to upload.",
+  "Backend connected",
+  "Backend offline",
+  "Local deterministic mode",
+  "New workspace",
+  "Turn your first article into something you can explore",
+  "Upload your first article",
+  "Review AI setup",
+  "Your first result in three steps",
+  "Add your first source",
+  "Let local AI organize it",
+  "Read, ask, and explore",
+  "Local processing is ready",
+  "Local API needs attention",
+  "Retry connection",
   "Browse Files",
+  "Browse files to upload",
+  "Analysis mode",
+  "Deep Analysis",
+  "Extraction, graph, and a comprehensive report",
+  "Quick Read",
+  "Full extraction and graph (default)",
+  "Parse Only",
+  "Convert to readable markdown, no AI",
   "Import from URL",
   "Paste an arXiv, OpenReview, DOI, scholarly page, or direct PDF link",
-  "Setup Checklist",
   "Checking local backend",
+  "Checking local API",
+  "Local API unavailable",
+  "Start the local API, then retry the connection before choosing a source.",
+  "Source controls will be ready as soon as the local processing service responds.",
+  "Connection failed. Start the local API, then retry.",
+  "AI readiness cannot be checked until the local API reconnects.",
   "AI pipeline",
   "Upload queue",
+  "Queue checked — no active uploads to restore.",
+  "Processing setup",
+  "Review connection, AI, and restored queue details.",
+  "Configure provider",
+  "Upload another",
+  "Clear finished",
+  "Open reading guide",
+  "Open article",
+  "Ready for review",
+  "Parsing document…",
+  "Generating deep analysis report…",
+  "Papers, articles",
+  "Archive of PDFs/HTML/MD",
+  "Web pages",
+  ".md files",
   "No articles found",
   "Add one in Settings →",
   "Clear all",
@@ -106,6 +148,12 @@ test("languages are registered through per-language dictionary files", () => {
   assert.equal(getLanguageDictionary("fr").code, "en");
 });
 
+test("English and Chinese dictionaries cover the same UI keys", () => {
+  const englishKeys = Object.keys(getLanguageDictionary("en").ui).sort();
+  const chineseKeys = Object.keys(getLanguageDictionary("zh").ui).sort();
+  assert.deepEqual(chineseKeys, englishKeys);
+});
+
 test("language shell copy provides English and Chinese labels", () => {
   assert.deepEqual(getShellCopy("en").nav, {
     home: "Home",
@@ -155,9 +203,17 @@ test("language state translates dynamic UI text", () => {
   assert.equal(translateUiText("No results found for “graph”", "zh"), "未找到“graph”的结果");
   assert.equal(translateUiText("ID 42 does not exist.", "zh"), "ID 42 不存在。");
   assert.equal(translateUiText("2/3 ready", "zh"), "2/3 已就绪");
+  assert.equal(translateUiText("1 active upload restored.", "zh"), "已恢复 1 个进行中的上传。");
+  assert.equal(translateUiText("Processing 2 files", "zh"), "正在处理 2 个文件");
+  assert.equal(translateUiText("1 article ready", "zh"), "1 篇文章已就绪");
+  assert.equal(translateUiText("2 articles ready · 1 upload needs attention", "zh"), "2 篇文章已就绪 · 1 个上传需要处理");
+  assert.equal(translateUiText("2 uploads need attention", "zh"), "2 个上传需要处理");
+  assert.equal(translateUiText("Ready with local-model", "zh"), "已就绪：local-model");
   assert.equal(translateUiText("~128 tokens", "zh"), "约 128 tokens");
   assert.equal(translateUiText("步骤：parse", "en"), "Step: parse");
   assert.equal(translateUiText("2/3 已就绪", "en"), "2/3 ready");
+  assert.equal(translateUiText("1 篇文章已就绪", "en"), "1 article ready");
+  assert.equal(translateUiText("2 个上传需要处理", "en"), "2 uploads need attention");
 });
 
 test("language state translates generated prompts and prompt wrappers", () => {

@@ -1,0 +1,83 @@
+name: article-processor
+
+# Dockerized deployment: FastAPI backend + Next.js frontend + optional
+# self-hosted MinerU parsing service (opt-in via `--profile mineru`).
+#
+# Usage:
+#   cp .env.example .env          # configure keys / MinerU API settings
+#   docker compose up -d --build
+#   docker compose --profile mineru up -d --build   # + self-hosted MinerU
+#
+# Data lives in the `app-data` volume mounted at /data (SQLite + storage).
+
+services:
+  api:
+    build:
+      context: ./services/api
+    image: article-processor-api:latest
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: sqlite:////data/app.sqlite3
+      STORAGE_DIR: /data/storage
+      HOST: 0.0.0.0
+      PORT: "8000"
+    env_file:
+      - path: ./.env
+        required: false
+    volumes:
+      - app-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./apps/web
+      args:
+        # URL the *browser* uses to reach the API (localhost mapping).
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+    image: article-processor-web:latest
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Self-hosted MinerU API (optional). Large GPU-oriented image; enables the
+  # "selfhosted" MinerU API mode without a cloud token. Exposed on the host at
+  # http://localhost:8001; the api container reaches it at
+  # http://mineru-api:8000 (MINERU_API_BASE_URL).
+  # Image: opendatalab/mineru or build from https://github.com/opendatalab/MinerU
+  # (see docs/docker.md). For NVIDIA GPUs, uncomment the deploy block below.
+  mineru-api:
+    profiles: ["mineru"]
+    image: opendatalab/mineru:latest
+    command: ["mineru-api", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8001:8000"
+    volumes:
+      - mineru-output:/output
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+volumes:
+  app-data:
+  mineru-output:

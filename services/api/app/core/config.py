@@ -121,6 +121,28 @@ class Settings(BaseSettings):
     # Priority: "mineru_first" | "docling" | "pypdf" | "ocr"
     parser_priority: str = "mineru_first"
 
+    # ── MinerU API ───────────────────────────────────────────────────────
+    # When enabled, the MinerU parser strategy uses a remote MinerU service
+    # instead of (or before) a local install. No local mineru package needed.
+    mineru_api_enabled: bool = False
+    # "cloud" = MinerU Precision API (mineru.net, requires key)
+    # "selfhosted" = local mineru-api service (POST /tasks, no key needed)
+    mineru_api_mode: str = "cloud"
+    mineru_api_key: str = ""
+    mineru_api_base_url: str = "https://mineru.net"
+    # "pipeline" | "vlm" | "MinerU-HTML"
+    mineru_api_model: str = "pipeline"
+    mineru_api_enable_formula: bool = True
+    mineru_api_is_ocr: bool = False
+    mineru_api_language: str = "en"
+    mineru_api_timeout_seconds: int = 600
+    mineru_api_poll_interval: int = 3
+
+    # ── Public base URL ──────────────────────────────────────────────────
+    # Used to build absolute image URLs in parsed markdown (defaults to
+    # http://localhost:8000 when empty). Override for Docker/remote deploys.
+    api_base_url: str = ""
+
     # ── Server ────────────────────────────────────────────────────────────
     host: str = "0.0.0.0"
     port: int = 8000
@@ -169,6 +191,11 @@ class Settings(BaseSettings):
 
 # Expose the .env path for the settings router
 DOTENV_PATH = _settings_env_path()
+
+# URL path prefix (no leading slash) of the extracted-images static mount.
+# Kept in sync with main.py's `app.mount("/storage/images", ...)`; parsers use
+# it to build absolute image URLs in parsed markdown.
+IMAGES_URL_PREFIX = "storage/images"
 
 
 def reload_settings() -> None:

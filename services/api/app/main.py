@@ -7,7 +7,7 @@ from pathlib import Path as _Path
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.core.config import settings
+from app.core.config import IMAGES_URL_PREFIX, settings
 from app.core.logging import setup_logging
 from app.core.rate_limit import RateLimitMiddleware
 from app.db.session import engine, Base
@@ -187,4 +187,4 @@ async def serve_extracted_image(filename: str):
 
 
 # Mount storage/images for direct subdirectory access
-app.mount("/storage/images", StaticFiles(directory=str(_images_dir)), name="storage_images")
+app.mount(f"/{IMAGES_URL_PREFIX}", StaticFiles(directory=str(_images_dir)), name="storage_images")

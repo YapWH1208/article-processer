@@ -34,3 +34,37 @@ export function clearFinishedProcessingFiles(files) {
 export function shouldResumeProcessingFile(file) {
   return Boolean(file?.articleId && !TERMINAL_STATUSES.has(file.status));
 }
+
+function countLabel(count, singular, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+export function createUploadQueueSummary(files) {
+  const counts = files.reduce(
+    (summary, file) => {
+      const status = String(file?.status || "processing");
+      if (status === "failed") summary.failed += 1;
+      else if (status === "completed" || status === "needs_review") summary.ready += 1;
+      else summary.processing += 1;
+      return summary;
+    },
+    { processing: 0, ready: 0, failed: 0 },
+  );
+
+  let title = "Upload progress";
+  if (counts.processing > 0) {
+    title = `Processing ${countLabel(counts.processing, "file")}`;
+  } else if (counts.ready > 0 && counts.failed > 0) {
+    title = `${countLabel(counts.ready, "article")} ready · ${countLabel(counts.failed, "upload")} ${counts.failed === 1 ? "needs" : "need"} attention`;
+  } else if (counts.ready > 0) {
+    title = `${countLabel(counts.ready, "article")} ready`;
+  } else if (counts.failed > 0) {
+    title = `${countLabel(counts.failed, "upload")} ${counts.failed === 1 ? "needs" : "need"} attention`;
+  }
+
+  return {
+    counts,
+    title,
+    hasFinished: counts.ready + counts.failed > 0,
+  };
+}

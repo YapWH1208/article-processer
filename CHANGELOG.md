@@ -6,6 +6,58 @@ All notable changes to the Article Processor project.
 
 ## [Unreleased]
 
+### Added
+
+- **MinerU remote API parsing** - PDFs can now be parsed through a remote
+  MinerU service instead of a local install. Cloud mode uses the MinerU
+  Precision API at mineru.net (token via `MINERU_API_KEY`); self-hosted mode
+  talks to a `mineru-api` service over its `/tasks` protocol. Configured under
+  Settings → General → MinerU API (enable toggle, mode, model, formula/OCR and
+  language options); results, extracted images, and page counts flow through
+  the same pipeline as the local parser.
+- **Docker deployment** - `docker-compose.yml` builds the FastAPI backend
+  (`services/api/Dockerfile`, includes Docling + OCR, excludes the heavy local
+  MinerU install) and the Next.js standalone frontend (`apps/web/Dockerfile`).
+  SQLite + storage live on an `app-data` volume at `/data`. An opt-in
+  `mineru-api` service (profile `mineru`) provides self-hosted MinerU parsing
+  at port 8001. See `docs/docker.md`.
+
+### Fixed
+
+- **First-run onboarding hierarchy and completion handoff** - Empty workspaces
+  now lead with one clear first-upload journey while populated workspaces retain
+  the operational cockpit. The upload page prioritizes source selection, uses a
+  keyboard-focusable native file picker, reports restored queue state accurately,
+  and turns completed rows into explicit reading-guide actions.
+- **Recoverable local API and bilingual setup states** - Upload and URL import
+  remain guarded until a bounded health check succeeds, with clear unavailable
+  and retry states. New first-run, setup, mode, accepted-file, progress, recovery,
+  and success copy is covered in both English and Chinese, including dynamic
+  queue counts.
+- **Onboarding accessibility and reduced motion** - Navigation no longer nests
+  interactive controls, shared onboarding transitions respect reduced-motion
+  preferences, and decorative upload loops and sparkles are suppressed when
+  reduced motion is requested.
+- **MinerU API configuration applied without restart** - Enabling or changing
+  the MinerU API in Settings now takes effect immediately: the parser adapter
+  reads configuration live instead of caching it at startup.
+- **Settings export/import keeps MinerU API + `API_BASE_URL`** - Backups no
+  longer silently drop the MinerU API configuration or the public base URL
+  used for parsed-markdown image links.
+- **Self-hosted MinerU URL fixed for Docker** - `docs/docker.md` now points
+  `MINERU_API_BASE_URL` at `http://mineru-api:8000` (Compose service name);
+  `http://localhost:8001` only works from the host.
+- **MinerU status visible in Settings again** - The installed-parsers list
+  reports MinerU, including "(API)" mode when the remote service is enabled.
+- **MinerU API settings card is bilingual** - New English/Chinese copy for the
+  MinerU API card and image-base-URL fields on the Settings page.
+- **Extracted image links in parsed markdown** - Image references are rewritten
+  to the exact stored file under `storage/images/<ts>/` (served by the static
+  mount) instead of ambiguous `/images/<name>` lookups or URLs synthesized for
+  files that were never extracted. Storage URLs also work when `STORAGE_DIR` is
+  an absolute path outside the data root (Docker), where the old
+  `relative_to(data_root)` call would fail and silently drop images.
+
 ---
 
 ## [0.3.2] — 2026-08-12

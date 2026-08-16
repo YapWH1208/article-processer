@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { FadeIn } from "@/components/ui/animated";
 import { listParsers, apiRawFetch } from "@/lib/api";
 import type { ParserInfo } from "@/lib/types";
@@ -36,6 +37,12 @@ import { buildOpenReviewSettingsPayload } from "./openreviewSettingsState.mjs";
 interface SettingsData {
   host: string; port: number; env_path: string;
   use_mock_ai: boolean; max_upload_mb: number; parser_priority: string;
+  mineru_api_enabled: boolean; mineru_api_mode: string;
+  mineru_api_key: string; mineru_api_base_url: string;
+  mineru_api_model: string;
+  mineru_api_enable_formula: boolean; mineru_api_is_ocr: boolean;
+  mineru_api_language: string;
+  api_base_url: string;
   openreview_username: string;
   openreview_password_configured: boolean;
   openreview_access_token_configured: boolean;
@@ -127,6 +134,17 @@ export default function SettingsPage() {
   const [mockAi, setMockAi] = useState(true);
   const [maxUploadMb, setMaxUploadMb] = useState(50);
   const [parserPriority, setParserPriority] = useState("mineru_first");
+  const [mineruApiEnabled, setMineruApiEnabled] = useState(false);
+  const [mineruApiMode, setMineruApiMode] = useState("cloud");
+  const [mineruApiKey, setMineruApiKey] = useState("");
+  const [mineruApiKeyConfigured, setMineruApiKeyConfigured] = useState(false);
+  const [clearMineruApiKey, setClearMineruApiKey] = useState(false);
+  const [mineruApiBaseUrl, setMineruApiBaseUrl] = useState("https://mineru.net");
+  const [mineruApiModel, setMineruApiModel] = useState("pipeline");
+  const [mineruApiEnableFormula, setMineruApiEnableFormula] = useState(true);
+  const [mineruApiIsOcr, setMineruApiIsOcr] = useState(false);
+  const [mineruApiLanguage, setMineruApiLanguage] = useState("en");
+  const [apiBaseUrl, setApiBaseUrl] = useState("http://localhost:8000");
   const [openReviewUsername, setOpenReviewUsername] = useState("");
   const [openReviewPassword, setOpenReviewPassword] = useState("");
   const [openReviewAccessToken, setOpenReviewAccessToken] = useState("");
@@ -193,6 +211,15 @@ export default function SettingsPage() {
       setMockAi(d.use_mock_ai);
       setMaxUploadMb(d.max_upload_mb);
       setParserPriority(d.parser_priority);
+      setMineruApiEnabled(Boolean(d.mineru_api_enabled));
+      setMineruApiMode(d.mineru_api_mode || "cloud");
+      setMineruApiKeyConfigured(Boolean(d.mineru_api_key));
+      setMineruApiBaseUrl(d.mineru_api_base_url || "https://mineru.net");
+      setMineruApiModel(d.mineru_api_model || "pipeline");
+      setMineruApiEnableFormula(Boolean(d.mineru_api_enable_formula));
+      setMineruApiIsOcr(Boolean(d.mineru_api_is_ocr));
+      setMineruApiLanguage(d.mineru_api_language || "en");
+      setApiBaseUrl(d.api_base_url || "http://localhost:8000");
       setOpenReviewUsername(d.openreview_username || "");
       setOpenReviewPasswordConfigured(Boolean(d.openreview_password_configured));
       setOpenReviewAccessTokenConfigured(Boolean(d.openreview_access_token_configured));
@@ -227,6 +254,14 @@ export default function SettingsPage() {
       const body: Record<string, unknown> = {
         max_upload_mb: maxUploadMb,
         parser_priority: parserPriority,
+        mineru_api_enabled: mineruApiEnabled,
+        mineru_api_mode: mineruApiMode,
+        mineru_api_base_url: mineruApiBaseUrl,
+        mineru_api_model: mineruApiModel,
+        mineru_api_enable_formula: mineruApiEnableFormula,
+        mineru_api_is_ocr: mineruApiIsOcr,
+        mineru_api_language: mineruApiLanguage,
+        api_base_url: apiBaseUrl,
         ...buildOpenReviewSettingsPayload({
           username: openReviewUsername,
           password: openReviewPassword,
@@ -235,12 +270,20 @@ export default function SettingsPage() {
           clearAccessToken: clearOpenReviewAccessToken,
         }),
       };
+      if (clearMineruApiKey) {
+        body.mineru_api_key = "";
+      } else if (mineruApiKey.trim()) {
+        body.mineru_api_key = mineruApiKey.trim();
+      }
       const res = await apiRawFetch("/settings", {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error((await res.json()).detail || "Save failed");
       const updated: SettingsData = await res.json();
       setSettings(updated);
+      setMineruApiKeyConfigured(Boolean(updated.mineru_api_key));
+      setMineruApiKey("");
+      setClearMineruApiKey(false);
       setOpenReviewUsername(updated.openreview_username || "");
       setOpenReviewPasswordConfigured(Boolean(updated.openreview_password_configured));
       setOpenReviewAccessTokenConfigured(Boolean(updated.openreview_access_token_configured));
@@ -882,6 +925,101 @@ export default function SettingsPage() {
                         <SelectItem value="ocr">OCR (Tesseract)</SelectItem>
                       </SelectContent>
                     </Select>
+                  </CardContent>
+                </Card>
+
+                {/* MinerU API */}
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between gap-2">
+                      <CardTitle className="flex items-center gap-2"><Sparkles className="h-4 w-4"/>MinerU API</CardTitle>
+                      <div className="flex items-center gap-2">
+                        <Label className="text-xs text-muted-foreground">Enable</Label>
+                        <Switch checked={mineruApiEnabled} onCheckedChange={setMineruApiEnabled}/>
+                      </div>
+                    </div>
+                    <CardDescription>
+                      Parse PDFs via a remote MinerU service — no local MinerU install needed. Cloud mode uses the hosted Precision API at mineru.net; self-hosted mode talks to your own mineru-api service.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label>Mode</Label>
+                        <Select value={mineruApiMode} onValueChange={setMineruApiMode}>
+                          <SelectTrigger><SelectValue/></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="cloud">Cloud (mineru.net, token)</SelectItem>
+                            <SelectItem value="selfhosted">Self-hosted (mineru-api)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Model</Label>
+                        <Select value={mineruApiModel} onValueChange={setMineruApiModel}>
+                          <SelectTrigger><SelectValue/></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="pipeline">pipeline</SelectItem>
+                            <SelectItem value="vlm">vlm</SelectItem>
+                            <SelectItem value="MinerU-HTML">MinerU-HTML</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>API base URL</Label>
+                      <Input
+                        value={mineruApiBaseUrl}
+                        onChange={(e) => setMineruApiBaseUrl(e.target.value)}
+                        placeholder="https://mineru.net"
+                        disabled={mineruApiMode === "cloud"}
+                      />
+                    </div>
+                    {mineruApiMode === "cloud" && (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <Label htmlFor="mineru-api-key">API token</Label>
+                          {mineruApiKeyConfigured && !clearMineruApiKey && (
+                            <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setClearMineruApiKey(true); setMineruApiKey(""); }}>
+                              Clear saved token
+                            </Button>
+                          )}
+                          {clearMineruApiKey && (
+                            <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setClearMineruApiKey(false)}>
+                              <RotateCcw className="mr-1 h-3 w-3"/>Keep saved token
+                            </Button>
+                          )}
+                        </div>
+                        <Input
+                          id="mineru-api-key"
+                          type="password"
+                          autoComplete="off"
+                          value={mineruApiKey}
+                          disabled={clearMineruApiKey}
+                          onChange={(e) => { setMineruApiKey(e.target.value); setClearMineruApiKey(false); }}
+                          placeholder={mineruApiKeyConfigured ? "Saved — leave blank to keep" : "Get a token at https://mineru.net"}
+                        />
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-4">
+                      <div className="flex items-center gap-2">
+                        <Switch checked={mineruApiEnableFormula} onCheckedChange={setMineruApiEnableFormula}/>
+                        <Label className="text-sm">Formula recognition (LaTeX)</Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Switch checked={mineruApiIsOcr} onCheckedChange={setMineruApiIsOcr}/>
+                        <Label className="text-sm">Force OCR</Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Label className="text-sm">Language</Label>
+                        <Input value={mineruApiLanguage} onChange={(e) => setMineruApiLanguage(e.target.value)} className="w-20"/>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Public API base URL (for image links)</Label>
+                      <Input value={apiBaseUrl} onChange={(e) => setApiBaseUrl(e.target.value)} placeholder="http://localhost:8000"/>
+                      <p className="text-xs text-muted-foreground">Used to build absolute image URLs in parsed markdown. Leave the default unless the API runs on a different host or port.</p>
+                    </div>
                   </CardContent>
                 </Card>
 

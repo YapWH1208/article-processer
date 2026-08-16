@@ -165,6 +165,22 @@
 .bounce-delay-2 { animation-delay: 0.2s; }
 .bounce-delay-3 { animation-delay: 0.4s; }
 
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .animate-pulse-dot,
+  .animate-bounce-dot,
+  .animate-shimmer,
+  .animate-float,
+  .animate-glow,
+  .animate-border-breathe,
+  .animate-gradient {
+    animation: none;
+  }
+}
+
 /* ── Grain overlay ───────────────────────────────────────────────────────── */
 
 .grain-overlay {

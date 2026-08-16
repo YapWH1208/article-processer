@@ -30,6 +30,7 @@ import type { HealthInfo } from "@/lib/types";
 import {
   createHomeArticleSummary,
   createHomeContentSearchHref,
+  createHomeExperienceState,
   createHomeHealthSummary,
   createHomeQueueSummary,
 } from "./homeCockpitState.mjs";
@@ -143,6 +144,118 @@ function QuickAction({
   );
 }
 
+function FirstRunWorkspace({
+  healthSummary,
+  refreshing,
+  onRefresh,
+}: {
+  healthSummary: ReturnType<typeof createHomeHealthSummary>;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  const steps = [
+    {
+      icon: Upload,
+      title: "Add your first source",
+      detail: "Choose a document or paste a scholarly URL.",
+    },
+    {
+      icon: Brain,
+      title: "Let local AI organize it",
+      detail: "Article Processor parses the source and extracts useful structure.",
+    },
+    {
+      icon: MessageCircle,
+      title: "Read, ask, and explore",
+      detail: "Open the reading guide, ask questions, and follow connected concepts.",
+    },
+  ];
+
+  return (
+    <section aria-labelledby="first-run-title" className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+      <Card className="overflow-hidden border-primary/30 bg-gradient-to-br from-primary/10 via-card to-card">
+        <CardContent className="p-6 sm:p-8">
+          <Badge variant="secondary">New workspace</Badge>
+          <h2 id="first-run-title" className="mt-4 max-w-2xl text-2xl font-bold tracking-tight text-balance sm:text-3xl">
+            Turn your first article into something you can explore
+          </h2>
+          <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground text-pretty">
+            Add one paper, document, or scholarly link. The local pipeline will prepare a reading guide, structured insights, chat context, and graph connections.
+          </p>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <Button asChild size="lg" className="gap-2 sm:w-auto">
+              <Link href="/upload">
+                <Upload className="h-4 w-4" />
+                Upload your first article
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Button>
+            <Button asChild variant="outline" size="lg" className="gap-2 sm:w-auto">
+              <Link href="/settings">
+                <Settings2 className="h-4 w-4" />
+                Review AI setup
+              </Link>
+            </Button>
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">PDF, ZIP, HTML, Markdown, or text — up to 50 MB.</p>
+        </CardContent>
+      </Card>
+
+      <div className="space-y-4">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Your first result in three steps</CardTitle>
+            <CardDescription>No workspace configuration is required in Mock AI mode.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ol className="space-y-4">
+              {steps.map((step, index) => (
+                <li key={step.title} className="flex gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <step.icon className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{index + 1}. {step.title}</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{step.detail}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              {healthSummary.connected ? (
+                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-green-600" />
+              ) : (
+                <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+              )}
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">
+                  {healthSummary.connected ? "Local processing is ready" : "Local API needs attention"}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {healthSummary.connected
+                    ? <><span>{healthSummary.providerLabel}</span><span aria-hidden="true"> · </span><span>{healthSummary.modelLabel}</span></>
+                    : "Start the local API, then check the connection again."}
+                </p>
+              </div>
+            </div>
+            {!healthSummary.connected && (
+              <Button variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={onRefresh} disabled={refreshing}>
+                <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin motion-reduce:animate-none" : ""}`} />
+                Retry connection
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+  );
+}
+
 function statusVariant(status: string) {
   if (status === "failed") return "destructive" as const;
   if (status === "completed" || status === "active") return "default" as const;
@@ -208,6 +321,7 @@ export default function HomePage() {
   const healthSummary = useMemo(() => createHomeHealthSummary(health), [health]);
   const queueSummary = useMemo(() => createHomeQueueSummary(queueJobs), [queueJobs]);
   const attentionCount = articleSummary.failed + articleSummary.needsReview + queueSummary.counts.failed;
+  const experienceState = createHomeExperienceState({ loading, error, total: articleTotals?.total });
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -243,6 +357,10 @@ export default function HomePage() {
         </div>
       )}
 
+      {experienceState === "first_run" ? (
+        <FirstRunWorkspace healthSummary={healthSummary} refreshing={refreshing} onRefresh={loadCockpit} />
+      ) : (
+        <>
       <section className="grid gap-4 md:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.8fr)]">
         <Card>
           <CardHeader className="pb-3">
@@ -414,6 +532,8 @@ export default function HomePage() {
         <QuickAction href="/graph" title="Graph" description="Explore extracted entities and article connections." icon={GitBranch} />
         <QuickAction href="/settings" title="Settings" description="Manage providers, parsers, prompts, and data export." icon={Settings2} />
       </section>
+        </>
+      )}
     </div>
   );
 }
