@@ -56,6 +56,28 @@ Tesseract OCR — installed via `.[all]`). Heavy MinerU runs elsewhere:
 | Self-hosted `mineru-api`      | `docker compose --profile mineru up -d --build`, then set `MINERU_API_ENABLED=true`, `MINERU_API_MODE=selfhosted`, `MINERU_API_BASE_URL=http://mineru-api:8000` |
 | Docling / pypdf / OCR       | Fallbacks — always available, used when MinerU is not configured          |
 
+## Publishing releases
+
+Pushing a `v*` tag (e.g. `git tag v0.4.0 && git push origin v0.4.0`) triggers
+the `Docker Release` workflow (`.github/workflows/release-docker.yml`), which
+builds and publishes both images to GitHub Container Registry:
+
+- `ghcr.io/yapwh1208/article-processer-api`
+- `ghcr.io/yapwh1208/article-processer-web`
+
+Each image receives `<semver>` (e.g. `0.4.0`), `<major>.<minor>` (e.g.
+`0.4`), and `latest` tags (linux/amd64). Publishing uses the built-in
+`GITHUB_TOKEN` with `packages: write` — no extra secrets are needed.
+Package visibility follows the repository (public repo → public images).
+
+The `web` image bakes `NEXT_PUBLIC_API_BASE_URL` at build time; set a
+repository variable of the same name (Settings → Secrets and variables →
+Actions) to override the `http://localhost:8000` default.
+
+To deploy the published images instead of building locally, override the
+`image:` values in `docker-compose.yml` (or a compose override file) with
+the GHCR names above, then `docker compose pull && docker compose up -d`.
+
 ## Self-hosted MinerU service (optional)
 
 ```bash

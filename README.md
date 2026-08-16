@@ -106,6 +106,7 @@ docker compose up -d --build
 - SQLite + uploaded files live on the `app-data` volume at `/data`; migrations run automatically on startup
 - Optional self-hosted MinerU parsing: `docker compose --profile mineru up -d --build`, then set `MINERU_API_ENABLED=true`, `MINERU_API_MODE=selfhosted`, `MINERU_API_BASE_URL=http://mineru-api:8000` (the API image deliberately excludes the heavy local `mineru[all]` install)
 - The frontend image bakes `NEXT_PUBLIC_API_BASE_URL` at build time (default `http://localhost:8000`) — rebuild after changing it
+- Versioned images are published to GitHub Container Registry on `v*` tags (`ghcr.io/yapwh1208/article-processer-{api,web}`) — see `docs/docker.md`
 
 Full guide: `docs/docker.md`.
 
