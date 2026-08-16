@@ -2,6 +2,7 @@
 
 import io
 import json
+import re
 import zipfile
 
 import httpx
@@ -137,7 +138,11 @@ async def test_cloud_parse_success(monkeypatch, api_settings, tmp_path):
 
     assert result.title == "Test Doc"
     assert result.page_count == 1
-    assert "![](http://localhost:8000/images/foo.png)" in result.markdown
+    # Rewritten to the exact stored file under the images static mount.
+    assert re.search(
+        r"!\[\]\(http://localhost:8000/storage/images/\d{8}_\d{6}_\d{6}/foo\.png\)",
+        result.markdown,
+    ), result.markdown
     assert result.metadata["parser"] == "mineru"
     assert result.metadata["engine"] == "api"
     assert result.metadata["image_count"] == 1
@@ -273,7 +278,11 @@ async def test_selfhosted_parse_success(monkeypatch, api_settings, tmp_path):
     result = await MinerUAdapter().parse(_fake_pdf(tmp_path))
 
     assert result.title == "Self Hosted"
-    assert "http://localhost:8000/images/x.png" in result.markdown
+    # Rewritten to the exact stored file under the images static mount.
+    assert re.search(
+        r"!\[\]\(http://localhost:8000/storage/images/\d{8}_\d{6}_\d{6}/x\.png\)",
+        result.markdown,
+    ), result.markdown
     assert result.metadata["engine"] == "api-selfhosted"
     assert result.metadata["image_count"] == 1
 
@@ -299,6 +308,52 @@ async def test_selfhosted_markdown_result(monkeypatch, api_settings, tmp_path):
 
     assert result.title == "Plain"
     assert result.metadata["engine"] == "api-selfhosted"
+
+
+# ── Image URL rewriting ─────────────────────────────────────────────────
+
+
+def test_rewrite_image_paths_maps_only_stored_images(api_settings):
+    api_settings()
+    md = (
+        "![](images/fig1.png)\n"
+        "![](./images/fig1.png)\n"
+        "![](/tmp/mineru_api_x/images/fig1.png)\n"
+        '![Caption](images/fig2.png "Figure two")\n'
+        "![](https://example.com/remote.png)\n"
+        "![](data:image/png;base64,AAAA)\n"
+        "![](missing.png)"
+    )
+    rewritten = MinerUAdapter()._rewrite_image_paths(
+        md, "storage/images/20260816_000000_000001", {"fig1.png", "fig2.png"}
+    )
+    stored_url = (
+        "http://localhost:8000/storage/images/20260816_000000_000001"
+    )
+    assert rewritten.splitlines() == [
+        f"![]({stored_url}/fig1.png)",
+        f"![]({stored_url}/fig1.png)",
+        f"![]({stored_url}/fig1.png)",
+        '![Caption]({url}/fig2.png "Figure two")'.format(url=stored_url),
+        "![](https://example.com/remote.png)",
+        "![](data:image/png;base64,AAAA)",
+        "![](missing.png)",
+    ]
+
+
+def test_store_images_absolute_storage_outside_data_root(monkeypatch, tmp_path):
+    """Docker-style absolute STORAGE_DIR must not crash on relative_to()."""
+    outside = tmp_path / "data"
+    monkeypatch.setattr(config.settings, "storage_dir", str(outside / "storage"))
+
+    img = tmp_path / "fig.png"
+    img.write_bytes(b"PNG")
+
+    stored_dir = MinerUAdapter()._store_images([str(img)])
+
+    assert re.match(r"^storage/images/\d{8}_\d{6}_\d{6}$", stored_dir), stored_dir
+    ts = stored_dir.rsplit("/", 1)[1]
+    assert (outside / "storage" / "images" / ts / "fig.png").exists()
 
 
 # ── Fallback behaviour ───────────────────────────────────────────────────

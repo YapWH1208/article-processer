@@ -24,7 +24,7 @@ import time
 import zipfile
 from pathlib import Path
 from app.services.parsers.base import BaseParser, ParseResult
-from app.core.config import settings
+from app.core.config import IMAGES_URL_PREFIX, settings
 
 logger = logging.getLogger(__name__)
 
@@ -345,14 +345,15 @@ class MinerUAdapter(BaseParser):
         image_paths: list[str] = []
         for root, _dirs, files in os.walk(output_dir):
             for f in files:
-                if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
+                if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".bmp")):
                     image_paths.append(os.path.join(root, f))
 
         stored_image_dir = ""
         if image_paths:
             stored_image_dir = self._store_images(image_paths)
         if stored_image_dir:
-            md_content = self._rewrite_image_paths(md_content, output_dir, stored_image_dir)
+            stored_basenames = {os.path.basename(p) for p in image_paths}
+            md_content = self._rewrite_image_paths(md_content, stored_image_dir, stored_basenames)
 
         return self._build_result_from_markdown(
             md_content,
@@ -457,14 +458,15 @@ class MinerUAdapter(BaseParser):
         image_paths: list[str] = []
         for root, _dirs, files in os.walk(output_dir):
             for f in files:
-                if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
+                if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".bmp")):
                     image_paths.append(os.path.join(root, f))
 
         stored_image_dir = ""
         if image_paths:
             stored_image_dir = self._store_images(image_paths)
         if stored_image_dir:
-            md_content = self._rewrite_image_paths(md_content, output_dir, stored_image_dir)
+            stored_basenames = {os.path.basename(p) for p in image_paths}
+            md_content = self._rewrite_image_paths(md_content, stored_image_dir, stored_basenames)
 
         return ParseResult(
             markdown=md_content.strip(),
@@ -540,7 +542,8 @@ class MinerUAdapter(BaseParser):
             if image_paths and md_content:
                 stored_image_dir = self._store_images(image_paths)
             if stored_image_dir:
-                md_content = self._rewrite_image_paths(md_content, image_dir, stored_image_dir)
+                stored_basenames = {os.path.basename(p) for p in image_paths}
+                md_content = self._rewrite_image_paths(md_content, stored_image_dir, stored_basenames)
 
             return ParseResult(
                 markdown=md_content.strip(),
@@ -572,38 +575,55 @@ class MinerUAdapter(BaseParser):
                 if not dest.exists():
                     shutil.copy2(img_path, dest)
 
-            return str(dest_dir.relative_to(settings.data_path))
+            # Return the URL path of the stored dir as served by the FastAPI
+            # static mount (main.py: "/" + IMAGES_URL_PREFIX). The prefix is
+            # used instead of dest_dir.relative_to(data_path) because the
+            # storage dir may live outside the data root (e.g. Docker's
+            # absolute STORAGE_DIR=/data/storage), where relative_to would
+            # raise and silently drop images.
+            return f"{IMAGES_URL_PREFIX}/{ts}"
         except Exception as e:
             logger.warning(f"Failed to store images: {e}")
             return ""
 
-    def _rewrite_image_paths(self, markdown: str, old_dir: str, new_dir: str) -> str:
-        """Rewrite image references from temp dir to persisted storage path.
+    def _rewrite_image_paths(
+        self,
+        markdown: str,
+        stored_dir: str,
+        stored_basenames: set[str],
+    ) -> str:
+        """Rewrite image references in parsed markdown to persisted storage URLs.
 
-        Replaces the old temp directory with the storage path, then makes all
-        remaining relative image URLs absolute so they load from the API server.
+        Only references whose basename matches an actually-stored image are
+        rewritten - to the exact file under "storage/images/<ts>/", which the
+        FastAPI static mount serves directly. This avoids both the ambiguous
+        basename search of "/images/<name>" (which can return another
+        article's image on name collisions) and the broken URLs the old code
+        synthesized for files that were never extracted. Remote URLs
+        (http/https/data:) and references to unknown files are left untouched.
         """
         import re
 
         api_base = settings.api_base_url or "http://localhost:8000"
+        url_base = f"{api_base.rstrip('/')}/{stored_dir.strip('/')}"
 
-        # Replace old temp dir paths with the new persisted storage path
-        markdown = markdown.replace(old_dir, new_dir)
-        old_basename = os.path.basename(old_dir.rstrip("/").rstrip("\\"))
-        if old_basename:
-            markdown = markdown.replace(f"{old_basename}/", f"{new_dir}/")
-
-        # Make any remaining relative image URLs absolute
         def _abs_url(match: re.Match) -> str:
             alt = match.group(1) or ""
             src = match.group(2).strip()
+            title = match.group(3) or ""
             if src.startswith(("http://", "https://", "data:")):
                 return match.group(0)
-            norm = src.lstrip("/")
-            return f"![{alt}]({api_base.rstrip('/')}/{norm})"
+            basename = os.path.basename(src)
+            if basename in stored_basenames:
+                return f"![{alt}]({url_base}/{basename}{title})"
+            return match.group(0)
 
-        markdown = re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', _abs_url, markdown)
-        return markdown
+        # Optional quoted title after the path is captured and preserved.
+        return re.sub(
+            r'!\[([^\]]*)\]\(([^)\s]+)(\s+"[^"]*")?\)',
+            _abs_url,
+            markdown,
+        )
 
     def _estimate_page_count(self, markdown: str) -> int:
         """Estimate page count from markdown."""

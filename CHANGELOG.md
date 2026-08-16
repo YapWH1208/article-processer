@@ -51,6 +51,12 @@ All notable changes to the Article Processor project.
   reports MinerU, including "(API)" mode when the remote service is enabled.
 - **MinerU API settings card is bilingual** - New English/Chinese copy for the
   MinerU API card and image-base-URL fields on the Settings page.
+- **Extracted image links in parsed markdown** - Image references are rewritten
+  to the exact stored file under `storage/images/<ts>/` (served by the static
+  mount) instead of ambiguous `/images/<name>` lookups or URLs synthesized for
+  files that were never extracted. Storage URLs also work when `STORAGE_DIR` is
+  an absolute path outside the data root (Docker), where the old
+  `relative_to(data_root)` call would fail and silently drop images.
 
 ---
 

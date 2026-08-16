@@ -192,6 +192,11 @@ class Settings(BaseSettings):
 # Expose the .env path for the settings router
 DOTENV_PATH = _settings_env_path()
 
+# URL path prefix (no leading slash) of the extracted-images static mount.
+# Kept in sync with main.py's `app.mount("/storage/images", ...)`; parsers use
+# it to build absolute image URLs in parsed markdown.
+IMAGES_URL_PREFIX = "storage/images"
+
 
 def reload_settings() -> None:
     """Hot-reload settings from the .env file — used by PUT /settings.
