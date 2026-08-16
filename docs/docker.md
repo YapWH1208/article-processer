@@ -53,7 +53,7 @@ Tesseract OCR — installed via `.[all]`). Heavy MinerU runs elsewhere:
 | Strategy                    | How to enable                                                            |
 | --------------------------- | ------------------------------------------------------------------------ |
 | MinerU cloud API (mineru.net) | Set `MINERU_API_ENABLED=true` + `MINERU_API_KEY=<token>` in `.env`       |
-| Self-hosted `mineru-api`      | `docker compose --profile mineru up -d --build`, then set `MINERU_API_ENABLED=true`, `MINERU_API_MODE=selfhosted`, `MINERU_API_BASE_URL=http://localhost:8001` |
+| Self-hosted `mineru-api`      | `docker compose --profile mineru up -d --build`, then set `MINERU_API_ENABLED=true`, `MINERU_API_MODE=selfhosted`, `MINERU_API_BASE_URL=http://mineru-api:8000` |
 | Docling / pypdf / OCR       | Fallbacks — always available, used when MinerU is not configured          |
 
 ## Self-hosted MinerU service (optional)
@@ -62,8 +62,11 @@ Tesseract OCR — installed via `.[all]`). Heavy MinerU runs elsewhere:
 docker compose --profile mineru up -d
 ```
 
-`mineru-api` listens on http://localhost:8001 (API docs at
-`/docs`). The default `opendatalab/mineru:latest` image may need to be built
+`mineru-api` listens on port 8000 inside the container, exposed on the host at
+http://localhost:8001 (API docs at `/docs`). The API container must reach it
+by Compose service name — `MINERU_API_BASE_URL=http://mineru-api:8000` (the
+host's `localhost:8001` only works if you run the API process on the host too).
+The default `opendatalab/mineru:latest` image may need to be built
 locally from [opendatalab/MinerU](https://github.com/opendatalab/MinerU)
 (see their `docker/compose.yaml`); for GPU acceleration uncomment the `deploy`
 block in `docker-compose.yml` and pull with the NVIDIA container toolkit

@@ -320,6 +320,36 @@ def test_is_available_reflects_api_config(api_settings):
     assert MinerUAdapter().is_available is False
 
 
+def test_is_available_tracks_settings_reloads_on_same_instance(api_settings):
+    """A cached adapter must pick up settings changes (e.g. PUT /settings)
+    without a process restart — availability is read live, not snapshotted."""
+    api_settings(enabled=False)
+    adapter = MinerUAdapter()
+    assert adapter.is_available is False
+
+    api_settings()
+    assert adapter.is_available is True
+
+    api_settings(enabled=False)
+    assert adapter.is_available is False
+
+
+async def test_parse_picks_up_api_config_after_construction(monkeypatch, api_settings, tmp_path):
+    api_settings(enabled=False)
+    adapter = MinerUAdapter()
+    called = False
+
+    async def fake_via_api(path):
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(adapter, "_parse_via_api", fake_via_api)
+    api_settings()
+
+    await adapter.parse(_fake_pdf(tmp_path))
+    assert called is True
+
+
 # ── Settings round-trip ──────────────────────────────────────────────────
 
 
@@ -387,3 +417,63 @@ def test_build_response_masks_mineru_api_key():
 
     assert response["mineru_api_key"].endswith("1234")
     assert "supersecret" not in response["mineru_api_key"]
+
+
+def test_export_settings_includes_mineru_api_and_api_base_url(monkeypatch):
+    monkeypatch.setenv("USE_MOCK_AI", "true")
+    monkeypatch.setenv("MINERU_API_ENABLED", "true")
+    monkeypatch.setenv("MINERU_API_MODE", "selfhosted")
+    monkeypatch.setenv("MINERU_API_KEY", "secret-key")
+    monkeypatch.setenv("MINERU_API_BASE_URL", "http://mineru-api:8000")
+    monkeypatch.setenv("API_BASE_URL", "http://api.example.com")
+
+    class FakeDB:
+        def query(self, model):
+            return []
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(settings_page, "SessionLocal", lambda: FakeDB())
+
+    payload = json.loads(settings_page.export_settings().body)["settings"]
+
+    assert payload["mineru_api_enabled"] is True
+    assert payload["mineru_api_mode"] == "selfhosted"
+    assert payload["mineru_api_key"] == "secret-key"
+    assert payload["mineru_api_base_url"] == "http://mineru-api:8000"
+    assert payload["api_base_url"] == "http://api.example.com"
+
+
+async def test_import_settings_restores_mineru_api_config(monkeypatch, tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text("", encoding="utf-8")
+    monkeypatch.setattr(settings_page, "DOTENV_PATH", env_path)
+    monkeypatch.setattr(settings_page, "reload_settings", lambda: None)
+    monkeypatch.setattr(settings_page, "get_settings", lambda: object())
+
+    from starlette.datastructures import UploadFile as StarletteUploadFile
+
+    file = StarletteUploadFile(
+        filename="backup.json",
+        file=io.BytesIO(json.dumps({
+            "settings": {
+                "llm_provider": "openai",
+                "mineru_api_enabled": True,
+                "mineru_api_mode": "selfhosted",
+                "mineru_api_key": "secret-key",
+                "mineru_api_base_url": "http://mineru-api:8000",
+                "api_base_url": "http://api.example.com",
+            }
+        }).encode("utf-8")),
+    )
+
+    result = await settings_page.import_settings(file)
+    assert result is not None
+
+    saved = settings_page._read_env_file()
+    assert saved["MINERU_API_ENABLED"] == "true"
+    assert saved["MINERU_API_MODE"] == "selfhosted"
+    assert saved["MINERU_API_KEY"] == "secret-key"
+    assert saved["MINERU_API_BASE_URL"] == "http://mineru-api:8000"
+    assert saved["API_BASE_URL"] == "http://api.example.com"

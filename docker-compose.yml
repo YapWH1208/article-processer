@@ -50,7 +50,9 @@ services:
     restart: unless-stopped
 
   # Self-hosted MinerU API (optional). Large GPU-oriented image; enables the
-  # "selfhosted" MinerU API mode at http://localhost:8001 without a cloud token.
+  # "selfhosted" MinerU API mode without a cloud token. Exposed on the host at
+  # http://localhost:8001; the api container reaches it at
+  # http://mineru-api:8000 (MINERU_API_BASE_URL).
   # Image: opendatalab/mineru or build from https://github.com/opendatalab/MinerU
   # (see docs/docker.md). For NVIDIA GPUs, uncomment the deploy block below.
   mineru-api:

@@ -38,6 +38,19 @@ All notable changes to the Article Processor project.
   interactive controls, shared onboarding transitions respect reduced-motion
   preferences, and decorative upload loops and sparkles are suppressed when
   reduced motion is requested.
+- **MinerU API configuration applied without restart** - Enabling or changing
+  the MinerU API in Settings now takes effect immediately: the parser adapter
+  reads configuration live instead of caching it at startup.
+- **Settings export/import keeps MinerU API + `API_BASE_URL`** - Backups no
+  longer silently drop the MinerU API configuration or the public base URL
+  used for parsed-markdown image links.
+- **Self-hosted MinerU URL fixed for Docker** - `docs/docker.md` now points
+  `MINERU_API_BASE_URL` at `http://mineru-api:8000` (Compose service name);
+  `http://localhost:8001` only works from the host.
+- **MinerU status visible in Settings again** - The installed-parsers list
+  reports MinerU, including "(API)" mode when the remote service is enabled.
+- **MinerU API settings card is bilingual** - New English/Chinese copy for the
+  MinerU API card and image-base-URL fields on the Settings page.
 
 ---
 

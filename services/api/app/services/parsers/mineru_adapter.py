@@ -79,27 +79,25 @@ class MinerUAdapter(BaseParser):
     4. Fallback to pypdf parser
     """
 
-    def __init__(self):
-        self._api_configured = bool(
+    def _api_configured(self) -> bool:
+        """Check settings live — the adapter instance may outlive a settings
+        reload (PUT /settings), so configuration must not be snapshotted."""
+        return bool(
             settings.mineru_api_enabled
-            and settings.mineru_api_key.strip()
-        ) or bool(
-            settings.mineru_api_enabled
-            and settings.mineru_api_mode == "selfhosted"
-            and settings.mineru_api_base_url.strip()
-        )
-        self._available = (
-            self._api_configured
-            or HAS_MINERU_CLI
-            or HAS_MINERU_DO_PARSE
-            or HAS_LEGACY_MAGIC_PDF
+            and (
+                settings.mineru_api_key.strip()
+                or (
+                    settings.mineru_api_mode == "selfhosted"
+                    and settings.mineru_api_base_url.strip()
+                )
+            )
         )
 
     async def parse(self, file_path: Path) -> ParseResult:
         """Convert PDF to Markdown using MinerU with full layout preservation."""
 
         # ── Strategy 0: remote API (cloud or self-hosted) ────────────────
-        if self._api_configured:
+        if self._api_configured():
             return await self._parse_via_api(file_path)
 
         # ── Strategy 1: mineru CLI (subprocess) ───────────────────────
@@ -181,7 +179,11 @@ class MinerUAdapter(BaseParser):
 
             # 2. Upload the PDF to the signed URL
             pdf_bytes = file_path.read_bytes()
-            upload_resp = client.put(upload_url, content=pdf_bytes)
+            upload_resp = client.put(
+                upload_url,
+                content=pdf_bytes,
+                headers={"Content-Type": "application/pdf"},
+            )
             if upload_resp.status_code != 200:
                 raise RuntimeError(
                     f"MinerU API upload failed ({upload_resp.status_code}): "
@@ -617,4 +619,9 @@ class MinerUAdapter(BaseParser):
     @property
     def is_available(self) -> bool:
         """Check if any MinerU variant is installed and usable."""
-        return self._available
+        return (
+            self._api_configured()
+            or HAS_MINERU_CLI
+            or HAS_MINERU_DO_PARSE
+            or HAS_LEGACY_MAGIC_PDF
+        )

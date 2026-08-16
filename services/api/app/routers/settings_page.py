@@ -483,6 +483,17 @@ def export_settings():
         use_mock_ai=cfg.use_mock_ai,
         max_upload_mb=cfg.max_upload_mb,
         parser_priority=cfg.parser_priority,
+        mineru_api_enabled=cfg.mineru_api_enabled,
+        mineru_api_mode=cfg.mineru_api_mode,
+        mineru_api_key=cfg.mineru_api_key,
+        mineru_api_base_url=cfg.mineru_api_base_url,
+        mineru_api_model=cfg.mineru_api_model,
+        mineru_api_enable_formula=cfg.mineru_api_enable_formula,
+        mineru_api_is_ocr=cfg.mineru_api_is_ocr,
+        mineru_api_language=cfg.mineru_api_language,
+        mineru_api_timeout_seconds=cfg.mineru_api_timeout_seconds,
+        mineru_api_poll_interval=cfg.mineru_api_poll_interval,
+        api_base_url=cfg.api_base_url,
         host=cfg.host, port=cfg.port,
         env_path=str(DOTENV_PATH),
     )
@@ -530,6 +541,60 @@ class ParserInfo(BaseModel):
 def list_parsers():
     """Return available PDF parsers with installation status."""
     parsers: list[ParserInfo] = []
+
+    # MinerU (v3.x package: "mineru", formerly "magic-pdf") + remote API mode
+    mineru_installed = False
+    mineru_ver = None
+    try:
+        import mineru
+        mineru_ver = getattr(mineru, "__version__", None)
+        mineru_installed = True
+    except ImportError:
+        # Try legacy package name
+        try:
+            import magic_pdf
+            mineru_ver = getattr(magic_pdf, "__version__", None)
+            mineru_installed = True
+        except ImportError:
+            pass
+
+    # Also check CLI availability
+    import shutil
+    cli_available = shutil.which("mineru") is not None
+
+    # Remote API mode (cloud mineru.net or self-hosted mineru-api) — read the
+    # settings live so the status reflects a save made through the web UI.
+    api_configured = bool(
+        settings.mineru_api_enabled
+        and (
+            settings.mineru_api_key.strip()
+            or settings.mineru_api_mode == "selfhosted"
+        )
+    )
+
+    name = "MinerU"
+    if cli_available and not mineru_installed:
+        name += " (CLI)"
+    if api_configured and not (mineru_installed or cli_available):
+        name += " (API)"
+    description = (
+        "State-of-the-art PDF parsing with layout preservation, image extraction, "
+        "table detection, and formula recognition (v3.x+)."
+    )
+    if api_configured:
+        description += (
+            f" Remote API configured "
+            f"({settings.mineru_api_mode}, model {settings.mineru_api_model})."
+        )
+
+    parsers.append(ParserInfo(
+        key="mineru",
+        name=name,
+        installed=mineru_installed or cli_available or api_configured,
+        version=mineru_ver,
+        description=description,
+        install_cmd=None if (mineru_installed or api_configured) else 'pip install -U "mineru[all]"',
+    ))
 
     # Docling
     try:
@@ -774,6 +839,17 @@ async def import_settings(file: UploadFile = File(...)):
             use_mock_ai=settings_data.get("use_mock_ai"),
             max_upload_mb=settings_data.get("max_upload_mb"),
             parser_priority=settings_data.get("parser_priority"),
+            mineru_api_enabled=settings_data.get("mineru_api_enabled"),
+            mineru_api_mode=settings_data.get("mineru_api_mode"),
+            mineru_api_key=settings_data.get("mineru_api_key"),
+            mineru_api_base_url=settings_data.get("mineru_api_base_url"),
+            mineru_api_model=settings_data.get("mineru_api_model"),
+            mineru_api_enable_formula=settings_data.get("mineru_api_enable_formula"),
+            mineru_api_is_ocr=settings_data.get("mineru_api_is_ocr"),
+            mineru_api_language=settings_data.get("mineru_api_language"),
+            mineru_api_timeout_seconds=settings_data.get("mineru_api_timeout_seconds"),
+            mineru_api_poll_interval=settings_data.get("mineru_api_poll_interval"),
+            api_base_url=settings_data.get("api_base_url"),
         )
     except Exception as e:
         raise HTTPException(400, f"Invalid settings data: {e}")
