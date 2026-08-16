@@ -4,17 +4,6 @@ All notable changes to the Article Processor project.
 
 ---
 
-## [Unreleased]
-
-### Added
-
-- **Docker release workflow** - Pushing a `v*` tag builds and publishes the
-  `api` and `web` images to GitHub Container Registry
-  (`ghcr.io/yapwh1208/article-processer-{api,web}`) with semver + `latest`
-  tags, using the built-in `GITHUB_TOKEN` (`packages: write`).
-
----
-
 ## [0.3.4] — 2026-08-16
 
 ### Added
@@ -32,6 +21,10 @@ All notable changes to the Article Processor project.
   SQLite + storage live on an `app-data` volume at `/data`. An opt-in
   `mineru-api` service (profile `mineru`) provides self-hosted MinerU parsing
   at port 8001. See `docs/docker.md`.
+- **Docker release workflow** - Pushing a `v*` tag builds and publishes the
+  `api` and `web` images to GitHub Container Registry
+  (`ghcr.io/yapwh1208/article-processer-{api,web}`) with semver + `latest`
+  tags, using the built-in `GITHUB_TOKEN` (`packages: write`).
 
 ### Fixed
 
