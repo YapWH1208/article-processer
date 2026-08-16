@@ -427,9 +427,13 @@ def test_export_settings_includes_mineru_api_and_api_base_url(monkeypatch):
     monkeypatch.setenv("MINERU_API_BASE_URL", "http://mineru-api:8000")
     monkeypatch.setenv("API_BASE_URL", "http://api.example.com")
 
+    class FakeQuery:
+        def all(self):
+            return []
+
     class FakeDB:
         def query(self, model):
-            return []
+            return FakeQuery()
 
         def close(self):
             pass

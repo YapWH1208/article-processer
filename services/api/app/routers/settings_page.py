@@ -448,7 +448,6 @@ class SettingsExportResponse(SettingsResponse):
 @router.get("/export")
 def export_settings():
     """Export all settings + articles as JSON for cross-platform transfer."""
-    from app.db.session import SessionLocal
     from app.routers.exports import _build_export_data
 
     cfg = _fresh_settings()
