@@ -667,8 +667,12 @@ def install_docling():
 
     Mirrors the Dockerfile ordering: install the CPU torch wheel first so the
     default CUDA + triton build (~4.5 GB) is not pulled by Docling's dependency.
-    Intended for local/desktop use. Inside Docker a runtime install is ephemeral
-    (lost when the container is recreated) - see docs/docker.md.
+    Works in a normal Python environment where the interpreter can pip-install
+    into its site-packages (local dev, desktop source runs). It does not work in
+    the frozen PyInstaller desktop build (no python -m pip) or as the non-root
+    runtime user in the Docker image (root-owned site-packages) - in those
+    environments Docling must be baked in at build time or provided another way.
+    See docs/docker.md.
     """
     commands = [
         [sys.executable, "-m", "pip", "install", "--quiet", "--timeout=60", "--retries=5",
@@ -702,6 +706,9 @@ def uninstall_docling():
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     except subprocess.TimeoutExpired:
+        # Re-probe the real state and invalidate the cached availability so the
+        # next has_docling() reflects reality instead of a stale True.
+        reset_docling_runtime()
         return ParserInstallResult(
             key="docling", installed=_probe_docling_version() is not None,
             version=_probe_docling_version(), error="pip uninstall timed out"

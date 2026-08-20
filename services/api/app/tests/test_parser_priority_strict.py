@@ -120,6 +120,28 @@ def test_uninstall_docling(monkeypatch):
     assert "docling" in captured["cmd"]
 
 
+def test_uninstall_docling_timeout_resets_runtime(monkeypatch):
+    # A pip uninstall timeout must still reset the cached Docling availability so
+    # a later probe does not crash on a stale True (regression for the crash path).
+    from app.routers import settings_page
+
+    def fake_run(cmd, capture_output=True, text=True, timeout=None):
+        raise subprocess.TimeoutExpired(cmd, timeout=300)
+
+    monkeypatch.setattr(settings_page.subprocess, "run", fake_run)
+    monkeypatch.setattr(settings_page, "_probe_docling_version", lambda: None)
+    reset_called = []
+    monkeypatch.setattr(
+        settings_page, "reset_docling_runtime", lambda: reset_called.append(True)
+    )
+
+    result = settings_page.uninstall_docling()
+
+    assert result.installed is False
+    assert "timed out" in (result.error or "")
+    assert reset_called == [True]
+
+
 def test_parser_priorities_include_mineru_only() -> None:
     from app.routers.settings_page import PARSER_PRIORITIES
 
