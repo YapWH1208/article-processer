@@ -2,6 +2,9 @@
 
 import json
 import logging
+import shutil
+import subprocess
+import sys
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 from app.db.session import SessionLocal
@@ -9,6 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import reload_settings, DOTENV_PATH, settings
 from app.core.config import Settings as SettingsClass
+from app.services.pipeline.processor import reset_docling_runtime
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -20,7 +24,7 @@ LLM_PROVIDERS = [
     "deepseek", "openrouter", "glm", "minimax", "mimo", "kimi",
 ]
 LLM_CUSTOM_PROTOCOLS = ["openai", "anthropic"]
-PARSER_PRIORITIES = ["mineru_first", "docling", "pypdf", "ocr"]
+PARSER_PRIORITIES = ["mineru_only", "mineru_first", "docling", "pypdf", "ocr"]
 
 OPENAI_MODELS = ["gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "gpt-4-turbo"]
 ANTHROPIC_MODELS = [
@@ -558,7 +562,6 @@ def list_parsers():
             pass
 
     # Also check CLI availability
-    import shutil
     cli_available = shutil.which("mineru") is not None
 
     # Remote API mode (cloud mineru.net or self-hosted mineru-api) — read the
@@ -640,6 +643,74 @@ def list_parsers():
     ))
 
     return parsers
+
+
+class ParserInstallResult(BaseModel):
+    key: str
+    installed: bool
+    version: str | None = None
+    error: str | None = None
+
+
+def _probe_docling_version() -> str | None:
+    """Return the installed Docling version, or None if not importable."""
+    try:
+        import docling
+        return getattr(docling, "__version__", None)
+    except Exception:
+        return None
+
+
+@router.post("/parsers/docling/install", response_model=ParserInstallResult)
+def install_docling():
+    """Install Docling (and CPU-only torch) in-process via pip.
+
+    Mirrors the Dockerfile ordering: install the CPU torch wheel first so the
+    default CUDA + triton build (~4.5 GB) is not pulled by Docling's dependency.
+    Intended for local/desktop use. Inside Docker a runtime install is ephemeral
+    (lost when the container is recreated) - see docs/docker.md.
+    """
+    commands = [
+        [sys.executable, "-m", "pip", "install", "--quiet", "--timeout=60", "--retries=5",
+         "torch>=2.2", "--index-url", "https://download.pytorch.org/whl/cpu"],
+        [sys.executable, "-m", "pip", "install", "--quiet", "--timeout=60", "--retries=5",
+         "docling>=2.0.0"],
+    ]
+    for cmd in commands:
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1200)
+        except subprocess.TimeoutExpired:
+            return ParserInstallResult(key="docling", installed=False,
+                                       error="pip install timed out after 1200s")
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout or "")[-500:]
+            return ParserInstallResult(key="docling", installed=False, error=tail)
+    reset_docling_runtime()
+    return ParserInstallResult(
+        key="docling", installed=True, version=_probe_docling_version()
+    )
+
+
+@router.post("/parsers/docling/uninstall", response_model=ParserInstallResult)
+def uninstall_docling():
+    """Remove the Docling packages installed via the in-app installer."""
+    packages = [
+        "docling", "docling-core", "docling-ibm-models", "docling-parse",
+        "docling-parse-backend-docling-parse", "docling-parse-backend-pypdfium2",
+    ]
+    cmd = [sys.executable, "-m", "pip", "uninstall", "-y", "-q"] + packages
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    except subprocess.TimeoutExpired:
+        return ParserInstallResult(
+            key="docling", installed=_probe_docling_version() is not None,
+            version=_probe_docling_version(), error="pip uninstall timed out"
+        )
+    reset_docling_runtime()
+    still_installed = _probe_docling_version() is not None
+    return ParserInstallResult(
+        key="docling", installed=still_installed, version=_probe_docling_version()
+    )
 
 
 # ── Test Connection ────────────────────────────────────────────────────────

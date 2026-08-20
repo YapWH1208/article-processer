@@ -118,8 +118,11 @@ class Settings(BaseSettings):
     use_mock_ai: bool = True
 
     # ── Parsing ──────────────────────────────────────────────────────────
-    # Priority: "mineru_first" | "docling" | "pypdf" | "ocr"
-    parser_priority: str = "mineru_first"
+    # Priority: "mineru_only" | "mineru_first" | "docling" | "pypdf" | "ocr"
+    # "mineru_only" (default) is strict: if MinerU is not installed or configured,
+    # PDF parsing fails with an error rather than silently falling back.
+    # "mineru_first" prefers MinerU but falls back to Docling, then pypdf.
+    parser_priority: str = "mineru_only"
 
     # ── MinerU API ───────────────────────────────────────────────────────
     # When enabled, the MinerU parser strategy uses a remote MinerU service

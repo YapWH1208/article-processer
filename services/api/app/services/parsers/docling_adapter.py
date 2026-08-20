@@ -16,13 +16,37 @@ from app.services.parsers.base import BaseParser, ParseResult
 
 logger = logging.getLogger(__name__)
 
-# Try importing docling
-try:
-    from docling.document_converter import DocumentConverter
-    HAS_DOCLING = True
-except ImportError:
-    HAS_DOCLING = False
-    DocumentConverter = None  # type: ignore
+# Docling availability is probed lazily and cached so it can change at runtime:
+# an in-app install/uninstall must take effect without a process restart.
+_has_docling: bool | None = None
+
+
+def _check_docling() -> bool:
+    """Re-probe whether Docling is importable, caching the result."""
+    global _has_docling
+    try:
+        from docling.document_converter import DocumentConverter  # noqa: F401
+        _has_docling = True
+    except ImportError:
+        _has_docling = False
+    return bool(_has_docling)
+
+
+def has_docling() -> bool:
+    """Return cached Docling availability (probed on first call)."""
+    if _has_docling is None:
+        return _check_docling()
+    return _has_docling
+
+
+def reset_docling_detection() -> None:
+    """Invalidate the cached availability so the next call re-probes.
+
+    Call after an in-app Docling install/uninstall so the running process picks
+    up the change without a restart.
+    """
+    global _has_docling
+    _has_docling = None
 
 
 class DoclingAdapter(BaseParser):
@@ -37,14 +61,15 @@ class DoclingAdapter(BaseParser):
     """
 
     def __init__(self):
-        if HAS_DOCLING:
+        if has_docling():
+            from docling.document_converter import DocumentConverter
             self._converter = DocumentConverter()
         else:
             self._converter = None
 
     async def parse(self, file_path: Path) -> ParseResult:
         """Convert PDF to Markdown using Docling with structure preservation."""
-        if not HAS_DOCLING:
+        if not has_docling():
             raise RuntimeError(
                 "Docling is not installed. Install it with: pip install docling"
             )
@@ -189,4 +214,4 @@ class DoclingAdapter(BaseParser):
     @property
     def is_available(self) -> bool:
         """Check if Docling is installed and usable."""
-        return HAS_DOCLING
+        return has_docling()
