@@ -374,6 +374,21 @@ export async function listParsers() {
   return apiFetch<import("./types").ParserInfo[]>("/settings/parsers");
 }
 
+export interface ParserInstallResult {
+  key: string;
+  installed: boolean;
+  version?: string | null;
+  error?: string | null;
+}
+
+export async function installParser(key: string) {
+  return apiFetch<ParserInstallResult>(`/settings/parsers/${key}/install`, { method: "POST" });
+}
+
+export async function uninstallParser(key: string) {
+  return apiFetch<ParserInstallResult>(`/settings/parsers/${key}/uninstall`, { method: "POST" });
+}
+
 // Dashboard
 
 export async function getDashboardMetrics(days = 30) {
