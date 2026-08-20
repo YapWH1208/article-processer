@@ -2,6 +2,10 @@
 
 import json
 import logging
+import shutil
+import subprocess
+import sys
+import threading
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 from app.db.session import SessionLocal
@@ -9,6 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import reload_settings, DOTENV_PATH, settings
 from app.core.config import Settings as SettingsClass
+from app.services.pipeline.processor import reset_docling_runtime
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -20,7 +25,12 @@ LLM_PROVIDERS = [
     "deepseek", "openrouter", "glm", "minimax", "mimo", "kimi",
 ]
 LLM_CUSTOM_PROTOCOLS = ["openai", "anthropic"]
-PARSER_PRIORITIES = ["mineru_first", "docling", "pypdf", "ocr"]
+PARSER_PRIORITIES = ["mineru_only", "mineru_first", "docling", "pypdf", "ocr"]
+
+# Serialize in-app parser install/uninstall so concurrent requests (e.g. from
+# multiple tabs) cannot race on the same pip invocation and the shared Docling
+# availability cache.
+_PARSER_INSTALL_LOCK = threading.Lock()
 
 OPENAI_MODELS = ["gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "gpt-4-turbo"]
 ANTHROPIC_MODELS = [
@@ -558,7 +568,6 @@ def list_parsers():
             pass
 
     # Also check CLI availability
-    import shutil
     cli_available = shutil.which("mineru") is not None
 
     # Remote API mode (cloud mineru.net or self-hosted mineru-api) — read the
@@ -640,6 +649,95 @@ def list_parsers():
     ))
 
     return parsers
+
+
+class ParserInstallResult(BaseModel):
+    key: str
+    installed: bool
+    version: str | None = None
+    error: str | None = None
+
+
+def _probe_docling_version() -> str | None:
+    """Return the installed Docling version, or None if not importable."""
+    try:
+        import docling
+        return getattr(docling, "__version__", None)
+    except Exception:
+        return None
+
+
+@router.post("/parsers/docling/install", response_model=ParserInstallResult)
+def install_docling():
+    """Install Docling (and CPU-only torch) in-process via pip.
+
+    Mirrors the Dockerfile ordering: install the CPU torch wheel first so the
+    default CUDA/triton torch stack a naive .[all] install would pull is not
+    fetched. Works in a normal Python environment where the interpreter can
+    pip-install into its site-packages (local dev, desktop source runs). It does
+    not work in the frozen PyInstaller desktop build (no python -m pip) or as the
+    non-root runtime user in the Docker image (root-owned site-packages) - in
+    those environments Docling must be baked in at build time or provided another
+    way. See docs/docker.md.
+    """
+    if getattr(sys, "frozen", False):
+        return ParserInstallResult(
+            key="docling", installed=_probe_docling_version() is not None,
+            version=_probe_docling_version(),
+            error="In-app package install is not available in the packaged build.",
+        )
+    commands = [
+        [sys.executable, "-m", "pip", "install", "--quiet", "--timeout=60", "--retries=5",
+         "torch>=2.2", "--index-url", "https://download.pytorch.org/whl/cpu"],
+        [sys.executable, "-m", "pip", "install", "--quiet", "--timeout=60", "--retries=5",
+         "docling>=2.0.0"],
+    ]
+    with _PARSER_INSTALL_LOCK:
+        for cmd in commands:
+            try:
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1200)
+            except subprocess.TimeoutExpired:
+                return ParserInstallResult(key="docling", installed=False,
+                                           error="pip install timed out after 1200s")
+            if proc.returncode != 0:
+                tail = (proc.stderr or proc.stdout or "")[-500:]
+                return ParserInstallResult(key="docling", installed=False, error=tail)
+        reset_docling_runtime()
+        return ParserInstallResult(
+            key="docling", installed=True, version=_probe_docling_version()
+        )
+
+
+@router.post("/parsers/docling/uninstall", response_model=ParserInstallResult)
+def uninstall_docling():
+    """Remove the Docling packages installed via the in-app installer."""
+    if getattr(sys, "frozen", False):
+        return ParserInstallResult(
+            key="docling", installed=_probe_docling_version() is not None,
+            version=_probe_docling_version(),
+            error="In-app package uninstall is not available in the packaged build.",
+        )
+    packages = [
+        "docling", "docling-core", "docling-ibm-models", "docling-parse",
+        "docling-parse-backend-docling-parse", "docling-parse-backend-pypdfium2",
+    ]
+    cmd = [sys.executable, "-m", "pip", "uninstall", "-y", "-q"] + packages
+    with _PARSER_INSTALL_LOCK:
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        except subprocess.TimeoutExpired:
+            # Re-probe the real state and invalidate the cached availability so the
+            # next has_docling() reflects reality instead of a stale True.
+            reset_docling_runtime()
+            return ParserInstallResult(
+                key="docling", installed=_probe_docling_version() is not None,
+                version=_probe_docling_version(), error="pip uninstall timed out"
+            )
+        reset_docling_runtime()
+        still_installed = _probe_docling_version() is not None
+        return ParserInstallResult(
+            key="docling", installed=still_installed, version=_probe_docling_version()
+        )
 
 
 # ── Test Connection ────────────────────────────────────────────────────────

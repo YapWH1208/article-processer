@@ -4,6 +4,30 @@ All notable changes to the Article Processor project.
 
 ---
 
+## [0.3.5] — 2026-08-19
+
+### Added
+
+- **Strict MinerU-only parsing (`mineru_only`)** - A new parser priority, now the
+  default, requires MinerU (installed or configured) for PDF parsing and fails with
+  a clear error instead of silently falling back to Docling/pypdf. The graceful
+  `mineru_first` mode remains selectable under Settings → General → PDF Parser
+  Priority (or `PARSER_PRIORITY`).
+- **In-app Docling installer** - Docling (and CPU-only torch) can be installed from
+  Settings → Installed Parsers → "Install Docling" without a process restart; a
+  "Remove" action uninstalls it. Installations are detected live, so Docling is
+  usable as soon as the install finishes.
+
+### Changed
+
+- **Docker API image is slimmer** - `services/api/Dockerfile` now installs
+  `.[ocr,bibtex,anthropic]` and no longer bakes in torch/Docling (dropping the
+  large CUDA/triton torch stack a full `.[all]` install would pull). Docling is
+  available on-demand from the app (Settings → Installed Parsers); MinerU still runs
+  via the remote API or the `mineru-api` sidecar. See `docs/docker.md`.
+
+---
+
 ## [0.3.4] — 2026-08-16
 
 ### Added

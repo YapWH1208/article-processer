@@ -156,7 +156,7 @@ See `.env.example` for all configuration options. Key variables:
 | `OPENREVIEW_USERNAME` | — | OpenReview username/email for challenged PDF imports |
 | `OPENREVIEW_PASSWORD` | — | OpenReview password; used only when no access token is configured |
 | `OPENREVIEW_ACCESS_TOKEN` | — | OpenReview bearer token; preferred over username/password |
-| `PARSER_PRIORITY` | `mineru_first` | PDF parser: `mineru_first`, `docling`, `pypdf`, or `ocr` |
+| `PARSER_PRIORITY` | `mineru_only` | PDF parser: `mineru_only` (strict default), `mineru_first`, `docling`, `pypdf`, or `ocr` |
 | `MINERU_API_ENABLED` | `false` | Parse PDFs via a remote MinerU service instead of a local install |
 | `MINERU_API_MODE` | `cloud` | `cloud` (mineru.net Precision API, needs `MINERU_API_KEY`) or `selfhosted` (`mineru-api` service via `MINERU_API_BASE_URL`, no key) |
 | `MINERU_API_KEY` | — | MinerU cloud API token |

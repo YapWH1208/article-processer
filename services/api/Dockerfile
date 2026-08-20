@@ -23,12 +23,13 @@ WORKDIR /app/services/api
 # Install dependencies first for better layer caching.
 COPY pyproject.toml alembic.ini ./
 COPY app ./app
-# Install CPU-only torch first: the default PyPI wheel bundles CUDA runtime +
-# triton (~4.5 GB) which is useless in this CPU-only image. Docling then
-# reuses this torch instead of pulling the CUDA build.
-RUN pip install --timeout=60 --retries=5 \
-        "torch>=2.2" --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --timeout=60 --retries=5 -e ".[all]"
+# Keep the image slim: install the optional parser extras except the heavy
+# Docling stack (the CUDA/triton torch build a naive ".[all]" would pull is huge).
+# Docling can be installed on-demand from the app UI (Settings -> Installed
+# Parsers); inside Docker that runtime install is ephemeral unless the
+# site-packages live on a volume. MinerU runs via the remote API or the
+# mineru-api sidecar, never baked in.
+RUN pip install --timeout=60 --retries=5 -e ".[ocr,bibtex,anthropic]"
 
 # ── Runtime ──────────────────────────────────────────────────────────────
 FROM base AS runtime

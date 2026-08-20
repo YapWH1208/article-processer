@@ -111,6 +111,19 @@ def _get_docling():
     return _docling
 
 
+def reset_docling_runtime() -> None:
+    """Invalidate the cached Docling parser after an in-app install/uninstall.
+
+    The DoclingAdapter is cached in the module global `_docling` and its
+    availability is cached in the adapter module; both are reset so the next
+    selection re-probes and constructs a fresh adapter.
+    """
+    global _docling
+    _docling = None
+    from app.services.parsers.docling_adapter import reset_docling_detection
+    reset_docling_detection()
+
+
 def _get_pypdf():
     global _pypdf
     if _pypdf is None:
@@ -146,7 +159,12 @@ def _log_pdf_parser_notice(message: str, *, warning: bool = False) -> None:
 
 
 def _select_pdf_parser(priority: str):
-    """Select PDF parser based on configured priority."""
+    """Select PDF parser based on configured priority.
+
+    Strict mode ("mineru_only", the default) raises if MinerU is not installed
+    or configured, rather than silently degrading to Docling/pypdf. Graceful
+    modes ("mineru_first", "docling", "pypdf", "ocr") fall back as available.
+    """
     if priority == "pypdf":
         return _get_pypdf()
     if priority == "ocr":
@@ -157,10 +175,25 @@ def _select_pdf_parser(priority: str):
             _log_pdf_parser_notice("Docling detected - available for PDF parsing")
             return docling
         _log_pdf_parser_notice("docling requested but not installed, falling back", warning=True)
-    # mineru_first (default) or unknown: try MinerU first, then Docling, then pypdf
+
     mineru = _get_mineru()
+
+    # Strict MinerU-only mode (default): require MinerU, no fallback.
+    if priority == "mineru_only":
+        if not mineru.is_available:
+            raise RuntimeError(
+                "Parser priority is 'mineru_only' (strict) but MinerU is not "
+                "installed or configured. Install MinerU locally, enable the remote "
+                "API (MINERU_API_ENABLED=true + MINERU_API_KEY), or run the "
+                "self-hosted mineru-api sidecar. To allow graceful fallback to "
+                "Docling/pypdf, set PARSER_PRIORITY=mineru_first."
+            )
+        _log_pdf_parser_notice("MinerU detected - available for PDF parsing (strict default)")
+        return mineru
+
+    # mineru_first / unknown: try MinerU first, then Docling, then pypdf
     if mineru.is_available:
-        _log_pdf_parser_notice("MinerU detected - available for PDF parsing (default)")
+        _log_pdf_parser_notice("MinerU detected - available for PDF parsing")
         return mineru
     if priority != "docling":
         docling = _get_docling()

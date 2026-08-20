@@ -22,7 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { FadeIn } from "@/components/ui/animated";
-import { listParsers, apiRawFetch } from "@/lib/api";
+import { listParsers, installParser, uninstallParser, apiRawFetch } from "@/lib/api";
 import type { ParserInfo } from "@/lib/types";
 import {
   buildProviderUpdatePayload,
@@ -133,7 +133,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [mockAi, setMockAi] = useState(true);
   const [maxUploadMb, setMaxUploadMb] = useState(50);
-  const [parserPriority, setParserPriority] = useState("mineru_first");
+  const [parserPriority, setParserPriority] = useState("mineru_only");
   const [mineruApiEnabled, setMineruApiEnabled] = useState(false);
   const [mineruApiMode, setMineruApiMode] = useState("cloud");
   const [mineruApiKey, setMineruApiKey] = useState("");
@@ -153,6 +153,7 @@ export default function SettingsPage() {
   const [clearOpenReviewPassword, setClearOpenReviewPassword] = useState(false);
   const [clearOpenReviewAccessToken, setClearOpenReviewAccessToken] = useState(false);
   const [parsers, setParsers] = useState<ParserInfo[]>([]);
+  const [parserBusy, setParserBusy] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   // ── Dev config ───────────────────────────────────────────────────────
@@ -244,6 +245,43 @@ export default function SettingsPage() {
       setFreqPenalty(d.frequency_penalty);
       setPresPenalty(d.presence_penalty);
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Dev config load failed"); }
+  };
+
+  // ── Parser install/remove handlers ───────────────────────────────────
+  const refreshParsers = () => { listParsers().then(setParsers).catch(() => {}); };
+
+  const handleInstallDocling = async () => {
+    setParserBusy("docling");
+    try {
+      const res = await installParser("docling");
+      if (res && res.installed) {
+        toast.success("Docling installed — ready to use.");
+      } else {
+        toast.error(res && res.error ? "Docling install failed: " + res.error : "Docling install failed.");
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Docling install failed.");
+    } finally {
+      setParserBusy(null);
+      refreshParsers();
+    }
+  };
+
+  const handleUninstallDocling = async () => {
+    setParserBusy("docling");
+    try {
+      const res = await uninstallParser("docling");
+      if (res && !res.installed) {
+        toast.success("Docling removed.");
+      } else {
+        toast.error("Docling could not be fully removed.");
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Docling removal failed.");
+    } finally {
+      setParserBusy(null);
+      refreshParsers();
+    }
   };
 
   // ── Saves ─────────────────────────────────────────────────────────────
@@ -919,6 +957,7 @@ export default function SettingsPage() {
                     <Select value={parserPriority} onValueChange={setParserPriority}>
                       <SelectTrigger><SelectValue/></SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="mineru_only">MinerU only (strict — error if not configured)</SelectItem>
                         <SelectItem value="mineru_first">MinerU first (fallback: Docling → pypdf)</SelectItem>
                         <SelectItem value="docling">Docling</SelectItem>
                         <SelectItem value="pypdf">pypdf (built-in)</SelectItem>
@@ -1100,7 +1139,7 @@ export default function SettingsPage() {
                   <CardHeader>
                     <CardTitle>Installed Parsers</CardTitle>
                     <CardDescription>
-                      <Button variant="link" className="h-auto p-0 text-xs" onClick={() => { listParsers().then(setParsers).catch(() => {}); }}>
+                      <Button variant="link" className="h-auto p-0 text-xs" onClick={refreshParsers}>
                         Click to refresh
                       </Button>
                     </CardDescription>
@@ -1120,6 +1159,19 @@ export default function SettingsPage() {
                               </div>
                               <p className="text-xs text-muted-foreground mt-0.5">{p.description}</p>
                               {p.install_cmd && <code className="text-[10px] bg-muted px-1.5 py-0.5 rounded mt-1.5 inline-block">{p.install_cmd}</code>}
+                              {p.key === "docling" && (
+                                <div className="mt-2">
+                                  {p.installed ? (
+                                    <Button size="sm" variant="outline" onClick={handleUninstallDocling} disabled={parserBusy === "docling"}>
+                                      {parserBusy === "docling" ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null} Remove
+                                    </Button>
+                                  ) : (
+                                    <Button size="sm" onClick={handleInstallDocling} disabled={parserBusy === "docling"}>
+                                      {parserBusy === "docling" ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null} Install Docling
+                                    </Button>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                         ))}
