@@ -24,10 +24,11 @@ WORKDIR /app/services/api
 COPY pyproject.toml alembic.ini ./
 COPY app ./app
 # Keep the image slim: install the optional parser extras except the heavy
-# Docling stack (torch + triton CUDA build, ~4.5 GB). Docling can be installed
-# on-demand from the app UI (Settings -> Installed Parsers); inside Docker that
-# runtime install is ephemeral unless the site-packages live on a volume.
-# MinerU runs via the remote API or the mineru-api sidecar, never baked in.
+# Docling stack (the CUDA/triton torch build a naive ".[all]" would pull is huge).
+# Docling can be installed on-demand from the app UI (Settings -> Installed
+# Parsers); inside Docker that runtime install is ephemeral unless the
+# site-packages live on a volume. MinerU runs via the remote API or the
+# mineru-api sidecar, never baked in.
 RUN pip install --timeout=60 --retries=5 -e ".[ocr,bibtex,anthropic]"
 
 # ── Runtime ──────────────────────────────────────────────────────────────

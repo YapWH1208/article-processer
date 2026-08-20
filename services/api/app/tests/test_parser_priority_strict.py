@@ -142,6 +142,31 @@ def test_uninstall_docling_timeout_resets_runtime(monkeypatch):
     assert reset_called == [True]
 
 
+def test_install_frozen_build_returns_clear_error(monkeypatch):
+    # In the frozen PyInstaller desktop build there is no python -m pip, so the
+    # installer must fail fast with a clear message instead of a cryptic error.
+    from app.routers import settings_page
+
+    class FakeSys:
+        frozen = True
+
+    monkeypatch.setattr(settings_page, "sys", FakeSys())
+    run_called = []
+    monkeypatch.setattr(
+        settings_page.subprocess, "run", lambda *a, **k: run_called.append(True)
+    )
+
+    result = settings_page.install_docling()
+    uninstall = settings_page.uninstall_docling()
+
+    assert result.installed is False
+    assert "packaged build" in (result.error or "")
+    assert uninstall.installed is False
+    assert "packaged build" in (uninstall.error or "")
+    # Never attempted a pip invocation.
+    assert run_called == []
+
+
 def test_parser_priorities_include_mineru_only() -> None:
     from app.routers.settings_page import PARSER_PRIORITIES
 

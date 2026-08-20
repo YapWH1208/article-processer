@@ -21,9 +21,10 @@ All notable changes to the Article Processor project.
 ### Changed
 
 - **Docker API image is slimmer** - `services/api/Dockerfile` now installs
-  `.[ocr,bibtex,anthropic]` and no longer bakes in torch/Docling (~4.5 GB removed).
-  Docling is available on-demand from the app (Settings → Installed Parsers); MinerU
-  still runs via the remote API or the `mineru-api` sidecar. See `docs/docker.md`.
+  `.[ocr,bibtex,anthropic]` and no longer bakes in torch/Docling (dropping the
+  large CUDA/triton torch stack a full `.[all]` install would pull). Docling is
+  available on-demand from the app (Settings → Installed Parsers); MinerU still runs
+  via the remote API or the `mineru-api` sidecar. See `docs/docker.md`.
 
 ---
 
