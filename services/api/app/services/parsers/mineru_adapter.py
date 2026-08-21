@@ -177,13 +177,14 @@ class MinerUAdapter(BaseParser):
                 raise RuntimeError("MinerU API returned no upload URL")
             upload_url = file_urls[0]
 
-            # 2. Upload the PDF to the signed URL
+            # 2. Upload the PDF to the signed URL.
+            #    No Content-Type header: the presigned OSS signature was
+            #    computed without one, and OSS includes received headers in
+            #    the StringToSign it checks — sending Content-Type makes the
+            #    signatures disagree (403 SignatureDoesNotMatch). httpx sends
+            #    raw content= bodies without a Content-Type header.
             pdf_bytes = file_path.read_bytes()
-            upload_resp = client.put(
-                upload_url,
-                content=pdf_bytes,
-                headers={"Content-Type": "application/pdf"},
-            )
+            upload_resp = client.put(upload_url, content=pdf_bytes)
             if upload_resp.status_code != 200:
                 raise RuntimeError(
                     f"MinerU API upload failed ({upload_resp.status_code}): "

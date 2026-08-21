@@ -200,6 +200,54 @@ async def test_cloud_submit_payload_and_auth(monkeypatch, api_settings, tmp_path
     assert body["language"] == "en"
 
 
+async def test_cloud_upload_put_sends_no_content_type(monkeypatch, api_settings, tmp_path):
+    api_settings()
+    captured = {}
+
+    def handler(method, url, kwargs):
+        if method == "post":
+            return FakeResponse(
+                text=json.dumps({
+                    "code": 0,
+                    "data": {
+                        "batch_id": "b1",
+                        "file_urls": ["https://upload.example/signed"],
+                    },
+                })
+            )
+        if method == "put":
+            captured["put_kwargs"] = kwargs
+            return FakeResponse()
+        if method == "get" and "extract-results" in url:
+            return FakeResponse(
+                text=json.dumps({
+                    "code": 0,
+                    "data": {
+                        "extract_result": {
+                            "state": "done",
+                            "full_zip_url": "https://cdn.example/result.zip",
+                        },
+                    },
+                })
+            )
+        if method == "get" and url == "https://cdn.example/result.zip":
+            return FakeResponse(
+                content=_make_result_zip(md_content="# T\n\ntext")
+            )
+        raise AssertionError(f"unexpected call: {method} {url}")
+
+    monkeypatch.setattr(httpx, "Client", _fake_client_cls(handler))
+    pdf = _fake_pdf(tmp_path)
+
+    await MinerUAdapter().parse(pdf)
+
+    put_kwargs = captured["put_kwargs"]
+    # The presigned OSS signature covers no Content-Type, so the upload PUT
+    # must not send one (regression: 403 SignatureDoesNotMatch).
+    assert "headers" not in put_kwargs or "Content-Type" not in put_kwargs["headers"]
+    assert put_kwargs["content"] == pdf.read_bytes()
+
+
 async def test_cloud_submit_401_raises(monkeypatch, api_settings, tmp_path):
     api_settings()
     monkeypatch.setattr(
