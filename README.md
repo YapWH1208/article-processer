@@ -134,7 +134,7 @@ See `.env.example` for all configuration options. Key variables:
 | Variable | Default | Description |
 |---|---|---|
 | `LLM_PROVIDER` | `openai` | LLM backend: `openai`, `anthropic`, `deepseek`, `openrouter`, `glm`, `minimax`, `kimi`, or `custom` |
-| `LLM_CUSTOM_PROTOCOL` | `openai` | When custom: `openai` or `anthropic` |
+| `LLM_CUSTOM_PROTOCOL` | `openai` | When custom: `openai`, `anthropic`, or `responses` (OpenAI Responses API, `/v1/responses`) |
 | `LLM_CUSTOM_BASE_URL` | — | Custom endpoint URL |
 | `LLM_CUSTOM_MODEL` | — | Custom model name |
 | `OPENAI_API_KEY` | — | OpenAI API key |

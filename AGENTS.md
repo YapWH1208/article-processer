@@ -42,7 +42,7 @@ docker compose --profile mineru up -d --build   # + self-hosted MinerU
 Gotchas:
 - SQLite/storage live on the `app-data` volume at `/data`; the API image sets absolute `DATABASE_URL`/`STORAGE_DIR` (config.py passes absolute paths through untouched).
 - The API image deliberately **excludes** the heavy local `mineru[all]` install — MinerU runs via cloud API or the `mineru-api` sidecar.
-- Settings saved through the web UI inside Docker are ephemeral (written to the container's `.env`); the compose `.env` is the source of truth.
+- The `api` container sets `ARTICLE_PROCESSOR_DESKTOP_DATA_DIR=/data`, so providers/dev_config, UI-saved settings (`.env`), skills, the SQLite DB, and uploads all live on the `app-data` volume and survive rebuilds; compose-provided env vars still win over the volume's `/data/.env` for the variables they define.
 
 ## MinerU API
 
