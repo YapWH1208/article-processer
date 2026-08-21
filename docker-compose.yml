@@ -8,7 +8,8 @@ name: article-processor
 #   docker compose up -d --build
 #   docker compose --profile mineru up -d --build   # + self-hosted MinerU
 #
-# Data lives in the `app-data` volume mounted at /data (SQLite + storage).
+# All mutable app data (SQLite, storage, providers/dev_config, UI-saved
+# settings .env, skills) lives in the `app-data` volume mounted at /data.
 
 services:
   api:
@@ -20,6 +21,7 @@ services:
     environment:
       DATABASE_URL: sqlite:////data/app.sqlite3
       STORAGE_DIR: /data/storage
+      ARTICLE_PROCESSOR_DESKTOP_DATA_DIR: /data
       HOST: 0.0.0.0
       PORT: "8000"
     env_file:
