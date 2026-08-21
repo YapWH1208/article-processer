@@ -79,6 +79,7 @@ const PROVIDER_TYPES = [
 const PROTOCOL_OPTIONS = [
   { value: "openai", label: "OpenAI-compatible" },
   { value: "anthropic", label: "Anthropic-compatible" },
+  { value: "responses", label: "Responses API" },
 ];
 
 const EMPTY_PROVIDER_DRAFT = {
@@ -633,7 +634,7 @@ export default function SettingsPage() {
                           </SelectContent>
                         </Select>
                         <p className="text-[11px] text-muted-foreground">
-                          OpenAI = <code className="bg-muted px-1 rounded text-[10px]">/v1/chat/completions</code> 路 Anthropic = <code className="bg-muted px-1 rounded text-[10px]">/v1/messages</code>
+                          OpenAI = <code className="bg-muted px-1 rounded text-[10px]">/v1/chat/completions</code> · Anthropic = <code className="bg-muted px-1 rounded text-[10px]">/v1/messages</code> · Responses = <code className="bg-muted px-1 rounded text-[10px]">/v1/responses</code>
                         </p>
                       </div>
                     )}

@@ -194,6 +194,16 @@ def _build_provider_from_entry(entry: dict) -> BaseLLMProvider:
         if not model:
             model = preset["default_model"]
 
+    if protocol == "responses":
+        # OpenAI Responses API (/v1/responses)
+        from app.services.ai.responses_provider import ResponsesAPIProvider
+        return ResponsesAPIProvider(
+            base_url=base_url or settings.llm_custom_base_url,
+            api_key=api_key or settings.llm_custom_api_key or "not-needed",
+            model=model or settings.llm_custom_model or "gpt-4.1-mini",
+            provider_name=provider_type,
+        )
+
     if protocol == "anthropic" or provider_type == "anthropic":
         from app.services.ai.anthropic_provider import AnthropicProvider, CustomAnthropicProvider
         if provider_type == "anthropic" and not raw_base_url:
@@ -295,6 +305,9 @@ def get_llm_provider() -> BaseLLMProvider:
         if settings.llm_custom_protocol == "anthropic":
             from app.services.ai.anthropic_provider import CustomAnthropicProvider
             return CustomAnthropicProvider()
+        elif settings.llm_custom_protocol == "responses":
+            from app.services.ai.responses_provider import ResponsesAPIProvider
+            return ResponsesAPIProvider()
         else:
             from app.services.ai.openai_provider import CustomOpenAIProvider
             return CustomOpenAIProvider()

@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     # "glm" | "minimax" | "mimo" | "kimi"
     llm_provider: str = "openai"
     # When llm_provider = "custom", which protocol to speak
-    llm_custom_protocol: str = "openai"  # "openai" | "anthropic"
+    llm_custom_protocol: str = "openai"  # "openai" | "anthropic" | "responses"
     llm_custom_base_url: str = ""        # e.g. http://localhost:11434/v1
     llm_custom_api_key: str = ""
     llm_custom_model: str = ""           # e.g. llama3.1:8b

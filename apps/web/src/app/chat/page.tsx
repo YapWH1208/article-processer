@@ -491,7 +491,7 @@ export default function ChatPage() {
                             <div className="min-w-0 flex-1">
                               <div className="text-sm font-medium truncate">{p.name}</div>
                               <div className="text-[11px] text-muted-foreground truncate">
-                                {p.type}{p.protocol === "anthropic" ? " · Anthropic" : ""} — {p.model || "default model"}
+                                {p.type}{p.protocol === "anthropic" ? " · Anthropic" : p.protocol === "responses" ? " · Responses API" : ""} — {p.model || "default model"}
                               </div>
                             </div>
                             {activeProviderId === p.id && (
