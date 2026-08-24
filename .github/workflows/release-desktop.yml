@@ -94,7 +94,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          set -o pipefail
+          set -euo pipefail
           # Create the release if it does not exist yet. Matrix jobs run
           # concurrently, so a sibling job may win the create race — retry.
           for attempt in 1 2 3 4 5; do
@@ -106,12 +106,23 @@ jobs:
             fi
             sleep 5
           done
+          # Do not report a successful matrix job if every create attempt
+          # failed (or the release is still unavailable after a create race).
+          gh release view "$TAG_NAME" >/dev/null
+
           # Upload this OS's assets directly to the release — no artifact
-          # upload/download round trip.
+          # upload/download round trip. Use a file-backed NUL list instead of
+          # a pipeline so any failed upload terminates the step on every OS.
+          asset_list="$(mktemp)"
+          trap 'rm -f "$asset_list"' EXIT
           find apps/desktop/dist -type f \
             \( -name "*.AppImage" -o -name "*.blockmap" -o -name "*.dmg" \
                -o -name "*.exe" -o -name "*.tar.gz" -o -name "*.zip" -o -name "*.yml" \) \
-            ! -name "builder-debug.yml" -print0 |
-            while IFS= read -r -d '' asset; do
-              gh release upload "$TAG_NAME" "$asset" --clobber
-            done
+            ! -name "builder-debug.yml" -print0 > "$asset_list"
+          if [[ ! -s "$asset_list" ]]; then
+            echo "No release assets found in apps/desktop/dist" >&2
+            exit 1
+          fi
+          while IFS= read -r -d '' asset; do
+            gh release upload "$TAG_NAME" "$asset" --clobber
+          done < "$asset_list"

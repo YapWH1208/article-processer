@@ -42,6 +42,7 @@ def test_desktop_release_creates_release_with_retry():
     assert 'gh release create "$TAG_NAME"' in contents
     assert "--notes-file release-notes.md" in contents
     assert "for attempt in" in contents
+    assert 'gh release view "$TAG_NAME" >/dev/null' in contents
 
 
 def test_desktop_release_uploads_assets_one_at_a_time_without_builder_debug():
@@ -50,6 +51,10 @@ def test_desktop_release_uploads_assets_one_at_a_time_without_builder_debug():
     assert "builder-debug.yml" in contents
     assert "xargs -0 gh release upload" not in contents
     assert 'gh release upload "$TAG_NAME" "$asset" --clobber' in contents
+    assert "set -euo pipefail" in contents
+    assert "-print0 |" not in contents
+    assert '[[ ! -s "$asset_list" ]]' in contents
+    assert 'done < "$asset_list"' in contents
 
 
 def test_desktop_release_uses_changelog_for_release_notes():
