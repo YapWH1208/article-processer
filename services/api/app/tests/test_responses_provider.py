@@ -1,6 +1,8 @@
 """Tests for the OpenAI Responses API provider."""
 
 import json
+from pathlib import Path
+import tomllib
 from types import SimpleNamespace
 
 import pytest
@@ -8,6 +10,9 @@ import pytest
 from app.routers import settings_page
 from app.services.ai.base import BaseLLMProvider
 from app.services.ai.responses_provider import ResponsesAPIProvider
+
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 VALID_EXTRACTION_JSON = (
@@ -19,6 +24,14 @@ VALID_EXTRACTION_JSON = (
     '"references": [], "tags": [], "graph_entities": [], '
     '"graph_relationships": []}'
 )
+
+
+def test_project_requires_openai_sdk_with_responses_api():
+    pyproject = tomllib.loads(
+        (REPO_ROOT / "services" / "api" / "pyproject.toml").read_text(encoding="utf-8")
+    )
+
+    assert "openai>=1.66.0" in pyproject["project"]["dependencies"]
 
 
 class _FakeResponses:

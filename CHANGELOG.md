@@ -12,7 +12,8 @@ All notable changes to the Article Processor project.
   Responses API: choose "Responses API" as the protocol for a Custom Endpoint provider
   (Settings → Providers) or set `LLM_CUSTOM_PROTOCOL=responses`. Extraction (with
   JSON-mode fallback), Deep Analysis reports, chat Q&A (including streaming), and
-  skills all run against `{base_url}/responses`, with token usage accounting.
+  skills all run against `{base_url}/responses`, with token usage accounting. The
+  backend now requires `openai>=1.66.0`, the first SDK release with this endpoint.
 
 ### Changed
 
