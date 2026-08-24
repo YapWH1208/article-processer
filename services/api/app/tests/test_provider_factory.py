@@ -1,9 +1,11 @@
 """Tests for provider construction from developer config entries."""
 
 import app.services.ai.anthropic_provider as anthropic_provider_module
+import app.services.ai.base as base_module
 from app.services.ai.base import _build_provider_from_entry
 from app.services.ai.mock_provider import MockLLMProvider
 from app.services.ai.openai_provider import CustomOpenAIProvider, OpenAIProvider
+from app.services.ai.responses_provider import ResponsesAPIProvider
 
 
 def test_openai_provider_entry_uses_configured_key_and_model():
@@ -42,6 +44,37 @@ def test_cloud_provider_entry_without_key_falls_back_to_mock():
     })
 
     assert isinstance(provider, MockLLMProvider)
+
+
+def test_responses_protocol_entry_builds_responses_provider():
+    provider = _build_provider_from_entry({
+        "type": "custom",
+        "api_key": "k",
+        "base_url": "https://api.example.com",
+        "model": "resp-model",
+        "protocol": "responses",
+    })
+
+    assert isinstance(provider, ResponsesAPIProvider)
+    assert provider.model == "resp-model"
+    # The openai SDK normalizes the base URL with a trailing slash.
+    assert str(provider.client.base_url).rstrip("/") == "https://api.example.com/v1"
+    assert provider._provider_name == "custom"
+
+
+def test_legacy_env_responses_protocol_returns_responses_provider(monkeypatch, tmp_path):
+    monkeypatch.setattr(base_module.settings, "use_mock_ai", False)
+    monkeypatch.setattr(base_module.settings, "llm_provider", "custom")
+    monkeypatch.setattr(base_module.settings, "llm_custom_base_url", "https://api.example.com")
+    monkeypatch.setattr(base_module.settings, "llm_custom_model", "m-resp")
+    monkeypatch.setattr(base_module.settings, "llm_custom_protocol", "responses")
+    monkeypatch.setattr(
+        base_module, "DEV_CONFIG_PATH", tmp_path / "missing" / "dev_config.json"
+    )
+
+    provider = base_module.get_llm_provider()
+
+    assert isinstance(provider, ResponsesAPIProvider)
 
 
 def test_anthropic_preset_without_base_url_uses_native_with_env_key(monkeypatch):

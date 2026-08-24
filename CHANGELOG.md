@@ -4,6 +4,43 @@ All notable changes to the Article Processor project.
 
 ---
 
+## [0.3.6] — 2026-08-21
+
+### Added
+
+- **Responses API provider protocol** - Custom LLM endpoints can now speak the OpenAI
+  Responses API: choose "Responses API" as the protocol for a Custom Endpoint provider
+  (Settings → Providers) or set `LLM_CUSTOM_PROTOCOL=responses`. Extraction (with
+  JSON-mode fallback), Deep Analysis reports, chat Q&A (including streaming), and
+  skills all run against `{base_url}/responses`, with token usage accounting. The
+  backend now requires `openai>=1.66.0`, the first SDK release with this endpoint.
+
+### Changed
+
+- **Desktop release workflow publishes directly per OS build** - On `v*` tag pushes,
+  each OS matrix job now uploads its own installers straight to the GitHub Release as
+  soon as that build finishes (creating the release if needed, with a retry for the
+  create race between concurrent matrix jobs). The intermediate `actions/upload-artifact`
+  upload/download round trip and the separate release job are gone, so releases appear
+  immediately instead of after all three builds plus a double transfer. Manual
+  `workflow_dispatch` runs build and test but publish nothing.
+- **Docker keeps all app data across rebuilds** - The `api` container now sets
+  `ARTICLE_PROCESSOR_DESKTOP_DATA_DIR=/data`, so provider configurations
+  (`dev_config.json`), settings saved through the web UI (`/data/.env`), and skills
+  live on the `app-data` volume next to the SQLite database and uploads —
+  `docker compose up -d --build` no longer loses them. Variables defined in the
+  compose `.env` still take precedence over the volume's `/data/.env`.
+
+### Fixed
+
+- **MinerU cloud API upload 403 SignatureDoesNotMatch** - The presigned Aliyun OSS
+  upload URL is now PUT with raw PDF bytes and no `Content-Type` header. MinerU
+  computes the presigned signature without a Content-Type, and OSS includes received
+  headers in the StringToSign it verifies, so sending one made the signatures
+  disagree and every cloud upload fail with 403.
+
+---
+
 ## [0.3.5] — 2026-08-19
 
 ### Added

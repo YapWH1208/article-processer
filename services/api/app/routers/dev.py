@@ -189,7 +189,7 @@ class ProviderCreate(BaseModel):
     api_key: str = Field(default="", max_length=512)
     base_url: str = Field(default="", max_length=1024)
     model: str = Field(default="", max_length=256)
-    protocol: str = Field(default="openai", max_length=16)  # openai or anthropic
+    protocol: str = Field(default="openai", max_length=16)  # openai, anthropic, or responses
 
 
 class ProviderResponse(BaseModel):

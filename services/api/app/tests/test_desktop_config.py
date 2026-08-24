@@ -5,6 +5,9 @@ from pathlib import Path
 import pytest
 
 
+REPO_ROOT = Path(__file__).resolve().parents[4]
+
+
 DESKTOP_PATH_MODULES = (
     "app.services.ai.prompts",
     "app.services.ai.base",
@@ -95,3 +98,10 @@ def test_desktop_dev_config_paths_use_data_dir(monkeypatch, tmp_path):
     assert ai_base.DEV_CONFIG_PATH == expected
     assert prompts.DEV_CONFIG_PATH == expected
     assert skills_registry.SKILLS_FILE == desktop_data_dir / "data" / "skills.json"
+
+
+def test_docker_deployment_sets_volume_backed_data_root():
+    compose = REPO_ROOT / "docker-compose.yml"
+    dockerfile = REPO_ROOT / "services" / "api" / "Dockerfile"
+    assert "ARTICLE_PROCESSOR_DESKTOP_DATA_DIR: /data" in compose.read_text(encoding="utf-8")
+    assert "ARTICLE_PROCESSOR_DESKTOP_DATA_DIR=/data" in dockerfile.read_text(encoding="utf-8")

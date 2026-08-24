@@ -24,7 +24,7 @@ LLM_PROVIDERS = [
     "openai", "anthropic", "custom",
     "deepseek", "openrouter", "glm", "minimax", "mimo", "kimi",
 ]
-LLM_CUSTOM_PROTOCOLS = ["openai", "anthropic"]
+LLM_CUSTOM_PROTOCOLS = ["openai", "anthropic", "responses"]
 PARSER_PRIORITIES = ["mineru_only", "mineru_first", "docling", "pypdf", "ocr"]
 
 # Serialize in-app parser install/uninstall so concurrent requests (e.g. from

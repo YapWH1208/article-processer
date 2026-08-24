@@ -38,6 +38,7 @@ FROM base AS runtime
 # Absolute paths bypass the repo-root path resolution in config.py.
 ENV DATABASE_URL=sqlite:////data/app.sqlite3 \
     STORAGE_DIR=/data/storage \
+    ARTICLE_PROCESSOR_DESKTOP_DATA_DIR=/data \
     HOST=0.0.0.0 \
     PORT=8000
 
