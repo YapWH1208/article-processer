@@ -4,7 +4,7 @@ All notable changes to the Article Processor project.
 
 ---
 
-## [Unreleased]
+## [0.3.7] — 2026-08-26
 
 ### Added
 
