@@ -103,6 +103,9 @@ export default function ArticleDetailPage() {
   const [chatOpen, setChatOpen] = useState(true);
   // FR-4: sticky once any response for this article reports a mock provider
   const [mockAiChat, setMockAiChat] = useState(false);
+  // FR-4 race guard (review Finding 6): late callbacks from a previous
+  // article's stream must not flag the current article as mock-driven.
+  const latestArticleIdRef = useRef(articleId);
   const [contextText, setContextText] = useState("");
   const [chatDraftSeed, setChatDraftSeed] = useState({ id: 0, text: "" });
   const [expandedMsgs, setExpandedMsgs] = useState<Set<number>>(new Set());
@@ -177,8 +180,10 @@ export default function ArticleDetailPage() {
       console.error("Failed to load article data:", e);
       const message = e instanceof Error ? e.message : String(e);
       // FR-1: apiFetch only surfaces the response detail, so classify via message.
-      setLoadFailure(/404|not exist|not found/i.test(message) ? "not_found" : "load_failed");
-      toast.error("Failed to load article. Check your connection and try again.");
+      const notFound = /404|not exist|not found/i.test(message);
+      setLoadFailure(notFound ? "not_found" : "load_failed");
+      // Review NIT 9: the connection copy would be wrong for a genuine 404.
+      if (!notFound) toast.error("Failed to load article. Check your connection and try again.");
     } finally { setLoading(false); }
   }, [articleId, loadSkills]);
 
@@ -186,6 +191,7 @@ export default function ArticleDetailPage() {
 
   // A different article starts with a clean mock-AI slate (FR-4)
   useEffect(() => { setMockAiChat(false); }, [articleId]);
+  useEffect(() => { latestArticleIdRef.current = articleId; }, [articleId]);
 
   // One-time: start with the workspace panel collapsed on mobile viewports
   useEffect(() => {
@@ -227,6 +233,7 @@ export default function ArticleDetailPage() {
   const handleChat = useCallback((draftQuestion: string) => {
     const submission = createChatSubmission({ question: draftQuestion, contextText, language });
     if (!submission) return false;
+    const requestedForArticle = articleId;
 
     setChatting(true);
     const userMsg: ChatMessage = { role: "user", content: submission.content };
@@ -253,7 +260,7 @@ export default function ArticleDetailPage() {
       },
       // onDone: streaming completed successfully
       (_answer, citations, meta) => {
-        if (meta?.mock) setMockAiChat(true);
+        if (meta?.mock && latestArticleIdRef.current === requestedForArticle) setMockAiChat(true);
         setMessages((prev) => {
           const updated = [...prev];
           updated[updated.length - 1] = {
@@ -270,7 +277,7 @@ export default function ArticleDetailPage() {
         setMessages((prev) => prev.slice(0, -1));
         try {
           const res = await sendChatMessage(articleId, userMsg.content, language);
-          if (res.mock) setMockAiChat(true);
+          if (res.mock && latestArticleIdRef.current === requestedForArticle) setMockAiChat(true);
           setMessages((prev) => [
             ...prev.slice(0, -1),
             { ...prev[prev.length - 1], prompt_tokens: res.prompt_tokens || 0 },

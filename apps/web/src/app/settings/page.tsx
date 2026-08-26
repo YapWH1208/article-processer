@@ -460,13 +460,16 @@ export default function SettingsPage() {
       systemMessages: snapshotSystemMessages(systemMessages),
       modelParams: currentModelParamsSnapshot(),
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirtyBaselineVersion, loading]);
 
   const settingsDirty = Boolean(
     dirtyBaseline &&
     (dirtyBaseline.general !== currentGeneralSnapshot() ||
-      dirtyBaseline.systemMessages !== snapshotSystemMessages(systemMessages) ||
+      dirtyBaseline.systemMessages !== snapshotSystemMessages({
+        ...systemMessages,
+        // Review Finding 8: an unsaved inline-editor draft counts as unsaved work.
+        ...(editingSm ? { __inlineDraft: editingSm + "::" + editSmContent } : {}),
+      }) ||
       dirtyBaseline.modelParams !== currentModelParamsSnapshot())
   );
 
@@ -1377,6 +1380,8 @@ export default function SettingsPage() {
                     } else {
                       setInputTemplates((prev) => ({ ...prev, [enlarged.name]: { ...prev[enlarged.name], template: enlargedContent } }));
                     }
+                    // Re-baseline so the saved state is not reported unsaved (review Finding 3).
+                    setDirtyBaselineVersion((v) => v + 1);
                     setEnlarged({ ...enlarged, content: enlargedContent });
                     setEnlargedEditing(false);
                     toast.success(`Saved "${enlarged.title}"`);

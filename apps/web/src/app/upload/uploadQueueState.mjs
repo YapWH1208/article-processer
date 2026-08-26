@@ -8,6 +8,9 @@ function normalizeProcessingFile(file) {
     step: file?.step || null,
     status: String(file?.status || "processing"),
     error: file?.error || null,
+    // Preserve honest "Already in your library" labeling across reloads
+    // (review Finding 5). Omitted entirely for ordinary rows.
+    ...(file?.duplicate ? { duplicate: true } : {}),
   };
 }
 

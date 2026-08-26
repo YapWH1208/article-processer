@@ -340,16 +340,29 @@ export default function UploadPage() {
       try {
         const r = await uploadFile(arr[i], mode, language);
         if (r.duplicate) {
-          // FR-6: already ingested — no polling; snapshot keeps the terminal status so it never resumes.
+          // FR-6: already ingested. Terminal states render honest static rows
+          // (code review Finding 2); anything still processing/failed keeps
+          // live tracking so the user sees the real outcome.
           const dupId = r.article_id;
-          setProcessingFiles((prev) => [
-            { filename: arr[i].name, articleId: dupId, step: null, status: "completed", error: null, duplicate: true },
-            ...prev.filter((f) => f.articleId !== dupId),
-          ]);
+          const terminalDuplicate = r.status === "completed" || r.status === "needs_review";
+          if (terminalDuplicate) {
+            setProcessingFiles((prev) => [
+              { filename: arr[i].name, articleId: dupId, step: null, status: r.status === "needs_review" ? "needs_review" : "completed", error: null, duplicate: true },
+              ...prev.filter((f) => f.articleId !== dupId),
+            ]);
+          } else if (r.status === "failed") {
+            setProcessingFiles((prev) => [
+              { filename: arr[i].name, articleId: dupId, step: null, status: "failed", error: "Existing article is in a failed state — retry from Jobs", duplicate: true },
+              ...prev.filter((f) => f.articleId !== dupId),
+            ]);
+          } else {
+            startPolling(dupId, arr[i].name);
+          }
         } else {
           startPolling(r.article_id, arr[i].name);
         }
-        okCount++;
+        // "N uploaded" counts fresh ingests only (review NIT 11).
+        if (!r.duplicate) okCount++;
       } catch (e: unknown) {
         failures.push(`${arr[i].name}: ${e instanceof Error ? e.message : "Upload failed"}`);
       }
