@@ -52,6 +52,37 @@ interface SystemMessageItem { content: string; }
 
 interface InputTemplateItem { template: string; description: string; }
 
+// ── FR-7: coarse unsaved-work snapshots ──────────────────────────────────
+
+function snapshotGeneralSettings(fields: {
+  maxUploadMb: number; parserPriority: string;
+  mineruApiEnabled: boolean; mineruApiMode: string;
+  mineruApiKey: string; clearMineruApiKey: boolean;
+  mineruApiBaseUrl: string; mineruApiModel: string;
+  mineruApiEnableFormula: boolean; mineruApiIsOcr: boolean; mineruApiLanguage: string;
+  apiBaseUrl: string;
+  openReviewUsername: string; openReviewPassword: string; clearOpenReviewPassword: boolean;
+  openReviewAccessToken: string; clearOpenReviewAccessToken: boolean;
+}): string {
+  return JSON.stringify(fields);
+}
+
+function snapshotSystemMessages(messages: Record<string, string>): string {
+  return JSON.stringify(messages);
+}
+
+function snapshotModelParams(params: {
+  temperature: number; topP: number; maxTokens: number; freqPenalty: number; presPenalty: number;
+}): string {
+  return JSON.stringify(params);
+}
+
+interface SettingsBaselineSnapshot {
+  general: string;
+  systemMessages: string;
+  modelParams: string;
+}
+
 interface ProviderEntry {
   id: string; name: string; type: string;
   api_key: string; base_url: string; model: string; protocol: string;
@@ -331,6 +362,7 @@ export default function SettingsPage() {
       setClearOpenReviewPassword(false);
       setClearOpenReviewAccessToken(false);
       toast.success("General settings saved");
+      setDirtyBaselineVersion((v) => v + 1);
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Save failed"); }
     finally { setSaving(false); }
   };
@@ -346,6 +378,7 @@ export default function SettingsPage() {
       setSystemMessages((prev) => ({ ...prev, [name]: editSmContent }));
       setEditingSm(null);
       toast.success(`System message "${name}" saved`);
+      setDirtyBaselineVersion((v) => v + 1);
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Save failed"); }
     finally { setSmSaving(false); }
   };
@@ -375,6 +408,7 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error((await res.json()).detail || "Save failed");
       setMpDirty(false);
       toast.success("Model parameters saved");
+      setDirtyBaselineVersion((v) => v + 1);
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Save failed"); }
     finally { setMpSaving(false); }
   };
@@ -390,6 +424,62 @@ export default function SettingsPage() {
     setFreqPenalty(p.freq_penalty); setPresPenalty(p.pres_penalty);
     setMpDirty(true);
   };
+
+  // ── Unsaved-changes guard (FR-7) ──────────────────────────────────────
+  // Coarse signal across the general, system-messages, and model-params
+  // groups: re-baseline after each successful save/load, compare on change.
+  const [dirtyBaseline, setDirtyBaseline] = useState<SettingsBaselineSnapshot | null>(null);
+  const [dirtyBaselineVersion, setDirtyBaselineVersion] = useState(0);
+
+  const currentGeneralSnapshot = () => snapshotGeneralSettings({
+    maxUploadMb,
+    parserPriority,
+    mineruApiEnabled,
+    mineruApiMode,
+    mineruApiKey,
+    clearMineruApiKey,
+    mineruApiBaseUrl,
+    mineruApiModel,
+    mineruApiEnableFormula,
+    mineruApiIsOcr,
+    mineruApiLanguage,
+    apiBaseUrl,
+    openReviewUsername,
+    openReviewPassword,
+    clearOpenReviewPassword,
+    openReviewAccessToken,
+    clearOpenReviewAccessToken,
+  });
+  const currentModelParamsSnapshot = () => snapshotModelParams({ temperature, topP, maxTokens, freqPenalty, presPenalty });
+
+  // Re-capture the baseline after initial load and after every explicit save.
+  useEffect(() => {
+    if (loading) return;
+    setDirtyBaseline({
+      general: currentGeneralSnapshot(),
+      systemMessages: snapshotSystemMessages(systemMessages),
+      modelParams: currentModelParamsSnapshot(),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirtyBaselineVersion, loading]);
+
+  const settingsDirty = Boolean(
+    dirtyBaseline &&
+    (dirtyBaseline.general !== currentGeneralSnapshot() ||
+      dirtyBaseline.systemMessages !== snapshotSystemMessages(systemMessages) ||
+      dirtyBaseline.modelParams !== currentModelParamsSnapshot())
+  );
+
+  // Warn before closing/reloading with unsaved settings (in-app nav is out of scope per D4).
+  useEffect(() => {
+    if (!settingsDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [settingsDirty]);
 
   // ── Loading ───────────────────────────────────────────────────────────
 
@@ -923,7 +1013,13 @@ export default function SettingsPage() {
                   <SliderField label="Presence Penalty" value={presPenalty} min={-2} max={2} step={0.05}
                     onChange={(v) => { setPresPenalty(v); setMpDirty(true); }} icon={Sparkles}
                     hint="Positive values encourage topic diversity." />
-                  <div className="flex gap-2 justify-end pt-2">
+                  <div className="flex items-center gap-2 justify-end pt-2">
+                    {settingsDirty && (
+                      <span role="status" className="mr-auto flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                        <span aria-hidden="true" className="h-2 w-2 rounded-full bg-amber-500" />
+                        Unsaved changes
+                      </span>
+                    )}
                     {mpDirty && (
                       <Button variant="ghost" size="sm" onClick={() => {
                         if (config) { setTemperature(config.temperature); setTopP(config.top_p); setMaxTokens(config.max_tokens); setFreqPenalty(config.frequency_penalty); setPresPenalty(config.presence_penalty); setMpDirty(false); }
@@ -1191,7 +1287,13 @@ export default function SettingsPage() {
                   </CardContent>
                 </Card>
 
-                <div className="flex gap-2 justify-end">
+                <div className="flex items-center gap-2 justify-end">
+                  {settingsDirty && (
+                    <span role="status" className="mr-auto flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                      <span aria-hidden="true" className="h-2 w-2 rounded-full bg-amber-500" />
+                      Unsaved changes
+                    </span>
+                  )}
                   <Button size="sm" onClick={handleGeneralSave} disabled={saving}>
                     {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1"/> : <Save className="h-4 w-4 mr-1"/>} Save
                   </Button>

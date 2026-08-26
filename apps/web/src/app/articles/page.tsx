@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight, ArrowUpDown, CheckSquare, Square, Trash2, ArchiveRestore, X, FileType, Globe, FileCode, FileDown, RotateCcw, Upload } from "lucide-react";
+import { Search, Filter, FileText, ArrowRight, Archive, ChevronLeft, ChevronRight, ArrowUpDown, CheckSquare, Square, Trash2, ArchiveRestore, X, FileType, Globe, FileCode, FileDown, RotateCcw, Upload, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +40,8 @@ export default function ArticlesPage() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  // FR-2: the list request failed — never dress it up as "no matching articles"
+  const [loadFailed, setLoadFailed] = useState(false);
   const [search, setSearch] = useState(initialListState.search);
   const [searchContent, setSearchContent] = useState(initialListState.searchContent);
   const [statusFilter, setStatusFilter] = useState(initialListState.statusFilter);
@@ -168,9 +170,18 @@ export default function ArticlesPage() {
     params.set("skip", String((page - 1) * PAGE_SIZE));
     params.set("limit", String(PAGE_SIZE));
     fetch(`${API_BASE}/articles?${params.toString()}`)
-      .then((r) => r.json())
-      .then((d) => { setArticles(d.articles || []); setTotal(d.total || 0); })
-      .catch(() => {})
+      .then((r) => {
+        // FR-2: a JSON-shaped server error must not masquerade as an empty library.
+        if (!r.ok) throw new Error(String(r.status));
+        return r.json();
+      })
+      .then((d) => { setArticles(d.articles || []); setTotal(d.total || 0); setLoadFailed(false); })
+      .catch(() => {
+        // Clear stale rows so a failed refetch cannot show outdated data.
+        setArticles([]);
+        setTotal(0);
+        setLoadFailed(true);
+      })
       .finally(() => setLoading(false));
   }, [page, statusFilter, includeArchived, search, searchContent, sortBy, sortOrder, refreshKey]);
 
@@ -359,6 +370,21 @@ export default function ArticlesPage() {
         <div className="space-y-3">
           {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-20 w-full" />)}
         </div>
+      ) : loadFailed && articles.length === 0 ? (
+        <FadeIn delay={0.15}>
+          <div role="alert" className="flex flex-wrap items-center gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span className="font-medium">Couldn&apos;t load articles.</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto gap-1 border-destructive/30 bg-background/70 text-destructive hover:bg-destructive/10"
+              onClick={() => setRefreshKey((k) => k + 1)}
+            >
+              <RotateCcw className="h-3.5 w-3.5" /> Retry
+            </Button>
+          </div>
+        </FadeIn>
       ) : articles.length === 0 ? (
         <FadeIn delay={0.2}>
           <Card className="border-dashed overflow-hidden">

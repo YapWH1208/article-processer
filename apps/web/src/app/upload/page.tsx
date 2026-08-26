@@ -20,6 +20,8 @@ interface ProcessingFile {
   step: string | null;
   status: string;
   error: string | null;
+  /** Set in memory when the server reported the file already exists (FR-6). */
+  duplicate?: boolean;
 }
 
 const STEP_ORDER = ["uploaded", "parsing", "extracting", "embedding", "graph"] as const;
@@ -199,6 +201,9 @@ export default function UploadPage() {
   const [progress, setProgress] = useState(0);
   const [processingFiles, setProcessingFiles] = useState<ProcessingFile[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // FR-5: every failed file stays visible — earlier failures survive later ones
+  const [uploadFileErrors, setUploadFileErrors] = useState<string[]>([]);
+  const [uploadedCount, setUploadedCount] = useState(0);
   const [showSparkle, setShowSparkle] = useState(false);
   const [clearingFinished, setClearingFinished] = useState(false);
   const [queueRestored, setQueueRestored] = useState(false);
@@ -326,18 +331,32 @@ export default function UploadPage() {
       setError("Connect to the local API before uploading files.");
       return;
     }
-    setUploading(true); setError(null); setProgress(0);
+    setUploading(true); setError(null); setUploadFileErrors([]); setUploadedCount(0); setProgress(0);
     const arr = Array.from(files);
 
+    const failures: string[] = [];
+    let okCount = 0;
     for (let i = 0; i < arr.length; i++) {
       try {
         const r = await uploadFile(arr[i], mode, language);
-        startPolling(r.article_id, arr[i].name);
+        if (r.duplicate) {
+          // FR-6: already ingested — no polling; snapshot keeps the terminal status so it never resumes.
+          const dupId = r.article_id;
+          setProcessingFiles((prev) => [
+            { filename: arr[i].name, articleId: dupId, step: null, status: "completed", error: null, duplicate: true },
+            ...prev.filter((f) => f.articleId !== dupId),
+          ]);
+        } else {
+          startPolling(r.article_id, arr[i].name);
+        }
+        okCount++;
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : "Upload failed");
+        failures.push(`${arr[i].name}: ${e instanceof Error ? e.message : "Upload failed"}`);
       }
       setProgress(Math.round(((i + 1) / arr.length) * 100));
     }
+    setUploadFileErrors(failures);
+    setUploadedCount(okCount);
     setUploading(false);
     if (arr.length > 0 && !shouldReduceMotion) { setShowSparkle(true); setTimeout(() => setShowSparkle(false), 2500); }
   }, [backendState, language, mode, shouldReduceMotion, startPolling, uploading]);
@@ -499,10 +518,20 @@ export default function UploadPage() {
 
       {/* Error */}
       <AnimatePresence>
-        {error && (
+        {(error || uploadFileErrors.length > 0) && (
           <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/20 text-sm text-destructive">
-            <AlertCircle className="h-4 w-4 shrink-0" />{error}
+            role="alert"
+            className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/20 text-sm text-destructive">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="min-w-0 flex-1 space-y-1">
+              {error && <p className="font-medium">{error}</p>}
+              {uploadFileErrors.map((line, i) => (
+                <p key={i} className="break-all">{line}</p>
+              ))}
+              {uploadedCount > 0 && uploadFileErrors.length > 0 && (
+                <p className="text-xs opacity-80">{uploadedCount} uploaded</p>
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -604,7 +633,7 @@ export default function UploadPage() {
                           <Button variant="link" size="sm" asChild>
                             <Link href={`/articles/${f.articleId}`} className="gap-1.5">
                               <Eye className="h-3.5 w-3.5" />
-                              {isReadyStatus(f.status) ? "Open reading guide" : "Open article"}
+                              {f.duplicate ? "Open" : isReadyStatus(f.status) ? "Open reading guide" : "Open article"}
                             </Link>
                           </Button>
                         )}
@@ -616,7 +645,7 @@ export default function UploadPage() {
                         />
                       </div>
                       <p className={`text-xs ${f.status === "failed" ? "text-destructive" : "text-muted-foreground"}`}>
-                        {f.status === "completed" ? "Complete" : f.status === "needs_review" ? "Ready for review" : f.status === "failed" ? f.error || "Failed" : stepLabel(f.step)}
+                        {f.duplicate ? "Already in your library" : f.status === "completed" ? "Complete" : f.status === "needs_review" ? "Ready for review" : f.status === "failed" ? f.error || "Failed" : stepLabel(f.step)}
                       </p>
                     </motion.div>
                   ))}

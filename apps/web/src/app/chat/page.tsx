@@ -7,7 +7,7 @@ import ChatMarkdown from "@/components/chat-markdown";
 import {
   Send, MessageCircle, Hash, FileText, X, Loader2,
   Plus, BookOpen, ArrowUp, Trash2, PanelLeftClose, PanelLeftOpen,
-  MessageSquare, Brain, ChevronDown, Check,
+  MessageSquare, Brain, ChevronDown, Check, Info,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -153,6 +153,8 @@ export default function ChatPage() {
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [taggedArticles, setTaggedArticles] = useState<ArticleSummary[]>([]);
+  // FR-4: remember which conversations last answered with the mock provider
+  const [mockChats, setMockChats] = useState<Record<number, boolean>>({});
 
   // Provider / model selector
   const [providers, setProviders] = useState<ProviderEntry[]>([]);
@@ -184,6 +186,7 @@ export default function ChatPage() {
   };
 
   const activeProvider = providers.find((p) => p.id === activeProviderId);
+  const activeMockChat = activeSessionId != null ? Boolean(mockChats[activeSessionId]) : false;
   const chatStartState = createChatStartState({
     articleCount: articles.length,
     taggedCount: taggedArticles.length,
@@ -310,6 +313,7 @@ export default function ChatPage() {
 
     try {
       const res = await sendSessionMessage(sid, text, articleIds, language);
+      if (res.mock) setMockChats((prev) => ({ ...prev, [sid]: true }));
       const assistantBubble: BubbleData = {
         role: "assistant",
         content: res.answer,
@@ -335,6 +339,7 @@ export default function ChatPage() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.nativeEvent as KeyboardEvent).isComposing) return;
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
     if (e.key === "Escape") setMentionOpen(false);
   };
@@ -604,6 +609,15 @@ export default function ChatPage() {
                     articles={articles} onSelect={selectArticle} onClose={() => setMentionOpen(false)} />
                 )}
               </AnimatePresence>
+              {activeMockChat && (
+                <div role="status" className="mb-2 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    Mock AI — responses are simulated. Configure a provider API key in{" "}
+                    <Link href="/settings" className="font-medium underline underline-offset-2">Settings</Link>.
+                  </span>
+                </div>
+              )}
               <div className="flex gap-2">
               <Input ref={inputRef} value={input}
                   onChange={(e) => handleInputChange(e.target.value)}
