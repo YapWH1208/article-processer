@@ -201,10 +201,15 @@ export async function streamChatMessage(
   articleId: number,
   message: string,
   onToken: (token: string) => void,
-  onDone: (fullAnswer: string, citations?: import("./types").Citation[]) => void,
+  onDone: (fullAnswer: string, citations?: import("./types").Citation[], meta?: import("./types").ChatStreamMeta) => void,
   onError: (error: string) => void,
   language = "en",
 ): Promise<void> {
+  // Forward mock/provider metadata from an SSE done payload when present.
+  const doneMetaFrom = (data: Record<string, unknown>): import("./types").ChatStreamMeta => ({
+    provider: typeof data.provider === "string" || data.provider === null ? (data.provider as string | null) : undefined,
+    mock: typeof data.mock === "boolean" ? data.mock : undefined,
+  });
   const url = `${API_BASE}/articles/${articleId}/chat/stream`;
   try {
     const res = await fetch(url, {
@@ -243,7 +248,7 @@ export async function streamChatMessage(
               fullAnswer += data.token;
               onToken(data.token);
             } else if (data.done) {
-              onDone(data.answer || fullAnswer, data.citations || []);
+              onDone(data.answer || fullAnswer, data.citations || [], doneMetaFrom(data));
             } else if (data.error) {
               onError(data.error);
             }
@@ -255,7 +260,7 @@ export async function streamChatMessage(
     if (buffer.startsWith("data: ")) {
       try {
         const data = JSON.parse(buffer.slice(6));
-        if (data.done) onDone(data.answer || fullAnswer, data.citations || []);
+        if (data.done) onDone(data.answer || fullAnswer, data.citations || [], doneMetaFrom(data));
       } catch {}
     }
   } catch (e: unknown) {

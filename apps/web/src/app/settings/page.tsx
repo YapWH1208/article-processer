@@ -31,6 +31,11 @@ import {
   getProviderAddWizardSteps,
 } from "./providerSettingsState.mjs";
 import { buildOpenReviewSettingsPayload } from "./openreviewSettingsState.mjs";
+import {
+  createSettingsBaseline,
+  isSettingsDirty,
+  rebaselineSettingsGroup,
+} from "./settingsDirtyState.mjs";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -51,6 +56,37 @@ interface SettingsData {
 interface SystemMessageItem { content: string; }
 
 interface InputTemplateItem { template: string; description: string; }
+
+// ── FR-7: coarse unsaved-work snapshots ──────────────────────────────────
+
+function snapshotGeneralSettings(fields: {
+  maxUploadMb: number; parserPriority: string;
+  mineruApiEnabled: boolean; mineruApiMode: string;
+  mineruApiKey: string; clearMineruApiKey: boolean;
+  mineruApiBaseUrl: string; mineruApiModel: string;
+  mineruApiEnableFormula: boolean; mineruApiIsOcr: boolean; mineruApiLanguage: string;
+  apiBaseUrl: string;
+  openReviewUsername: string; openReviewPassword: string; clearOpenReviewPassword: boolean;
+  openReviewAccessToken: string; clearOpenReviewAccessToken: boolean;
+}): string {
+  return JSON.stringify(fields);
+}
+
+function snapshotSystemMessages(messages: Record<string, string>): string {
+  return JSON.stringify(messages);
+}
+
+function snapshotModelParams(params: {
+  temperature: number; topP: number; maxTokens: number; freqPenalty: number; presPenalty: number;
+}): string {
+  return JSON.stringify(params);
+}
+
+interface SettingsBaselineSnapshot {
+  general: string;
+  systemMessages: string;
+  modelParams: string;
+}
 
 interface ProviderEntry {
   id: string; name: string; type: string;
@@ -331,6 +367,7 @@ export default function SettingsPage() {
       setClearOpenReviewPassword(false);
       setClearOpenReviewAccessToken(false);
       toast.success("General settings saved");
+      setGeneralBaselineVersion((v) => v + 1);
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Save failed"); }
     finally { setSaving(false); }
   };
@@ -346,6 +383,7 @@ export default function SettingsPage() {
       setSystemMessages((prev) => ({ ...prev, [name]: editSmContent }));
       setEditingSm(null);
       toast.success(`System message "${name}" saved`);
+      setSmBaselineVersion((v) => v + 1);
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Save failed"); }
     finally { setSmSaving(false); }
   };
@@ -375,6 +413,7 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error((await res.json()).detail || "Save failed");
       setMpDirty(false);
       toast.success("Model parameters saved");
+      setMpBaselineVersion((v) => v + 1);
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Save failed"); }
     finally { setMpSaving(false); }
   };
@@ -390,6 +429,87 @@ export default function SettingsPage() {
     setFreqPenalty(p.freq_penalty); setPresPenalty(p.pres_penalty);
     setMpDirty(true);
   };
+
+  // ── Unsaved-changes guard (FR-7) ──────────────────────────────────────
+  // Coarse signal across three INDEPENDENT groups (general / system-message /
+  // model-params): each group owns its own baseline snapshot. The pristine
+  // baseline is captured once after load; each successful save re-baselines
+  // ONLY the group it saved, so a save never silently absorbs unsaved edits
+  // made in the other groups.
+  const [dirtyBaseline, setDirtyBaseline] = useState<SettingsBaselineSnapshot | null>(null);
+  const [generalBaselineVersion, setGeneralBaselineVersion] = useState(0);
+  const [smBaselineVersion, setSmBaselineVersion] = useState(0);
+  const [mpBaselineVersion, setMpBaselineVersion] = useState(0);
+
+  const currentGeneralSnapshot = () => snapshotGeneralSettings({
+    maxUploadMb,
+    parserPriority,
+    mineruApiEnabled,
+    mineruApiMode,
+    mineruApiKey,
+    clearMineruApiKey,
+    mineruApiBaseUrl,
+    mineruApiModel,
+    mineruApiEnableFormula,
+    mineruApiIsOcr,
+    mineruApiLanguage,
+    apiBaseUrl,
+    openReviewUsername,
+    openReviewPassword,
+    clearOpenReviewPassword,
+    openReviewAccessToken,
+    clearOpenReviewAccessToken,
+  });
+  const currentModelParamsSnapshot = () => snapshotModelParams({ temperature, topP, maxTokens, freqPenalty, presPenalty });
+
+  // Initial load: capture the pristine baseline once both loaders finished.
+  useEffect(() => {
+    if (loading) return;
+    setDirtyBaseline(createSettingsBaseline({
+      general: currentGeneralSnapshot(),
+      systemMessages: snapshotSystemMessages(systemMessages),
+      modelParams: currentModelParamsSnapshot(),
+    }));
+  }, [loading]);
+
+  // After a successful save, re-baseline ONLY the group that was saved;
+  // every other group keeps its previous baseline (and any unsaved edits).
+  useEffect(() => {
+    if (loading) return;
+    setDirtyBaseline((prev) =>
+      prev ? rebaselineSettingsGroup(prev, "general", currentGeneralSnapshot()) : prev);
+  }, [generalBaselineVersion]);
+  useEffect(() => {
+    if (loading) return;
+    setDirtyBaseline((prev) =>
+      prev ? rebaselineSettingsGroup(prev, "systemMessages", snapshotSystemMessages(systemMessages)) : prev);
+  }, [smBaselineVersion]);
+  useEffect(() => {
+    if (loading) return;
+    setDirtyBaseline((prev) =>
+      prev ? rebaselineSettingsGroup(prev, "modelParams", currentModelParamsSnapshot()) : prev);
+  }, [mpBaselineVersion]);
+
+  const settingsDirty = isSettingsDirty(dirtyBaseline, {
+    general: currentGeneralSnapshot(),
+    systemMessages: snapshotSystemMessages({
+      ...systemMessages,
+      // Review Finding 8: an unsaved inline-editor draft counts as unsaved work.
+      ...(editingSm ? { __inlineDraft: editingSm + "::" + editSmContent } : {}),
+    }),
+    modelParams: currentModelParamsSnapshot(),
+  });
+
+  // Warn before closing/reloading with unsaved settings (in-app nav is out of scope per D4).
+  useEffect(() => {
+    if (!settingsDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [settingsDirty]);
 
   // ── Loading ───────────────────────────────────────────────────────────
 
@@ -923,7 +1043,13 @@ export default function SettingsPage() {
                   <SliderField label="Presence Penalty" value={presPenalty} min={-2} max={2} step={0.05}
                     onChange={(v) => { setPresPenalty(v); setMpDirty(true); }} icon={Sparkles}
                     hint="Positive values encourage topic diversity." />
-                  <div className="flex gap-2 justify-end pt-2">
+                  <div className="flex items-center gap-2 justify-end pt-2">
+                    {settingsDirty && (
+                      <span role="status" className="mr-auto flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                        <span aria-hidden="true" className="h-2 w-2 rounded-full bg-amber-500" />
+                        Unsaved changes
+                      </span>
+                    )}
                     {mpDirty && (
                       <Button variant="ghost" size="sm" onClick={() => {
                         if (config) { setTemperature(config.temperature); setTopP(config.top_p); setMaxTokens(config.max_tokens); setFreqPenalty(config.frequency_penalty); setPresPenalty(config.presence_penalty); setMpDirty(false); }
@@ -1191,7 +1317,13 @@ export default function SettingsPage() {
                   </CardContent>
                 </Card>
 
-                <div className="flex gap-2 justify-end">
+                <div className="flex items-center gap-2 justify-end">
+                  {settingsDirty && (
+                    <span role="status" className="mr-auto flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                      <span aria-hidden="true" className="h-2 w-2 rounded-full bg-amber-500" />
+                      Unsaved changes
+                    </span>
+                  )}
                   <Button size="sm" onClick={handleGeneralSave} disabled={saving}>
                     {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1"/> : <Save className="h-4 w-4 mr-1"/>} Save
                   </Button>
@@ -1272,6 +1404,10 @@ export default function SettingsPage() {
                     if (!res.ok) throw new Error((await res.json()).detail || "Save failed");
                     if (enlarged.kind === "system-message") {
                       setSystemMessages((prev) => ({ ...prev, [enlarged.name]: enlargedContent }));
+                      // Re-baseline so the saved state is not reported unsaved
+                      // (review Finding 3). Only the system-messages group is
+                      // re-baselined; input templates sit outside FR-7 tracking.
+                      setSmBaselineVersion((v) => v + 1);
                     } else {
                       setInputTemplates((prev) => ({ ...prev, [enlarged.name]: { ...prev[enlarged.name], template: enlargedContent } }));
                     }

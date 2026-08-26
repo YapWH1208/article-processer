@@ -35,6 +35,8 @@ export interface UploadResponse {
   job_id: number;
   filename: string;
   status: string;
+  /** True when this file was already ingested — no new processing job was started. */
+  duplicate?: boolean;
 }
 
 export interface UrlImportResponse {
@@ -192,6 +194,12 @@ export interface Citation {
   snippet?: string | null;
 }
 
+/** Provider metadata attached to chat responses and SSE `done` payloads (FR-4). */
+export interface ChatStreamMeta {
+  provider?: string | null;
+  mock?: boolean;
+}
+
 export interface ChatResponse {
   answer: string;
   citations: Citation[];
@@ -199,6 +207,8 @@ export interface ChatResponse {
   created_at: string;
   prompt_tokens?: number;
   completion_tokens?: number;
+  provider?: string | null;
+  mock?: boolean;
 }
 
 export interface ChatMessageResponse {
@@ -220,6 +230,8 @@ export interface MultiArticleChatResponse {
   prompt_tokens: number;
   completion_tokens: number;
   article_ids: number[];
+  provider?: string | null;
+  mock?: boolean;
 }
 
 export interface ChatSession {
@@ -236,6 +248,8 @@ export interface SessionMessageResponse {
   prompt_tokens: number;
   completion_tokens: number;
   session_id: number;
+  provider?: string | null;
+  mock?: boolean;
 }
 
 // ── Job types ─────────────────────────────────────────────────────

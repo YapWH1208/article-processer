@@ -9,12 +9,13 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.db.models import Article, ChatMessage, ChatSession, TokenUsage
+from app.db.models import Article, ArticleChunk, ChatMessage, ChatSession, TokenUsage
 from app.schemas.chat import (
     ChatRequest, ChatResponse, ChatHistoryResponse, ChatMessageResponse,
     Citation, MultiArticleChatRequest, MultiArticleChatResponse,
 )
 from app.services.ai.base import get_llm_provider
+from app.services.ai.mock_provider import MockLLMProvider
 from app.services.ai.cost import compute_token_cost
 from app.core.config import settings
 from app.services.search import retrieve_relevant_chunks
@@ -27,32 +28,152 @@ router = APIRouter()
 # Maximum number of prior message pairs to include as conversation context.
 # Each pair is one user message + one assistant response.
 MAX_HISTORY_TURNS = 10
-_INLINE_CITATION_RE = re.compile(
-    r'\[Chunk\s+(\d+)(?:,\s*Section:\s*"([^"]*)")?(?:\s*\(Pages?\s*(\d+)(?:-(\d+))?\))?\]',
+# Upper bound on citations derived from a single streamed answer (security
+# review LOW-2: document-steered answers could contain thousands of markers).
+MAX_DERIVED_CITATIONS = 50
+
+# Security review SEC-R-1: streamed answers are unbounded (max_tokens is
+# user-settable up to 32768, roughly ~130KB of text), so citation scanning is
+# bounded to the first MAX_CITATION_SCAN_CHARS characters of an answer;
+# markers beyond that window are ignored rather than stalling the event loop.
+MAX_CITATION_SCAN_CHARS = 64 * 1024
+
+# Security review SEC-R-2: any plausible chunk index stays far below this
+# bound, so markers above it are treated as garbage and skipped. Without this
+# clamp an adversarial marker either trips CPython's int_max_str_digits
+# (ValueError above ~4300 digits) or overflows SQLite's int64 bind limit in
+# the .in_() query below — either exception used to escape and silently drop
+# ALL citations for the message.
+MAX_MARKER_CHUNK_INDEX = 1_000_000_000
+
+# Tolerant variant for deriving citations from streamed answers: mirrors the
+# context-header format the providers teach ("[Chunk i, Section: "...",
+# Article: "..." (ID: n), Page: A-B]"), whose comma-separated tail a strict
+# bracket-only regex does not accept. Two anti-backtracking measures keep
+# scanning linear on unterminated marker-like text (SEC-R-1):
+#   - the digit run is POSSESSIVE (\d++, Python >=3.11) so it never yields
+#     characters back to the filler class (digits are valid filler, so
+#     surrendering them could never enable an extra match anyway); and
+#   - the filler class excludes '[' and newlines, so one failed attempt can
+#     never run into another bracketed block and every attempt is bounded by
+#     the distance to the next '[', ']' or newline.
+# requires-python is ">=3.11", which introduced possessive quantifiers.
+_DERIVED_CITATION_RE = re.compile(
+    r'\[Chunk\s+(\d++)(?:,\s*Section:\s*"([^"]*)")?[^\[\]\n]*\]',
     re.IGNORECASE,
 )
+# CR-5: IGNORECASE so lowercase "[chunk 4, page 9]" keeps the page fallback.
+_CITATION_PAGE_RE = re.compile(r'Pages?\s*:?\s*(\d+)(?:\s*-\s*(\d+))?', re.IGNORECASE)
 
 
-def _extract_inline_citations(answer: str) -> list[dict]:
-    citations: list[dict] = []
+def _scan_citation_markers(answer_text: str) -> list[tuple[int, str | None, int | None, int | None]]:
+    """Extract capped, de-duplicated [Chunk N ...] markers from answer text.
+
+    Shared by the article-stream and session-stream citation paths (CR-6
+    parity) so both tolerate the taught context-header tail format under
+    identical bounds: 64KB scan window, at most MAX_DERIVED_CITATIONS unique
+    markers, indexes clamped to MAX_MARKER_CHUNK_INDEX. Never raises on
+    marker content.
+    """
+    markers: list[tuple[int, str | None, int | None, int | None]] = []
     seen: set[int] = set()
-    for match in _INLINE_CITATION_RE.finditer(answer or ""):
-        chunk_id = int(match.group(1))
+    window = (answer_text or "")[:MAX_CITATION_SCAN_CHARS]
+    for match in _DERIVED_CITATION_RE.finditer(window):
+        # Cap unique markers: answer text is LLM output steered by untrusted
+        # documents, and an unbounded IN clause can exceed SQLite bind limits.
+        if len(markers) >= MAX_DERIVED_CITATIONS:
+            break
+        try:
+            chunk_id = int(match.group(1))
+        except ValueError:
+            # Absurd digit runs trip int_max_str_digits (SEC-R-2); skip just
+            # this marker instead of losing every citation.
+            continue
+        if chunk_id > MAX_MARKER_CHUNK_INDEX:
+            # Would overflow SQLite's int64 binds (SEC-R-2).
+            continue
         if chunk_id in seen:
             continue
         seen.add(chunk_id)
-        page_start = int(match.group(3)) if match.group(3) else None
-        page_end = int(match.group(4)) if match.group(4) else page_start
+        # Pages live after the quoted section title in every taught format;
+        # searching only that tail avoids false hits inside section titles.
+        header = match.group(0)
+        tail = header[header.rfind('"') + 1:] if '"' in header else header
+        page_match = _CITATION_PAGE_RE.search(tail)
+        try:
+            marker_page_start = int(page_match.group(1)) if page_match else None
+            marker_page_end = int(page_match.group(2)) if page_match and page_match.group(2) else marker_page_start
+        except ValueError:
+            # Same SEC-R-2 guard for absurd page digits: drop the page hint,
+            # keep the citation.
+            marker_page_start = None
+            marker_page_end = None
+        markers.append((chunk_id, match.group(2), marker_page_start, marker_page_end))
+    return markers
+
+
+def derive_citations_from_answer(db: Session, article_id: int, answer_text: str) -> list[dict]:
+    """Build citation dicts from inline [Chunk N] markers in an answer text.
+
+    Scans the accumulated answer with the same tolerant marker scan used for
+    session answers (_scan_citation_markers), then enriches each unique chunk
+    reference from the article's stored chunks
+    (stored metadata wins; inline marker section/page info is the fallback).
+    Markers referencing a chunk the article does not have are skipped, so every
+    returned citation points at real stored content.
+    """
+    if not answer_text:
+        return []
+
+    markers = _scan_citation_markers(answer_text)
+
+    if not markers:
+        return []
+
+    rows = (
+        db.query(ArticleChunk)
+        .filter(
+            ArticleChunk.article_id == article_id,
+            ArticleChunk.chunk_index.in_([m[0] for m in markers]),
+        )
+        .all()
+    )
+    chunks_by_index = {c.chunk_index: c for c in rows}
+    article = db.query(Article).filter(Article.id == article_id).first()
+    article_title = (article.title or article.original_filename) if article else None
+
+    citations: list[dict] = []
+    for chunk_id, marker_section, marker_page_start, marker_page_end in markers:
+        chunk = chunks_by_index.get(chunk_id)
+        if chunk is None:
+            continue
+        page_start = chunk.page_start if chunk.page_start is not None else marker_page_start
+        page_end = chunk.page_end if chunk.page_end is not None else marker_page_end
+        section_title = chunk.section_title or marker_section
         citations.append(
             {
+                "article_id": article_id,
+                "article_title": article_title,
                 "chunk_id": chunk_id,
-                "section_title": match.group(2),
+                # SEC-R-3: cap the title exactly like snippets — marker titles
+                # are untrusted LLM/document-steered output and were uncapped.
+                "section_title": section_title[:200] if section_title else None,
                 "page_start": page_start,
                 "page_end": page_end,
-                "snippet": None,
+                "snippet": (chunk.text or "")[:200],
             }
         )
     return citations
+
+
+def _provider_metadata(llm) -> tuple[str | None, bool]:
+    """Resolve (provider name, is-mock) labels so clients can surface silent mock fallback."""
+    mock = isinstance(llm, MockLLMProvider)
+    provider = getattr(llm, "_provider_name", None)
+    if not provider:
+        # MockLLMProvider exposes no provider_name; mirror /health naming otherwise.
+        provider = "mock" if mock else settings.llm_provider
+    return provider, mock
 
 
 @router.post("/{article_id}/chat", response_model=ChatResponse)
@@ -131,6 +252,7 @@ async def chat_with_article(
     db.commit()
     db.refresh(assistant_msg)
 
+    provider_name, mock = _provider_metadata(llm)
     return ChatResponse(
         answer=answer,
         citations=citations,
@@ -138,6 +260,8 @@ async def chat_with_article(
         created_at=assistant_msg.created_at,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
+        provider=provider_name,
+        mock=mock,
     )
 
 
@@ -159,7 +283,6 @@ async def chat_with_article_stream(
 
     async def event_stream():
         full_answer = ""
-        citations: list[dict] = []
         try:
             chunks = retrieve_relevant_chunks(db, request.message, article_ids=[article_id], limit=8)
             async for token in llm.stream_answer(
@@ -172,21 +295,20 @@ async def chat_with_article_stream(
                 full_answer += token
                 yield f"data: {json.dumps({'token': token})}\n\n"
 
-            # Compute citations for streamed answer so behavior matches non-streaming chat.
+            # Derive citations from the accumulated answer text — no second
+            # LLM generation just for citation metadata.
+            # Citation derivation must never sink a fully-streamed answer:
+            # fall back to no citations and let persistence proceed (security
+            # review LOW-1 -- restores the old swallow-and-continue behavior).
             try:
-                _, citations = await llm.answer_question(
-                    question=request.message,
-                    article_title=article.title or article.original_filename,
-                    article_text=None if chunks else article.markdown_text,
-                    chunks=chunks or None,
-                    output_language=request.language,
-                )
+                citations = derive_citations_from_answer(db, article_id, full_answer)
             except Exception as e:
-                logger.warning(f"Failed to compute citations for streamed chat: {e}")
+                logger.warning(f"Failed to derive citations for streamed chat: {e}")
                 citations = []
+            provider_name, mock = _provider_metadata(llm)
 
             # Send completion event with full answer + citations
-            yield f"data: {json.dumps({'done': True, 'answer': full_answer, 'citations': citations})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'answer': full_answer, 'citations': citations, 'provider': provider_name, 'mock': mock})}\n\n"
 
         except Exception as e:
             logger.error(f"Streaming chat failed: {e}")
@@ -335,12 +457,15 @@ async def multi_article_chat(
             )
             article_ids = [a.id for a in articles]
 
+        provider_name, mock = _provider_metadata(llm)
         return MultiArticleChatResponse(
             answer=answer,
             citations=citations,
             prompt_tokens=llm.last_usage.prompt_tokens if llm.last_usage else 0,
             completion_tokens=llm.last_usage.completion_tokens if llm.last_usage else 0,
             article_ids=article_ids,
+            provider=provider_name,
+            mock=mock,
         )
 
     # Fetch all requested articles
@@ -425,12 +550,15 @@ async def multi_article_chat(
             ))
         db.commit()
 
+    provider_name, mock = _provider_metadata(llm)
     return MultiArticleChatResponse(
         answer=answer,
         citations=citations,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         article_ids=request.article_ids,
+        provider=provider_name,
+        mock=mock,
     )
 
 
@@ -469,6 +597,8 @@ class SessionMessageResponse(PydanticBaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     session_id: int
+    provider: str | None = None
+    mock: bool = False
 
 
 @router.get("/sessions", response_model=SessionListResponse)
@@ -669,10 +799,12 @@ async def send_session_message(
 
     db.commit()
 
+    provider_name, mock = _provider_metadata(llm)
     return SessionMessageResponse(
         answer=answer, citations=citations,
         prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
         session_id=session_id,
+        provider=provider_name, mock=mock,
     )
 
 
@@ -758,9 +890,30 @@ async def stream_session_message(
                 full_answer += token
                 yield f"data: {json.dumps({'token': token})}\n\n"
 
-            citations = _extract_inline_citations(full_answer)
+            # CR-6 parity with the article stream: derive citations with the
+            # same tolerant marker scan (_scan_citation_markers) and the same
+            # caps, so the taught context-header format is accepted here too.
+            # Chunk metadata stays unresolved because session context can span
+            # multiple articles, so each citation keeps the session shape.
+            try:
+                markers = _scan_citation_markers(full_answer)
+                citations = [
+                    {
+                        "chunk_id": chunk_id,
+                        # SEC-R-3: cap untrusted marker titles like snippets.
+                        "section_title": section_title[:200] if section_title else None,
+                        "page_start": page_start,
+                        "page_end": page_end,
+                        "snippet": None,
+                    }
+                    for chunk_id, section_title, page_start, page_end in markers
+                ]
+            except Exception as e:
+                logger.warning(f"Failed to derive citations for streamed session chat: {e}")
+                citations = []
+            provider_name, mock = _provider_metadata(llm)
 
-            yield f"data: {json.dumps({'done': True, 'answer': full_answer, 'citations': citations})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'answer': full_answer, 'citations': citations, 'provider': provider_name, 'mock': mock})}\n\n"
 
         except Exception as e:
             logger.error(f"Streaming session chat failed: {e}")

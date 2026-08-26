@@ -102,3 +102,22 @@ test("upload queue summary keeps failed work visible beside ready articles", () 
     "1 upload needs attention",
   );
 });
+
+test("upload queue snapshot keeps the honest duplicate flag across persisted reloads", () => {
+  // Mirrors the page's persist/reload round trip:
+  // JSON.stringify(createUploadQueueSnapshot(...)) -> localStorage -> JSON.parse
+  // -> createUploadQueueSnapshot (review Finding 5 persistence branch).
+  const persisted = JSON.stringify([
+    { articleId: 9, filename: "dupe.pdf", status: "needs_review", step: null, error: null, duplicate: true },
+    { articleId: 8, filename: "fresh.pdf", status: "completed", step: "graph", error: null },
+  ]);
+
+  const restored = createUploadQueueSnapshot(JSON.parse(persisted));
+
+  assert.deepEqual(restored, [
+    { articleId: 9, filename: "dupe.pdf", status: "needs_review", step: null, error: null, duplicate: true },
+    { articleId: 8, filename: "fresh.pdf", status: "completed", step: "graph", error: null },
+  ]);
+  assert.equal(restored[0].duplicate, true);
+  assert.equal("duplicate" in restored[1], false);
+});

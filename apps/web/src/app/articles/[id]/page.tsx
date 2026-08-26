@@ -91,6 +91,8 @@ export default function ArticleDetailPage() {
   const [reviewSaving, setReviewSaving] = useState(false);
   const [graph, setGraph] = useState<{ entities: unknown[]; relationships: unknown[] } | null>(null);
   const [loading, setLoading] = useState(true);
+  // FR-1: distinguish "server says missing" from "request failed"
+  const [loadFailure, setLoadFailure] = useState<"not_found" | "load_failed" | null>(null);
   const [tab, setTab] = useState("guide");
   const [sidePanelTab, setSidePanelTab] = useState("chat");
   const [readerView, setReaderView] = useState<"markdown" | "pdf">("markdown");
@@ -99,6 +101,11 @@ export default function ArticleDetailPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatting, setChatting] = useState(false);
   const [chatOpen, setChatOpen] = useState(true);
+  // FR-4: sticky once any response for this article reports a mock provider
+  const [mockAiChat, setMockAiChat] = useState(false);
+  // FR-4 race guard (review Finding 6): late callbacks from a previous
+  // article's stream must not flag the current article as mock-driven.
+  const latestArticleIdRef = useRef(articleId);
   const [contextText, setContextText] = useState("");
   const [chatDraftSeed, setChatDraftSeed] = useState({ id: 0, text: "" });
   const [expandedMsgs, setExpandedMsgs] = useState<Set<number>>(new Set());
@@ -112,8 +119,19 @@ export default function ArticleDetailPage() {
 
   // Skills
   const [skills, setSkills] = useState<SkillDef[]>([]);
+  const [skillsPending, setSkillsPending] = useState(false);
+  const [skillsLoadError, setSkillsLoadError] = useState(false);
   const [runningSkill, setRunningSkill] = useState<string | null>(null);
   const [skillResult, setSkillResult] = useState<{ skill: string; result: unknown } | null>(null);
+
+  // FR-10: explicit skills loader so failures can be retried
+  const loadSkills = useCallback(() => {
+    setSkillsPending(true);
+    listSkills()
+      .then((s) => { setSkills(s.skills || []); setSkillsLoadError(false); })
+      .catch(() => setSkillsLoadError(true))
+      .finally(() => setSkillsPending(false));
+  }, []);
 
   // Jobs
   const [jobs, setJobs] = useState<JobInfo[]>([]);
@@ -124,6 +142,7 @@ export default function ArticleDetailPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setLoadFailure(null);
     try {
       const [art, mdResp, extResp, gr, histResp] = await Promise.all([
         getArticle(articleId),
@@ -154,16 +173,32 @@ export default function ArticleDetailPage() {
         })));
       }
       // Load available skills
-      listSkills().then((s) => setSkills(s.skills || [])).catch(() => {});
+      loadSkills();
       // Load job history
       getArticleJobs(articleId).then((j) => setJobs(Array.isArray(j) ? j : [])).catch(() => {});
     } catch (e) {
       console.error("Failed to load article data:", e);
-      toast.error("Failed to load article. Check your connection and try again.");
+      const message = e instanceof Error ? e.message : String(e);
+      // FR-1: apiFetch only surfaces the response detail, so classify via message.
+      const notFound = /404|not exist|not found/i.test(message);
+      setLoadFailure(notFound ? "not_found" : "load_failed");
+      // Review NIT 9: the connection copy would be wrong for a genuine 404.
+      if (!notFound) toast.error("Failed to load article. Check your connection and try again.");
     } finally { setLoading(false); }
-  }, [articleId]);
+  }, [articleId, loadSkills]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // A different article starts with a clean mock-AI slate (FR-4)
+  useEffect(() => { setMockAiChat(false); }, [articleId]);
+  useEffect(() => { latestArticleIdRef.current = articleId; }, [articleId]);
+
+  // One-time: start with the workspace panel collapsed on mobile viewports
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!window.matchMedia("(max-width: 767px)").matches) return;
+    setChatOpen(false);
+  }, []);
 
   // ── Polling for active job (progress bar) ──────────────────────
   useEffect(() => {
@@ -198,6 +233,7 @@ export default function ArticleDetailPage() {
   const handleChat = useCallback((draftQuestion: string) => {
     const submission = createChatSubmission({ question: draftQuestion, contextText, language });
     if (!submission) return false;
+    const requestedForArticle = articleId;
 
     setChatting(true);
     const userMsg: ChatMessage = { role: "user", content: submission.content };
@@ -223,7 +259,8 @@ export default function ArticleDetailPage() {
         });
       },
       // onDone: streaming completed successfully
-      (_answer, citations) => {
+      (_answer, citations, meta) => {
+        if (meta?.mock && latestArticleIdRef.current === requestedForArticle) setMockAiChat(true);
         setMessages((prev) => {
           const updated = [...prev];
           updated[updated.length - 1] = {
@@ -240,6 +277,7 @@ export default function ArticleDetailPage() {
         setMessages((prev) => prev.slice(0, -1));
         try {
           const res = await sendChatMessage(articleId, userMsg.content, language);
+          if (res.mock && latestArticleIdRef.current === requestedForArticle) setMockAiChat(true);
           setMessages((prev) => [
             ...prev.slice(0, -1),
             { ...prev[prev.length - 1], prompt_tokens: res.prompt_tokens || 0 },
@@ -281,6 +319,7 @@ export default function ArticleDetailPage() {
 
     try {
       const res = await sendMultiArticleChatMessage(normalizedIds, message, language, articleId);
+      if (res.mock && latestArticleIdRef.current === articleId) setMockAiChat(true);
       setMessages((prev) => [
         ...prev,
         {
@@ -413,13 +452,36 @@ export default function ArticleDetailPage() {
     );
   }
 
-  if (!article) {
+  if (!article && loadFailure === "not_found") {
     return (
       <Card className="border-destructive/50">
-        <CardContent className="flex flex-col items-center py-12 gap-3">
+        <CardContent className="flex flex-col items-center py-12 gap-3 text-center">
           <AlertCircle className="h-10 w-10 text-destructive"/>
           <CardTitle>Article not found</CardTitle>
           <CardDescription>ID {articleId} does not exist.</CardDescription>
+          <Button asChild variant="outline" size="sm" className="mt-2 gap-1">
+            <Link href="/articles"><ArrowLeft className="h-3.5 w-3.5"/> Back to Articles</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!article) {
+    return (
+      <Card className="border-destructive/50">
+        <CardContent className="flex flex-col items-center py-12 gap-3 text-center">
+          <AlertCircle className="h-10 w-10 text-destructive"/>
+          <CardTitle>Couldn&apos;t load article</CardTitle>
+          <CardDescription>The server could not be reached. It may be restarting.</CardDescription>
+          <div className="mt-2 flex flex-wrap justify-center gap-2">
+            <Button variant="outline" size="sm" className="gap-1" onClick={() => { void loadData(); }}>
+              <RotateCw className="h-3.5 w-3.5"/> Retry
+            </Button>
+            <Button asChild variant="outline" size="sm" className="gap-1">
+              <Link href="/articles"><ArrowLeft className="h-3.5 w-3.5"/> Back to Articles</Link>
+            </Button>
+          </div>
         </CardContent>
       </Card>
     );
@@ -829,9 +891,20 @@ export default function ArticleDetailPage() {
                       <CardContent className="flex-1 min-h-0 p-4">
                         <ScrollArea className="h-full">
                           <div className="space-y-3">
-                            {skills.length === 0 && (
-                              <p className="text-sm text-muted-foreground py-8 text-center">Loading skills...</p>
-                            )}
+                            {skillsLoadError ? (
+                              <div className="flex items-center justify-between gap-2 py-6">
+                                <p className="text-sm text-destructive">Couldn&apos;t load skills.</p>
+                                <Button size="sm" variant="outline" className="gap-1 shrink-0" onClick={loadSkills}>
+                                  <RotateCw className={`h-3.5 w-3.5 ${skillsPending ? "animate-spin" : ""}`}/> Retry
+                                </Button>
+                              </div>
+                            ) : skills.length === 0 ? (
+                              skillsPending ? (
+                                <p className="text-sm text-muted-foreground py-8 text-center">Loading skills...</p>
+                              ) : (
+                                <p className="text-sm text-muted-foreground py-8 text-center">No skills available.</p>
+                              )
+                            ) : null}
                             {skills.map((s) => (
                               <Card key={s.name} className="p-4">
                                 <div className="flex items-start justify-between gap-3">
@@ -1087,6 +1160,15 @@ export default function ArticleDetailPage() {
                       <div ref={chatEndRef}/>
                     </div>
                   </ScrollArea>
+                  {mockAiChat && (
+                    <div role="status" className="mb-2 flex shrink-0 items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        Mock AI — responses are simulated. Configure a provider API key in{" "}
+                        <Link href="/settings" className="font-medium underline underline-offset-2">Settings</Link>.
+                      </span>
+                    </div>
+                  )}
                   <ChatComposer
                     chatting={chatting}
                     contextText={contextText}
@@ -1518,6 +1600,7 @@ function ChatComposer({
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
+            if ((e.nativeEvent as KeyboardEvent).isComposing) return;
             e.preventDefault();
             submit();
           }

@@ -89,6 +89,7 @@ async def upload_file(
             job_id=job.id if job else 0,
             filename=existing.original_filename,
             status=existing.status,
+            duplicate=True,
         )
 
     # Determine source type

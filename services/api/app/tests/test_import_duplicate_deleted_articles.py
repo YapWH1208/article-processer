@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.security import compute_file_hash
-from app.db.models import Article, ArticleStatus
+from app.db.models import Article, ArticleStatus, JobStatus, ProcessingJob
 from app.db.session import Base
 from app.routers import imports, uploads
 
@@ -141,3 +141,61 @@ async def test_json_import_creates_new_article_when_duplicate_hash_is_soft_delet
     articles = db_session.query(Article).filter(Article.file_hash == file_hash).all()
     assert {article.id for article in articles} != {deleted.id}
     assert sum(1 for article in articles if article.deleted_at is None) == 1
+
+
+@pytest.mark.asyncio
+async def test_duplicate_upload_flags_duplicate_and_returns_latest_job(db_session):
+    content = b"%PDF-1.4\nduplicate flag content\n"
+    existing = Article(
+        title="Existing",
+        status=ArticleStatus.COMPLETED.value,
+        original_filename="existing.pdf",
+        file_hash=compute_file_hash(content),
+        source_type="pdf",
+        storage_path="existing.pdf",
+    )
+    db_session.add(existing)
+    db_session.flush()
+    older_job = ProcessingJob(
+        article_id=existing.id,
+        status=JobStatus.COMPLETED.value,
+        created_at=datetime.datetime.utcnow() - datetime.timedelta(seconds=60),
+    )
+    latest_job = ProcessingJob(
+        article_id=existing.id,
+        status=JobStatus.PENDING.value,
+        created_at=datetime.datetime.utcnow(),
+    )
+    db_session.add_all([older_job, latest_job])
+    db_session.commit()
+
+    response = await uploads.upload_file(
+        file=MemoryUpload("existing.pdf", content),
+        run_ai="false",
+        db=db_session,
+    )
+
+    # Dedup must be distinguishable from a fresh upload and point at the
+    # existing article's latest job.
+    assert response.duplicate is True
+    assert response.article_id == existing.id
+    assert response.job_id == latest_job.id
+    assert response.filename == existing.original_filename
+
+
+@pytest.mark.asyncio
+async def test_fresh_upload_defaults_to_duplicate_false(db_session, tmp_path, monkeypatch):
+    content = b"%PDF-1.4\nbrand new content\n"
+
+    monkeypatch.setattr(uploads, "storage", StubStorage(tmp_path))
+    monkeypatch.setattr(uploads, "run_pipeline_background", lambda *args, **kwargs: None)
+
+    response = await uploads.upload_file(
+        file=MemoryUpload("fresh.pdf", content),
+        run_ai="false",
+        db=db_session,
+    )
+
+    assert response.duplicate is False
+    article = db_session.query(Article).filter(Article.id == response.article_id).one()
+    assert response.job_id != 0
