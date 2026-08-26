@@ -4,6 +4,34 @@ All notable changes to the Article Processor project.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Mock-AI transparency** — chat responses (and streaming `done` events) now carry
+  `provider`/`mock` fields; the chat UI shows a persistent notice when answers come from
+  the deterministic Mock provider so a missing API key is never mistaken for a real model.
+- **Duplicate-upload honesty** — re-uploading an existing file returns `duplicate: true`;
+  the upload page shows "Already in your library" with an Open action instead of replaying
+  stale progress.
+
+### Fixed
+
+- **Streamed chat completes when the answer ends** — citations are derived from the streamed
+  answer text instead of a second hidden LLM call, roughly halving per-message cost/latency and
+  preventing lost turns when navigating away mid-completion.
+- **Failed loads no longer lie** — article detail distinguishes "not found" from connection
+  failures with Retry + Back actions, and the library shows an explicit error state instead of a
+  fake "no matching articles" empty result (server error statuses now detected).
+- **Upload errors are attributable** — per-file failure lines survive later attempts inside a
+  `role="alert"` banner announced to screen readers.
+- **Skills tab** shows a retryable failure state instead of "Loading skills…" forever.
+- **Settings guard** — a visible "Unsaved changes" indicator plus browser close/refresh warning
+  while general/system-message/model-parameter edits are unsaved.
+- **CJK input** — pressing Enter during IME composition no longer sends an incomplete question.
+- **Mobile reading** — the article workspace panel starts collapsed on viewports under 768px so
+  phones open on the article, not the chat card.
+
 ## [0.3.6] — 2026-08-21
 
 ### Added
