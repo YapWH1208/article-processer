@@ -319,7 +319,7 @@ export default function ArticleDetailPage() {
 
     try {
       const res = await sendMultiArticleChatMessage(normalizedIds, message, language, articleId);
-      if (res.mock) setMockAiChat(true);
+      if (res.mock && latestArticleIdRef.current === articleId) setMockAiChat(true);
       setMessages((prev) => [
         ...prev,
         {
