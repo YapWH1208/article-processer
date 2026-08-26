@@ -27,6 +27,9 @@ class ChatResponse(BaseModel):
     created_at: datetime
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    # Transparency labels: which provider answered and whether it was the mock.
+    provider: Optional[str] = None
+    mock: bool = False
 
 
 class ChatMessageResponse(BaseModel):
@@ -59,3 +62,6 @@ class MultiArticleChatResponse(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     article_ids: list[int] = Field(default_factory=list)
+    # Same transparency labels as ChatResponse.
+    provider: Optional[str] = None
+    mock: bool = False

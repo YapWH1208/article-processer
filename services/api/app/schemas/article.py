@@ -74,6 +74,9 @@ class UploadResponse(BaseModel):
     job_id: int
     filename: str
     status: str
+    # True when dedup matched an existing active article instead of creating one;
+    # job_id then refers to that article's latest job (0 if it has none).
+    duplicate: bool = False
 
 
 class ReprocessResponse(BaseModel):

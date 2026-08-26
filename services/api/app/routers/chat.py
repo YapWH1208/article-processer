@@ -9,12 +9,13 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.db.models import Article, ChatMessage, ChatSession, TokenUsage
+from app.db.models import Article, ArticleChunk, ChatMessage, ChatSession, TokenUsage
 from app.schemas.chat import (
     ChatRequest, ChatResponse, ChatHistoryResponse, ChatMessageResponse,
     Citation, MultiArticleChatRequest, MultiArticleChatResponse,
 )
 from app.services.ai.base import get_llm_provider
+from app.services.ai.mock_provider import MockLLMProvider
 from app.services.ai.cost import compute_token_cost
 from app.core.config import settings
 from app.services.search import retrieve_relevant_chunks
@@ -53,6 +54,75 @@ def _extract_inline_citations(answer: str) -> list[dict]:
             }
         )
     return citations
+
+
+def derive_citations_from_answer(db: Session, article_id: int, answer_text: str) -> list[dict]:
+    """Build citation dicts from inline [Chunk N] markers in an answer text.
+
+    Scans the accumulated answer with the same regex used for session answers,
+    then enriches each unique chunk reference from the article's stored chunks
+    (stored metadata wins; inline marker section/page info is the fallback).
+    Markers referencing a chunk the article does not have are skipped, so every
+    returned citation points at real stored content.
+    """
+    if not answer_text:
+        return []
+
+    markers: list[tuple[int, str | None, int | None, int | None]] = []
+    seen: set[int] = set()
+    for match in _INLINE_CITATION_RE.finditer(answer_text):
+        chunk_id = int(match.group(1))
+        if chunk_id in seen:
+            continue
+        seen.add(chunk_id)
+        marker_page_start = int(match.group(3)) if match.group(3) else None
+        marker_page_end = int(match.group(4)) if match.group(4) else marker_page_start
+        markers.append((chunk_id, match.group(2), marker_page_start, marker_page_end))
+
+    if not markers:
+        return []
+
+    rows = (
+        db.query(ArticleChunk)
+        .filter(
+            ArticleChunk.article_id == article_id,
+            ArticleChunk.chunk_index.in_([m[0] for m in markers]),
+        )
+        .all()
+    )
+    chunks_by_index = {c.chunk_index: c for c in rows}
+    article = db.query(Article).filter(Article.id == article_id).first()
+    article_title = (article.title or article.original_filename) if article else None
+
+    citations: list[dict] = []
+    for chunk_id, marker_section, marker_page_start, marker_page_end in markers:
+        chunk = chunks_by_index.get(chunk_id)
+        if chunk is None:
+            continue
+        page_start = chunk.page_start if chunk.page_start is not None else marker_page_start
+        page_end = chunk.page_end if chunk.page_end is not None else marker_page_end
+        citations.append(
+            {
+                "article_id": article_id,
+                "article_title": article_title,
+                "chunk_id": chunk_id,
+                "section_title": chunk.section_title or marker_section,
+                "page_start": page_start,
+                "page_end": page_end,
+                "snippet": (chunk.text or "")[:200],
+            }
+        )
+    return citations
+
+
+def _provider_metadata(llm) -> tuple[str | None, bool]:
+    """Resolve (provider name, is-mock) labels so clients can surface silent mock fallback."""
+    mock = isinstance(llm, MockLLMProvider)
+    provider = getattr(llm, "_provider_name", None)
+    if not provider:
+        # MockLLMProvider exposes no provider_name; mirror /health naming otherwise.
+        provider = "mock" if mock else settings.llm_provider
+    return provider, mock
 
 
 @router.post("/{article_id}/chat", response_model=ChatResponse)
@@ -131,6 +201,7 @@ async def chat_with_article(
     db.commit()
     db.refresh(assistant_msg)
 
+    provider_name, mock = _provider_metadata(llm)
     return ChatResponse(
         answer=answer,
         citations=citations,
@@ -138,6 +209,8 @@ async def chat_with_article(
         created_at=assistant_msg.created_at,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
+        provider=provider_name,
+        mock=mock,
     )
 
 
@@ -159,7 +232,6 @@ async def chat_with_article_stream(
 
     async def event_stream():
         full_answer = ""
-        citations: list[dict] = []
         try:
             chunks = retrieve_relevant_chunks(db, request.message, article_ids=[article_id], limit=8)
             async for token in llm.stream_answer(
@@ -172,21 +244,13 @@ async def chat_with_article_stream(
                 full_answer += token
                 yield f"data: {json.dumps({'token': token})}\n\n"
 
-            # Compute citations for streamed answer so behavior matches non-streaming chat.
-            try:
-                _, citations = await llm.answer_question(
-                    question=request.message,
-                    article_title=article.title or article.original_filename,
-                    article_text=None if chunks else article.markdown_text,
-                    chunks=chunks or None,
-                    output_language=request.language,
-                )
-            except Exception as e:
-                logger.warning(f"Failed to compute citations for streamed chat: {e}")
-                citations = []
+            # Derive citations from the accumulated answer text — no second
+            # LLM generation just for citation metadata.
+            citations = derive_citations_from_answer(db, article_id, full_answer)
+            provider_name, mock = _provider_metadata(llm)
 
             # Send completion event with full answer + citations
-            yield f"data: {json.dumps({'done': True, 'answer': full_answer, 'citations': citations})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'answer': full_answer, 'citations': citations, 'provider': provider_name, 'mock': mock})}\n\n"
 
         except Exception as e:
             logger.error(f"Streaming chat failed: {e}")
@@ -335,12 +399,15 @@ async def multi_article_chat(
             )
             article_ids = [a.id for a in articles]
 
+        provider_name, mock = _provider_metadata(llm)
         return MultiArticleChatResponse(
             answer=answer,
             citations=citations,
             prompt_tokens=llm.last_usage.prompt_tokens if llm.last_usage else 0,
             completion_tokens=llm.last_usage.completion_tokens if llm.last_usage else 0,
             article_ids=article_ids,
+            provider=provider_name,
+            mock=mock,
         )
 
     # Fetch all requested articles
@@ -425,12 +492,15 @@ async def multi_article_chat(
             ))
         db.commit()
 
+    provider_name, mock = _provider_metadata(llm)
     return MultiArticleChatResponse(
         answer=answer,
         citations=citations,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         article_ids=request.article_ids,
+        provider=provider_name,
+        mock=mock,
     )
 
 
@@ -759,8 +829,9 @@ async def stream_session_message(
                 yield f"data: {json.dumps({'token': token})}\n\n"
 
             citations = _extract_inline_citations(full_answer)
+            provider_name, mock = _provider_metadata(llm)
 
-            yield f"data: {json.dumps({'done': True, 'answer': full_answer, 'citations': citations})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'answer': full_answer, 'citations': citations, 'provider': provider_name, 'mock': mock})}\n\n"
 
         except Exception as e:
             logger.error(f"Streaming session chat failed: {e}")
