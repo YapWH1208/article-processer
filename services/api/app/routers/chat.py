@@ -33,6 +33,16 @@ _INLINE_CITATION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Tolerant variant for deriving citations from streamed answers: mirrors the
+# context-header format the providers teach ("[Chunk i, Section: "...",
+# Article: "..." (ID: n), Page: A-B]"), whose comma-separated tail the strict
+# session regex does not accept.
+_DERIVED_CITATION_RE = re.compile(
+    r'\[Chunk\s+(\d+)(?:,\s*Section:\s*"([^"]*)")?[^\]]*\]',
+    re.IGNORECASE,
+)
+_CITATION_PAGE_RE = re.compile(r'Pages?\s*:?\s*(\d+)(?:\s*-\s*(\d+))?')
+
 
 def _extract_inline_citations(answer: str) -> list[dict]:
     citations: list[dict] = []
@@ -75,7 +85,7 @@ def derive_citations_from_answer(db: Session, article_id: int, answer_text: str)
 
     markers: list[tuple[int, str | None, int | None, int | None]] = []
     seen: set[int] = set()
-    for match in _INLINE_CITATION_RE.finditer(answer_text):
+    for match in _DERIVED_CITATION_RE.finditer(answer_text):
         # Cap unique markers: answer text is LLM output steered by untrusted
         # documents, and an unbounded IN clause can exceed SQLite bind limits.
         if len(markers) >= MAX_DERIVED_CITATIONS:
@@ -84,8 +94,13 @@ def derive_citations_from_answer(db: Session, article_id: int, answer_text: str)
         if chunk_id in seen:
             continue
         seen.add(chunk_id)
-        marker_page_start = int(match.group(3)) if match.group(3) else None
-        marker_page_end = int(match.group(4)) if match.group(4) else marker_page_start
+        # Pages live after the quoted section title in every taught format;
+        # searching only that tail avoids false hits inside section titles.
+        header = match.group(0)
+        tail = header[header.rfind('"') + 1:] if '"' in header else header
+        page_match = _CITATION_PAGE_RE.search(tail)
+        marker_page_start = int(page_match.group(1)) if page_match else None
+        marker_page_end = int(page_match.group(2)) if page_match and page_match.group(2) else marker_page_start
         markers.append((chunk_id, match.group(2), marker_page_start, marker_page_end))
 
     if not markers:
@@ -555,6 +570,8 @@ class SessionMessageResponse(PydanticBaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     session_id: int
+    provider: str | None = None
+    mock: bool = False
 
 
 @router.get("/sessions", response_model=SessionListResponse)
@@ -755,10 +772,12 @@ async def send_session_message(
 
     db.commit()
 
+    provider_name, mock = _provider_metadata(llm)
     return SessionMessageResponse(
         answer=answer, citations=citations,
         prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
         session_id=session_id,
+        provider=provider_name, mock=mock,
     )
 
 

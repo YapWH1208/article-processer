@@ -123,6 +123,27 @@ def test_derive_citations_enriches_valid_and_skips_missing_markers(tmp_path):
     db.close()
 
 
+def test_derive_citations_accepts_provider_context_header_format(tmp_path):
+    """Review Finding 4: markers echoing the taught context-header shape
+    ([Chunk i, Section: "...", Article: "..." (ID: n), Page: A-B]) must
+    derive citations exactly like the bare legacy form."""
+    db = _session(tmp_path)
+    article = _add_article_with_chunks(db)
+
+    answer = (
+        "Echoed header [Chunk 1, Section: \"Results\", Article: \"Cited Paper\" "
+        "(ID: 7), Page: 4-5] plus legacy [Chunk 0]."
+    )
+    citations = chat_router.derive_citations_from_answer(db, article.id, answer)
+
+    assert [c["chunk_id"] for c in citations] == [1, 0]
+    # Chunk 1 stores no pages, so the header's Page tail fills the gap.
+    assert citations[0]["page_start"] == 4
+    assert citations[0]["page_end"] == 5
+    assert citations[0]["section_title"] == "Results"
+    db.close()
+
+
 def test_derive_citations_handles_empty_and_markerless_answers(tmp_path):
     db = _session(tmp_path)
     article = _add_article_with_chunks(db)
