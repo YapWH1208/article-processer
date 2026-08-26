@@ -1,12 +1,13 @@
 """Tests for streamed-chat citation derivation and provider transparency labels."""
 
 import json
+import time
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
-from app.db.models import Article, ArticleChunk, ArticleStatus, ChatMessage
+from app.db.models import Article, ArticleChunk, ArticleStatus, ChatMessage, ChatSession
 from app.db.session import Base
 from app.routers import chat as chat_router
 from app.schemas.chat import ChatRequest, MultiArticleChatRequest
@@ -120,6 +121,21 @@ def test_derive_citations_enriches_valid_and_skips_missing_markers(tmp_path):
     assert citations[1]["page_start"] == 5
     assert citations[1]["page_end"] == 6
     assert citations[1]["snippet"] == "Second chunk body with findings."
+    db.close()
+
+
+def test_derive_citations_stored_pages_win_over_conflicting_marker_pages(tmp_path):
+    """CR-7: stored chunk pages beat conflicting inline marker pages when both exist."""
+    db = _session(tmp_path)
+    article = _add_article_with_chunks(db)
+
+    answer = "[Chunk 0, page 99] claims different pages."
+    citations = chat_router.derive_citations_from_answer(db, article.id, answer)
+
+    assert [c["chunk_id"] for c in citations] == [0]
+    # Chunk 0 stores pages 1-2; the marker's page 99 must lose.
+    assert citations[0]["page_start"] == 1
+    assert citations[0]["page_end"] == 2
     db.close()
 
 
@@ -296,4 +312,166 @@ async def test_stream_survives_derivation_failure_and_still_persists(tmp_path, m
     )
     assert [(m.role) for m in messages] == ["user", "assistant"]
     assert json.loads(messages[1].citations_json) == []
+    db.close()
+
+
+# -- repair loop 2: SEC-R-1 / SEC-R-2 / SEC-R-3 / CR-5 / CR-6 -----------------
+
+def test_derive_citations_fast_on_pathological_inputs(tmp_path):
+    """SEC-R-1: unterminated marker-like text must not stall derivation.
+
+    The pre-fix regex backtracked quadratically (~4.5s on the 128KB digit-run
+    input, ~7.1s on the 512KB unclosed-section input) synchronously inside
+    the streaming event loop; both inputs must now finish far under this
+    generous CI tripwire and still yield a correct zero-citation result."""
+    db = _session(tmp_path)
+    article = _add_article_with_chunks(db)
+
+    digit_run = "[Chunk " + "9" * (128 * 1024)
+    unclosed_sections = '[Chunk 1, Section: "' * ((512 * 1024) // len('[Chunk 1, Section: "'))
+
+    for pathological in (digit_run, unclosed_sections):
+        start = time.perf_counter()
+        citations = chat_router.derive_citations_from_answer(db, article.id, pathological)
+        duration = time.perf_counter() - start
+
+        assert citations == []  # no closed marker -> nothing derived, no crash
+        assert duration < 2.0, f"pathological scan took {duration:.3f}s"
+    db.close()
+
+
+def test_derive_citations_scan_window_ignores_markers_beyond_64kb(tmp_path):
+    """SEC-R-1a: markers past the first 64KB of an answer are out of scan scope."""
+    db = _session(tmp_path)
+    article = _add_article_with_chunks(db)
+
+    beyond_window = "x" * chat_router.MAX_CITATION_SCAN_CHARS + " [Chunk 0]"
+    assert chat_router.derive_citations_from_answer(db, article.id, beyond_window) == []
+
+    # The same marker inside the window still derives normally.
+    assert [
+        c["chunk_id"] for c in chat_router.derive_citations_from_answer(db, article.id, "[Chunk 0]")
+    ] == [0]
+    db.close()
+
+
+def test_derive_citations_skips_unsafe_indexes_but_keeps_valid_markers(tmp_path):
+    """SEC-R-2: >4300-digit indexes trip CPython int_max_str_digits (ValueError)
+    and values beyond int64 overflow SQLite binds; each bad marker must skip
+    only itself while valid neighbours still derive citations."""
+    db = _session(tmp_path)
+    article = _add_article_with_chunks(db)
+    db.add(ArticleChunk(
+        article_id=article.id,
+        chunk_index=3,
+        section_title=None,
+        page_start=None,
+        page_end=None,
+        text="Third chunk body.",
+    ))
+    db.commit()
+
+    answer = (
+        f"[Chunk {'7' * 5000}]"                 # int_max_str_digits ValueError
+        " real ref [Chunk 3]"                   # must survive
+        " overflows int64 [Chunk 99999999999]"  # parses but exceeds the bound
+    )
+    citations = chat_router.derive_citations_from_answer(db, article.id, answer)
+
+    assert [c["chunk_id"] for c in citations] == [3]
+    db.close()
+
+
+def test_derive_citations_caps_marker_section_title_at_200_chars(tmp_path):
+    """SEC-R-3: marker-derived section titles are capped exactly like snippets."""
+    db = _session(tmp_path)
+    article = _add_article_with_chunks(db)
+    db.add(ArticleChunk(
+        article_id=article.id,
+        chunk_index=2,
+        section_title=None,  # force fallback to the untrusted marker title
+        page_start=None,
+        page_end=None,
+        text="Body.",
+    ))
+    db.commit()
+
+    answer = '[Chunk 2, Section: "' + "T" * 500 + '"]'
+    citations = chat_router.derive_citations_from_answer(db, article.id, answer)
+
+    assert len(citations) == 1
+    assert citations[0]["section_title"] == "T" * 200
+    db.close()
+
+
+def test_lowercase_marker_keeps_page_fallback(tmp_path):
+    """CR-5: page extraction must be case-insensitive like marker matching."""
+    db = _session(tmp_path)
+    article = _add_article_with_chunks(db)
+    db.add(ArticleChunk(
+        article_id=article.id,
+        chunk_index=4,
+        section_title=None,
+        page_start=None,
+        page_end=None,
+        text="Fourth chunk body.",
+    ))
+    db.commit()
+
+    citations = chat_router.derive_citations_from_answer(db, article.id, "[chunk 4, page 9]")
+
+    assert [c["chunk_id"] for c in citations] == [4]
+    assert citations[0]["page_start"] == 9
+    assert citations[0]["page_end"] == 9
+    db.close()
+
+
+async def test_session_stream_derives_tolerant_citations_like_article_stream(tmp_path, monkeypatch):
+    """CR-6: the session stream accepts the taught context-header format with
+    the same shared scanner and caps as the article stream, keeping the
+    session citation shape (no DB enrichment)."""
+    db = _session(tmp_path)
+    article = _add_article_with_chunks(db)
+    session = ChatSession(title="parity")
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+
+    class _SessionLlm:
+        last_usage = None
+
+        async def answer_question(self, **_kwargs):
+            raise AssertionError("streamed session chat must not run a second LLM generation")
+
+        async def stream_answer(self, **_kwargs):
+            yield (
+                'Echoed [Chunk 1, Section: "Results", Article: "Cited Paper" '
+                '(ID: 7), Page: 4-5] plus bare [Chunk 0].'
+            )
+
+    monkeypatch.setattr(chat_router, "get_llm_provider", lambda: _SessionLlm())
+    monkeypatch.setattr(chat_router, "retrieve_relevant_chunks", lambda *_a, **_k: [])
+
+    response = await chat_router.stream_session_message(
+        session.id,
+        chat_router.SessionMessageRequest(message="Compare", article_ids=[article.id]),
+        db=db,
+    )
+    events = await _collect_sse_events(response)
+
+    assert not any("error" in e for e in events)
+    done_events = [e for e in events if e.get("done")]
+    assert len(done_events) == 1
+    expected = [
+        {"chunk_id": 1, "section_title": "Results", "page_start": 4, "page_end": 5, "snippet": None},
+        {"chunk_id": 0, "section_title": None, "page_start": None, "page_end": None, "snippet": None},
+    ]
+    assert done_events[0]["citations"] == expected
+
+    persisted = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.session_id == session.id, ChatMessage.role == "assistant")
+        .one()
+    )
+    assert json.loads(persisted.citations_json) == expected
     db.close()
