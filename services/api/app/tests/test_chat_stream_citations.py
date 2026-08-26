@@ -214,3 +214,65 @@ def test_provider_metadata_falls_back_to_settings_for_unknown_providers():
     provider, mock = chat_router._provider_metadata(_AnonymousLlm())
     assert provider == settings.llm_provider
     assert mock is False
+
+
+# -- security review follow-ups: marker cap + derivation-failure fallback -----
+
+def test_derive_citations_caps_unique_markers(tmp_path):
+    """Document-steered answers can contain hundreds of markers; the IN clause must stay bounded."""
+    db = _session(tmp_path)
+    article = _add_article_with_chunks(db)
+    for i in range(2, chat_router.MAX_DERIVED_CITATIONS + 5):
+        db.add(ArticleChunk(
+            article_id=article.id,
+            chunk_index=i,
+            section_title=f"Section {i}",
+            page_start=None,
+            page_end=None,
+            text=f"Body {i}.",
+        ))
+    db.commit()
+
+    answer = " ".join(f"[Chunk {i}]" for i in range(chat_router.MAX_DERIVED_CITATIONS + 5))
+    citations = chat_router.derive_citations_from_answer(db, article.id, answer)
+
+    assert len(citations) == chat_router.MAX_DERIVED_CITATIONS
+    assert [c["chunk_id"] for c in citations] == list(range(chat_router.MAX_DERIVED_CITATIONS))
+    db.close()
+
+
+async def test_stream_survives_derivation_failure_and_still_persists(tmp_path, monkeypatch):
+    """A citation-derivation error must not sink a fully-streamed answer (security LOW-1)."""
+    db = _session(tmp_path)
+    article = _add_article_with_chunks(db)
+    llm = _CounterLlm()
+    monkeypatch.setattr(chat_router, "get_llm_provider", lambda: llm)
+    monkeypatch.setattr(chat_router, "retrieve_relevant_chunks", lambda *_a, **_k: [])
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("simulated DB hiccup")
+
+    monkeypatch.setattr(chat_router, "derive_citations_from_answer", _boom)
+
+    response = await chat_router.chat_with_article_stream(
+        article.id,
+        ChatRequest(message="What is this about?"),
+        db=db,
+    )
+    events = await _collect_sse_events(response)
+
+    done_events = [e for e in events if e.get("done")]
+    assert len(done_events) == 1
+    assert done_events[0]["citations"] == []
+    assert not any("error" in e for e in events)
+
+    # The streamed turn is still persisted exactly once, with empty citations.
+    messages = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.article_id == article.id)
+        .order_by(ChatMessage.id)
+        .all()
+    )
+    assert [(m.role) for m in messages] == ["user", "assistant"]
+    assert json.loads(messages[1].citations_json) == []
+    db.close()

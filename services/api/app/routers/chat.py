@@ -56,6 +56,11 @@ def _extract_inline_citations(answer: str) -> list[dict]:
     return citations
 
 
+# Upper bound on citations derived from a single streamed answer (security
+# review LOW-2: document-steered answers could contain thousands of markers).
+MAX_DERIVED_CITATIONS = 50
+
+
 def derive_citations_from_answer(db: Session, article_id: int, answer_text: str) -> list[dict]:
     """Build citation dicts from inline [Chunk N] markers in an answer text.
 
@@ -71,6 +76,10 @@ def derive_citations_from_answer(db: Session, article_id: int, answer_text: str)
     markers: list[tuple[int, str | None, int | None, int | None]] = []
     seen: set[int] = set()
     for match in _INLINE_CITATION_RE.finditer(answer_text):
+        # Cap unique markers: answer text is LLM output steered by untrusted
+        # documents, and an unbounded IN clause can exceed SQLite bind limits.
+        if len(markers) >= MAX_DERIVED_CITATIONS:
+            break
         chunk_id = int(match.group(1))
         if chunk_id in seen:
             continue
@@ -246,7 +255,14 @@ async def chat_with_article_stream(
 
             # Derive citations from the accumulated answer text — no second
             # LLM generation just for citation metadata.
-            citations = derive_citations_from_answer(db, article_id, full_answer)
+            # Citation derivation must never sink a fully-streamed answer:
+            # fall back to no citations and let persistence proceed (security
+            # review LOW-1 -- restores the old swallow-and-continue behavior).
+            try:
+                citations = derive_citations_from_answer(db, article_id, full_answer)
+            except Exception as e:
+                logger.warning(f"Failed to derive citations for streamed chat: {e}")
+                citations = []
             provider_name, mock = _provider_metadata(llm)
 
             # Send completion event with full answer + citations
